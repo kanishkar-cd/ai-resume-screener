@@ -64,7 +64,31 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(application)
     application.include_router(api_router, prefix=settings.API_V1_STR)
+
+    def custom_openapi() -> dict:
+        if application.openapi_schema:
+            return application.openapi_schema
+        from fastapi.openapi.utils import get_openapi
+
+        openapi_schema = get_openapi(
+            title=application.title,
+            version="1.0.0",
+            openapi_version=application.openapi_version,
+            description=application.description,
+            routes=application.routes,
+        )
+        for schema_val in openapi_schema.get("components", {}).get("schemas", {}).values():
+            if isinstance(schema_val, dict) and "properties" in schema_val:
+                files_prop = schema_val["properties"].get("files")
+                if isinstance(files_prop, dict) and files_prop.get("type") == "array":
+                    files_prop["items"] = {"type": "string", "format": "binary"}
+
+        application.openapi_schema = openapi_schema
+        return application.openapi_schema
+
+    application.openapi = custom_openapi
     return application
+
 
 
 app = create_app()

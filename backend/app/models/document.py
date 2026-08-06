@@ -11,7 +11,16 @@ from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.extracted_info import (
+        ExtractedJobDescriptionModel,
+        ExtractedResumeModel,
+    )
     from app.models.parsed_document import ParsedDocumentModel
+    from app.models.normalized_info import (
+        NormalizedJobDescriptionModel,
+        NormalizedResumeModel,
+    )
+    from app.models.ranking import CandidateRankingModel
 
 
 class DocumentTypeEnum(str, enum.Enum):
@@ -23,6 +32,8 @@ class ProcessingStageEnum(str, enum.Enum):
     UPLOAD = "UPLOAD"
     INGESTION = "INGESTION"
     PARSING = "PARSING"
+    EXTRACTION = "EXTRACTION"
+    NORMALIZATION = "NORMALIZATION"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
@@ -93,4 +104,23 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
         back_populates="document",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    extracted_resume: Mapped["ExtractedResumeModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    extracted_job_description: Mapped[
+        "ExtractedJobDescriptionModel | None"
+    ] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    normalized_resume: Mapped["NormalizedResumeModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    normalized_job_description: Mapped[
+        "NormalizedJobDescriptionModel | None"
+    ] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    ranking: Mapped["CandidateRankingModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
     )
