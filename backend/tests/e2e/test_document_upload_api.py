@@ -27,7 +27,7 @@ class FakeDocumentService:
             project_id=project_id,
             document_type=document_type,
             filename="resume.pdf",
-            processing_stage=ProcessingStage.UPLOAD,
+            processing_stage=ProcessingStage.INGESTION,
             processing_status=ProcessingStatus.UPLOADED,
         )
 
@@ -44,7 +44,7 @@ class FakeDocumentCrudService:
             file_size_bytes=len(path.read_bytes()),
             mime_type="text/plain",
             file_hash="a" * 64,
-            processing_stage=ProcessingStage.UPLOAD,
+            processing_stage=ProcessingStage.INGESTION,
             processing_status=ProcessingStatus.UPLOADED,
             metadata_json={},
             created_at=now,
@@ -94,7 +94,7 @@ async def test_document_upload_multipart_contract(
         "project_id": str(project_id),
         "document_type": "RESUME",
         "filename": "resume.pdf",
-        "processing_stage": "UPLOAD",
+        "processing_stage": "INGESTION",
         "processing_status": "UPLOADED",
     }
 

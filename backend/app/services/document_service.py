@@ -13,20 +13,23 @@ from app.core.exceptions import (
     ConflictException,
     InternalServerException,
 )
+from app.models.document import DocumentModel
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.document import (
+    BatchResumeUploadRead,
     DocumentCreate,
     DocumentPaginatedResponse,
     DocumentRead,
     DocumentType,
     DocumentUploadRead,
+    FailedUploadItem,
     ProcessingStatus,
     SortOrder,
 )
 from app.services.project_service import ProjectNotFoundException
 from app.services.storage_service import StorageService
-from app.utils.file_validation import validate_file
+from app.utils.file_validation import validate_batch, validate_file
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +139,152 @@ class DocumentService:
             filename=document.original_filename,
             processing_stage=document.processing_stage.value,
             processing_status=document.processing_status.value,
+        )
+
+    @staticmethod
+    def _upload_read(document: DocumentModel) -> DocumentUploadRead:
+        return DocumentUploadRead(
+            document_id=document.id,
+            project_id=document.project_id,
+            document_type=document.document_type.value,
+            filename=document.original_filename,
+            processing_stage=document.processing_stage.value,
+            processing_status=document.processing_status.value,
+        )
+
+    async def upload_job_description(
+        self, project_id: UUID, file: UploadFile
+    ) -> DocumentUploadRead:
+        """Upload a Job Description and replace the prior active one."""
+        await self._verify_project(project_id)
+        original_filename, extension = await validate_file(file)
+        stored_filename, file_path, size, file_hash = await self.storage.save_file(
+            file, project_id, "job_description", extension
+        )
+        existing = None
+        try:
+            duplicate = await self.repository.get_by_hash(file_hash)
+            if duplicate is not None:
+                self.storage.delete_file(file_path)
+                raise DuplicateDocumentException()
+            existing = await self.repository.soft_delete_project_job_description(
+                project_id
+            )
+            document = await self.repository.create(
+                DocumentCreate(
+                    project_id=project_id,
+                    document_type=DocumentType.JOB_DESCRIPTION,
+                    original_filename=original_filename,
+                    stored_filename=stored_filename,
+                    file_path=file_path,
+                    file_size_bytes=size,
+                    mime_type=file.content_type or "application/octet-stream",
+                    file_hash=file_hash,
+                )
+            )
+        except DuplicateDocumentException:
+            raise
+        except (IntegrityError, SQLAlchemyError) as exc:
+            await self.repository.session.rollback()
+            self.storage.delete_file(file_path)
+            if existing is not None:
+                await self.repository.restore_document(existing.id)
+            raise InternalServerException(
+                "Unable to replace project Job Description."
+            ) from exc
+
+        if existing is not None:
+            try:
+                self.storage.delete_file(existing.file_path)
+            except Exception:
+                logger.exception(
+                    "replaced_job_description_file_cleanup_failed",
+                    document_id=str(existing.id),
+                    project_id=str(project_id),
+                )
+        return self._upload_read(document)
+
+    async def get_job_description(self, project_id: UUID) -> DocumentRead:
+        await self._verify_project(project_id)
+        try:
+            document = await self.repository.get_job_description_by_project(project_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException(
+                "Unable to retrieve project Job Description."
+            ) from exc
+        if document is None:
+            raise DocumentNotFoundException("Project Job Description was not found.")
+        return DocumentRead.model_validate(document)
+
+    async def upload_resume_batch(
+        self, project_id: UUID, files: list[UploadFile]
+    ) -> BatchResumeUploadRead:
+        await self._verify_project(project_id)
+        await validate_batch(files)
+        successful: list[DocumentUploadRead] = []
+        failed: list[FailedUploadItem] = []
+        for file in files:
+            try:
+                successful.append(
+                    await self.upload_document(project_id, DocumentType.RESUME, file)
+                )
+            except AppException as exc:
+                failed.append(
+                    FailedUploadItem(
+                        original_filename=Path(file.filename or "unknown").name,
+                        error_code=exc.error_code,
+                        message=exc.message,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "resume_batch_item_failed",
+                    project_id=str(project_id),
+                    original_filename=Path(file.filename or "unknown").name,
+                )
+                failed.append(
+                    FailedUploadItem(
+                        original_filename=Path(file.filename or "unknown").name,
+                        error_code="SYSTEM_ERROR",
+                        message="The resume could not be uploaded.",
+                    )
+                )
+        return BatchResumeUploadRead(
+            project_id=project_id,
+            total_received=len(files),
+            successful_count=len(successful),
+            failed_count=len(failed),
+            successful_uploads=successful,
+            failed_uploads=failed,
+        )
+
+    async def list_project_resumes(
+        self,
+        project_id: UUID,
+        processing_status: ProcessingStatus | None,
+        search: str | None,
+        page: int,
+        page_size: int,
+        sort_order: SortOrder,
+    ) -> DocumentPaginatedResponse:
+        await self._verify_project(project_id)
+        try:
+            documents, total = await self.repository.list_resumes_by_project(
+                project_id,
+                page,
+                page_size,
+                status=processing_status,
+                search=search.strip() if search else None,
+                sort_order=sort_order,
+            )
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to list project resumes.") from exc
+        return DocumentPaginatedResponse(
+            items=[DocumentRead.model_validate(document) for document in documents],
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=math.ceil(total / page_size),
         )
 
     async def _verify_project(self, project_id: UUID) -> None:
