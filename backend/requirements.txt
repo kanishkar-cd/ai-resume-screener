@@ -1,0 +1,2 @@
+# Base requirements placeholder for Python 3.12 backend
+# Dependencies (FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, asyncpg, etc.) to be pinned during package setup.

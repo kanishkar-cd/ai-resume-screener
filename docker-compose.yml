@@ -1,0 +1,6 @@
+# Docker Compose orchestration specification placeholder
+# Services (backend, frontend, postgres database) will be configured in infrastructure stages.
+version: '3.8'
+
+services:
+  # Container service definitions to be added in future stages.
