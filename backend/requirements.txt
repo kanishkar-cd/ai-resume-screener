@@ -1,22 +1,13 @@
-# Base requirements placeholder for Python 3.12 backend
-# Dependencies (FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, asyncpg, etc.) to be pinned during package setup.
-fastapi
-uvicorn[standard]
-
-sqlalchemy>=2.0
-alembic
-asyncpg
-
-pydantic>=2.0
-pydantic-settings
-
-python-dotenv
-
-structlog
-
-httpx
-
-pytest
-pytest-asyncio
-
-python-multipart
+fastapi>=0.110.0,<0.112.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+sqlalchemy>=2.0.28
+asyncpg>=0.29.0
+alembic>=1.13.1
+python-dotenv>=1.0.1
+structlog>=24.1.0
+httpx>=0.27.0
+pytest>=8.1.0
+pytest-asyncio>=0.23.5
+python-multipart>=0.0.9
