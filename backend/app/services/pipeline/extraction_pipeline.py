@@ -64,13 +64,21 @@ SECTION_ALIASES = {
     "summary": {"summary", "profile", "objective", "professional summary", "about me", "executive summary"},
     "skills": {"skills", "technical skills", "core skills", "core competencies", "skills & tools", "technologies", "key skills"},
     "requirements": {"requirements", "required skills", "job requirements", "prerequisites"},
-    "experience": {"experience", "work experience", "professional experience", "work history", "employment", "employment history", "career history", "relevant experience", "internship", "internships", "internship experience"},
+    "experience": {
+        "experience", "work experience", "professional experience", "work history",
+        "employment", "employment history", "career history", "relevant experience",
+        "internship", "internships", "internship experience",
+        "intership", "interships",
+    },
     "education": {"education", "academic background", "academic qualifications", "qualifications", "education & qualifications"},
     "projects": {"projects", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
-    "certifications": {"certifications", "certificates", "licenses", "certifications & licenses", "licenses & certifications"},
+    "certifications": {
+        "certifications", "certificates", "licenses", "certifications & licenses",
+        "licenses & certifications", "trainings", "training & certifications",
+        "courses", "workshops", "online courses",
+    },
     "awards": {"awards", "honors", "achievements", "awards & honors", "awards & achievements"},
     "publications": {"publications", "research publications", "papers"},
-    "trainings": {"trainings", "training", "workshops", "courses"},
     "languages": {"languages", "language proficiency", "languages known"},
     "responsibilities": {"responsibilities", "key responsibilities", "duties"},
     "benefits": {"benefits", "what we offer"},
@@ -138,15 +146,24 @@ def segment_sections(text: str) -> dict[str, str]:
         matched_section = alias_map.get(clean_heading)
 
         if not matched_section:
+            heading_words = len(clean_heading.split())
             for alias, canonical in alias_map.items():
-                if re.search(rf"\b{re.escape(alias)}\b", clean_heading):
-                    if len(clean_heading.split()) <= 6:
-                        matched_section = canonical
-                        break
+                alias_words = len(alias.split())
+                # Only fire fuzzy match if:
+                #   1. The heading is short (≤4 words) — likely a standalone heading
+                #   2. OR the alias covers the majority of heading words
+                if heading_words <= 4 or alias_words >= (heading_words // 2 + 1):
+                    if re.search(rf"\b{re.escape(alias)}\b", clean_heading):
+                        if len(clean_heading.split()) <= 6:
+                            matched_section = canonical
+                            break
 
-        if matched_section:
+        if matched_section and matched_section != current:
             current = matched_section
             sections.setdefault(current, [])
+        elif matched_section and matched_section == current:
+            # Same section re-triggered — treat as content, not a heading
+            sections.setdefault(current, []).append(line)
         else:
             sections.setdefault(current, []).append(line)
 
