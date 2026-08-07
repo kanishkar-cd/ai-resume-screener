@@ -56,6 +56,7 @@ DocumentServiceDependency = Annotated[
 
 @router.post(
     "/upload",
+    include_in_schema=False,
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload project document",
@@ -91,6 +92,7 @@ async def upload_document(
 
 @router.get(
     "",
+    include_in_schema=False,
     response_model=DocumentListResponse,
     summary="List documents",
     description=(
@@ -127,6 +129,7 @@ async def list_documents(
 
 @router.get(
     "/{document_id}",
+    include_in_schema=False,
     response_model=DocumentResponse,
     summary="Get document metadata",
     description="Retrieve metadata for one active project document.",
@@ -141,6 +144,7 @@ async def get_document(
 
 @router.get(
     "/{document_id}/download",
+    include_in_schema=False,
     response_class=FileResponse,
     summary="Download document",
     description="Download the original physical file for an active document.",
@@ -166,6 +170,7 @@ async def download_document(
 
 @router.delete(
     "/{document_id}",
+    include_in_schema=False,
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete document",
     description="Soft delete document metadata and remove its physical file.",

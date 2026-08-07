@@ -6,6 +6,8 @@ from app.core.constants import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIME_TYPES,
     MAX_FILE_SIZE_BYTES,
+    MAX_BATCH_FILE_COUNT,
+    MAX_BATCH_PAYLOAD_SIZE,
 )
 from app.core.exceptions import AppException
 
@@ -32,6 +34,18 @@ class EmptyFileException(AppException):
     status_code = 400
     error_code = "EMPTY_FILE"
     default_message = "The uploaded file is empty."
+
+
+class BatchFileCountException(AppException):
+    status_code = 413
+    error_code = "BATCH_FILE_COUNT_EXCEEDED"
+    default_message = "A resume batch may contain at most 50 files."
+
+
+class BatchPayloadTooLargeException(AppException):
+    status_code = 413
+    error_code = "BATCH_PAYLOAD_TOO_LARGE"
+    default_message = "The resume batch exceeds the 100 MB aggregate limit."
 
 
 def _matches_signature(extension: str, content: bytes) -> bool:
@@ -69,3 +83,20 @@ async def validate_file(file: UploadFile) -> tuple[str, str]:
     if not _matches_signature(extension, content[:2048]):
         raise InvalidFileTypeException("File content does not match its declared type.")
     return filename, extension
+
+
+async def validate_batch(files: list[UploadFile]) -> None:
+    """Validate batch count and aggregate stream size without consuming uploads."""
+    if not files:
+        raise EmptyFileException("At least one resume file is required.")
+    if len(files) > MAX_BATCH_FILE_COUNT:
+        raise BatchFileCountException()
+    total_size = 0
+    for file in files:
+        while chunk := await file.read(1024 * 1024):
+            total_size += len(chunk)
+            if total_size > MAX_BATCH_PAYLOAD_SIZE:
+                for reset_file in files:
+                    await reset_file.seek(0)
+                raise BatchPayloadTooLargeException()
+        await file.seek(0)

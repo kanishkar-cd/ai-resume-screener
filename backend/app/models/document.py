@@ -1,14 +1,26 @@
 import enum
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, String, text
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.extracted_info import (
+        ExtractedJobDescriptionModel,
+        ExtractedResumeModel,
+    )
+    from app.models.parsed_document import ParsedDocumentModel
+    from app.models.normalized_info import (
+        NormalizedJobDescriptionModel,
+        NormalizedResumeModel,
+    )
+    from app.models.ranking import CandidateRankingModel
 
 
 class DocumentTypeEnum(str, enum.Enum):
@@ -18,6 +30,12 @@ class DocumentTypeEnum(str, enum.Enum):
 
 class ProcessingStageEnum(str, enum.Enum):
     UPLOAD = "UPLOAD"
+    INGESTION = "INGESTION"
+    PARSING = "PARSING"
+    EXTRACTION = "EXTRACTION"
+    NORMALIZATION = "NORMALIZATION"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class ProcessingStatusEnum(str, enum.Enum):
@@ -25,6 +43,8 @@ class ProcessingStatusEnum(str, enum.Enum):
     PARSING_PENDING = "PARSING_PENDING"
     PARSED = "PARSED"
     FAILED = "FAILED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
 
 
 class DocumentModel(UUIDMixin, TimestampMixin, Base):
@@ -37,6 +57,14 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
         Index("ix_documents_processing_status", "processing_status"),
         Index("ix_documents_file_hash", "file_hash"),
         Index("ix_documents_created_at", text("created_at DESC")),
+        Index(
+            "uq_project_active_job_description",
+            "project_id",
+            unique=True,
+            postgresql_where=text(
+                "document_type = 'JOB_DESCRIPTION' AND deleted_at IS NULL"
+            ),
+        ),
     )
 
     project_id: Mapped[UUID] = mapped_column(
@@ -56,8 +84,8 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
     processing_stage: Mapped[ProcessingStageEnum] = mapped_column(
         Enum(ProcessingStageEnum, name="processing_stage_enum"),
         nullable=False,
-        default=ProcessingStageEnum.UPLOAD,
-        server_default=ProcessingStageEnum.UPLOAD.value,
+        default=ProcessingStageEnum.INGESTION,
+        server_default=ProcessingStageEnum.INGESTION.value,
     )
     processing_status: Mapped[ProcessingStatusEnum] = mapped_column(
         Enum(ProcessingStatusEnum, name="processing_status_enum"),
@@ -70,4 +98,29 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed_document: Mapped["ParsedDocumentModel | None"] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    extracted_resume: Mapped["ExtractedResumeModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    extracted_job_description: Mapped[
+        "ExtractedJobDescriptionModel | None"
+    ] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    normalized_resume: Mapped["NormalizedResumeModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    normalized_job_description: Mapped[
+        "NormalizedJobDescriptionModel | None"
+    ] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
+    ranking: Mapped["CandidateRankingModel | None"] = relationship(
+        back_populates="document", cascade="all, delete-orphan", uselist=False
     )

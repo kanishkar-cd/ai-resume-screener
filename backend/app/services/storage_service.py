@@ -22,7 +22,7 @@ class StorageService:
         self.root = root.resolve()
 
     def project_directory(self, project_id: uuid.UUID, subfolder: str) -> Path:
-        if subfolder not in {"resumes", "job_descriptions"}:
+        if subfolder not in {"resumes", "job_description", "job_descriptions"}:
             raise StorageIOException("Invalid document storage directory.")
         directory = (self.root / str(project_id) / subfolder).resolve()
         if self.root not in directory.parents:

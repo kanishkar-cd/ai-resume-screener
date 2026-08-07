@@ -15,6 +15,7 @@ from app.schemas.document import (
     DocumentType,
     ProcessingStatus,
     SortOrder,
+    ProcessingStage,
 )
 
 
@@ -43,6 +44,58 @@ class DocumentRepository:
             DocumentModel.deleted_at.is_(None),
         )
         return await self.session.scalar(statement)
+
+    async def get_job_description_by_project(
+        self, project_id: UUID
+    ) -> DocumentModel | None:
+        return await self.session.scalar(
+            select(DocumentModel)
+            .where(
+                DocumentModel.project_id == project_id,
+                DocumentModel.document_type == DocumentTypeEnum.JOB_DESCRIPTION,
+                DocumentModel.deleted_at.is_(None),
+            )
+            .order_by(DocumentModel.created_at.desc())
+        )
+
+    async def list_resumes_by_project(
+        self,
+        project_id: UUID,
+        page: int,
+        page_size: int,
+        *,
+        status: ProcessingStatus | None = None,
+        search: str | None = None,
+        sort_order: SortOrder = SortOrder.DESC,
+    ) -> tuple[list[DocumentModel], int]:
+        return await self.list_documents(
+            DocumentType.RESUME,
+            status,
+            page,
+            page_size,
+            project_id=project_id,
+            search=search,
+            sort_order=sort_order,
+        )
+
+    async def soft_delete_project_job_description(
+        self, project_id: UUID
+    ) -> DocumentModel | None:
+        document = await self.get_job_description_by_project(project_id)
+        if document is None:
+            return None
+        document.deleted_at = datetime.now(UTC)
+        await self.session.commit()
+        return document
+
+    async def restore_document(self, document_id: UUID) -> DocumentModel | None:
+        document = await self.session.get(DocumentModel, document_id)
+        if document is None:
+            return None
+        document.deleted_at = None
+        await self.session.commit()
+        await self.session.refresh(document)
+        return document
 
     async def get_document(self, document_id: UUID) -> DocumentModel | None:
         statement = select(DocumentModel).where(
@@ -115,6 +168,24 @@ class DocumentRepository:
             return None
         document.processing_status = ProcessingStatusEnum(status.value)
         document.metadata_json = metadata
+        await self.session.commit()
+        await self.session.refresh(document)
+        return document
+
+    async def update_processing(
+        self,
+        document_id: UUID,
+        stage: ProcessingStage,
+        status: ProcessingStatus,
+        error_message: str | None = None,
+    ) -> DocumentModel | None:
+        """Persist Stage 2 processing state for an active document."""
+        document = await self.get_document(document_id)
+        if document is None:
+            return None
+        document.processing_stage = ProcessingStageEnum(stage.value)
+        document.processing_status = ProcessingStatusEnum(status.value)
+        document.error_message = error_message
         await self.session.commit()
         await self.session.refresh(document)
         return document

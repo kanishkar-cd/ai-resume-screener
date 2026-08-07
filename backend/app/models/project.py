@@ -1,13 +1,17 @@
 import enum
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, Enum, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.ranking import CandidateRankingModel
+    from app.models.weight_config import ProjectWeightConfigModel
 
 
 class ProjectStatusEnum(str, enum.Enum):
@@ -47,4 +51,10 @@ class ProjectModel(UUIDMixin, TimestampMixin, Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    weight_config: Mapped["ProjectWeightConfigModel | None"] = relationship(
+        back_populates="project", cascade="all, delete-orphan", uselist=False
+    )
+    rankings: Mapped[list["CandidateRankingModel"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
     )
