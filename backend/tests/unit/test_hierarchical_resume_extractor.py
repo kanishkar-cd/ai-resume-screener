@@ -433,3 +433,85 @@ Python, SQL, AWS, Lambda, API Gateway, S3, DynamoDB, Docker, Jenkins, Terraform
     assert result["confidence_scores"]["experience"] > 0
     assert result["confidence_scores"]["companies"] > 0
     assert result["confidence_scores"]["certifications"] > 0
+
+
+def test_stage3_final_polish_validation() -> None:
+    """Comprehensive regression test validating:
+    - 2 projects with isolated technologies
+    - 1 experience with company & designation extracted
+    - start_date and end_date populated
+    - duration preserved
+    - certifications cleaned with no OCR artifacts
+    """
+    text = """Shri Harini Karthika
+sasikumar80989705@gmail.com
+9043652396
+Coimbatore
+
+EDUCATION
+Bachelor of Technology in Artificial Intelligence and Data Science
+Rathinam Technical Campus
+9.0 CGPA
+
+INTERSHIP
+Customer Centria, Coimbatore
+Role : Database Management Intern
+Three Months Internship
+08/2025 - 10/2025
+Coimba
+- Managed cloud databases and SQL querying.
+
+PROJECTS
+Project: Event Registering Portal (AWS Cloud)
+- Built serverless web app using Lambda, API Gateway, S3, and DynamoDB.
+Project: Devops-Based Ecommerce Website
+- Deployed microservices using Docker, Jenkins, Terraform, EC2.
+- Implemented CI/CD pipelines.
+
+CERTIFICATIONS
+MongoDB
+Azure DP900-8 badges,3
+Badge
+Overview Of Geographical
+Information System(IIRS)
+AWS Academy Graduate-
+Cloud Foundations - Training
+Hackathon (Techgium)
+"""
+    result = ResumeExtractor().extract(text)
+
+    # 1. Projects validation
+    assert len(result["projects"]) == 2, f"Expected 2 projects, got {len(result['projects'])}"
+    p1, p2 = result["projects"][0], result["projects"][1]
+    assert "Event Registering Portal" in p1["name"]
+    assert "Devops-Based Ecommerce Website" in p2["name"]
+
+    # Technology isolation validation
+    assert "Lambda" in p1["technologies"] and "S3" in p1["technologies"]
+    assert "Docker" not in p1["technologies"]
+    assert "Docker" in p2["technologies"] and "Jenkins" in p2["technologies"]
+    assert "Lambda" not in p2["technologies"]
+
+    # 2. Experience validation
+    assert len(result["experience"]) == 1, f"Expected 1 experience entry, got {len(result['experience'])}"
+    exp = result["experience"][0]
+    assert exp["company"] == "Customer Centria"
+    assert exp["designation"] == "Database Management Intern"
+    assert exp["employment_type"] == "Internship"
+    assert exp["start_date"] == "08/2025"
+    assert exp["end_date"] == "10/2025"
+    assert "Three Months" in (exp.get("duration") or "")
+
+    # 3. Certifications validation
+    certs = result["certifications"]
+    assert "MongoDB" in certs
+    assert "Azure DP-900" in certs
+    assert "AWS Academy Cloud Foundations" in certs
+    assert "Hackathon (Techgium)" in certs
+    assert any("Overview Of Geographical Information System" in c for c in certs)
+
+    # OCR artifacts check
+    assert not any(c.lower() == "badge" for c in certs)
+    assert not any("badges" in c.lower() for c in certs)
+    assert not any("Coimba" in (exp.get("description") or "") for exp in result["experience"])
+

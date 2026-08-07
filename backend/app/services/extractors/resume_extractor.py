@@ -605,16 +605,23 @@ class ResumeExtractor:
         detected_known = [s for s in sections if s in known_sections]
         section_detection_score = round(len(detected_known) / len(known_sections), 2)
 
+        # Languages and location can be optional depending on candidate resume composition
+        optional_fields = {"languages"}
+
         extracted_counts = 0
-        total_fields = len(values)
+        evaluable_fields = 0
         warnings: list[str] = []
 
         for key, val in values.items():
             if val:
                 extracted_counts += 1
+                evaluable_fields += 1
             else:
-                warnings.append(f"Field '{key}' could not be extracted.")
+                if key not in optional_fields:
+                    evaluable_fields += 1
+                    warnings.append(f"Field '{key}' could not be extracted.")
 
+        total_fields = evaluable_fields if evaluable_fields > 0 else len(values)
         entity_extraction_score = round(extracted_counts / total_fields, 2)
         overall_quality_score = round((section_detection_score * 0.4) + (entity_extraction_score * 0.6), 2)
 
@@ -624,3 +631,4 @@ class ResumeExtractor:
             "overall_quality_score": overall_quality_score,
             "warnings": warnings,
         }
+
