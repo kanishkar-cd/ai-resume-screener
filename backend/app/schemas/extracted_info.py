@@ -17,7 +17,12 @@ class EducationItem(BaseModel):
 class ExperienceItem(BaseModel):
     company: str | None = None
     title: str | None = None
+    designation: str | None = None
+    employment_type: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
     duration: str | None = None
+    description: str | None = None
     responsibilities: list[str] = Field(default_factory=list)
 
 

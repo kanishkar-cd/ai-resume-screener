@@ -59,7 +59,7 @@ async def test_recruiter_document_delete_and_reupload_lifecycle(async_client: As
     assert score_resp.status_code == 200
 
     # 8. Rank
-    rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rankings")
+    rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rank")
     assert rank_resp.status_code == 200
 
     # 9. Delete Resume via API
@@ -86,7 +86,7 @@ async def test_recruiter_document_delete_and_reupload_lifecycle(async_client: As
     await async_client.post(f"/api/v1/documents/{new_resume_id}/extract")
     await async_client.post(f"/api/v1/documents/{new_resume_id}/normalize")
     await async_client.post(f"/api/v1/projects/{project_id}/score")
-    new_rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rankings")
+    new_rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rank")
     assert new_rank_resp.status_code == 200
 
     # 12. Delete Job Description via API
@@ -106,5 +106,5 @@ async def test_recruiter_document_delete_and_reupload_lifecycle(async_client: As
     await async_client.post(f"/api/v1/documents/{new_jd_id}/extract")
     await async_client.post(f"/api/v1/documents/{new_jd_id}/normalize")
     await async_client.post(f"/api/v1/projects/{project_id}/score")
-    final_rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rankings")
+    final_rank_resp = await async_client.post(f"/api/v1/projects/{project_id}/rank")
     assert final_rank_resp.status_code == 200

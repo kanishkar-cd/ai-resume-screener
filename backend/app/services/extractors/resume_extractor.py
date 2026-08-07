@@ -126,11 +126,11 @@ class ResumeExtractor:
     def _designation(
         self, header: list[str], sections: dict[str, str], text: str, experience: list[dict[str, Any]]
     ) -> str | None:
-        # 1. Prefer title from experience section if available
+        if experience and experience[0].get("designation"):
+            return experience[0]["designation"]
         if experience and experience[0].get("title"):
             return experience[0]["title"]
 
-        # 2. Check "Role :" pattern in text
         role_match = re.search(r"(?i)\brole\s*:\s*(.+)$", text, re.M)
         if role_match:
             role_text = role_match.group(1).strip()
@@ -139,19 +139,16 @@ class ResumeExtractor:
                 return matched_role[0]
             return role_text[:255]
 
-        # 3. Search header
         matched_header = match_terms("\n".join(header[:6]), DESIGNATIONS)
         if matched_header:
             return matched_header[0]
 
-        # 4. Search summary section
         summary = sections.get("summary", "")
         if summary:
             matched_summary = match_terms(summary, DESIGNATIONS)
             if matched_summary:
                 return matched_summary[0]
 
-        # 5. Fallback overall search
         matched_text = match_terms(text, DESIGNATIONS)
         if matched_text:
             return matched_text[0]
@@ -160,20 +157,17 @@ class ResumeExtractor:
 
     @staticmethod
     def _location(header: str, text: str) -> str | None:
-        # 1. Check Location: label
         loc_match = LOCATION_PATTERN.search(text)
         if loc_match:
             val = loc_match.group(1).strip()
             val = re.sub(r"\s+", " ", val)
             return val[:255]
 
-        # 2. Check canonical location aliases (e.g. Coimbatore, Chennai, Bengaluru)
         text_lower = text.lower()
         for alias, loc_info in LOCATION_ALIASES.items():
             if re.search(rf"\b{re.escape(alias)}\b", text_lower):
                 return loc_info["display_name"]
 
-        # 3. Check City, Country or City, State regex in top lines
         city_state_match = re.search(
             r"\b([A-Z][a-zA-Z\s]{2,20})\s*,\s*([A-Z][a-zA-Z\s]{2,20}|[A-Z]{2})\b",
             header,
@@ -246,8 +240,8 @@ class ResumeExtractor:
 
         return items
 
-    @staticmethod
-    def _experience(block: str) -> list[dict[str, Any]]:
+    @classmethod
+    def _experience(cls, block: str) -> list[dict[str, Any]]:
         lines = content_lines(block)
         if not lines:
             return []
@@ -256,72 +250,188 @@ class ResumeExtractor:
         current: dict[str, Any] | None = None
 
         for idx, line in enumerate(lines):
+            prev_line = lines[idx - 1] if idx > 0 else None
+
             duration = DURATION_PATTERN.search(line)
             date_range = DATE_RANGE_PATTERN.search(line)
             titles = match_terms(line, DESIGNATIONS)
 
-            # Check "Role :" format
             role_match = re.search(r"(?i)\brole\s*:\s*(.+)$", line)
             role_title = role_match.group(1).strip() if role_match else None
 
-            company_match = COMPANY_PATTERN.search(line)
-            at_match = re.search(r"\bat\s+(.+?)(?:\s*[|,(]|$)", line, re.I)
-
-            extracted_company = None
-            if at_match:
-                extracted_company = at_match.group(1).strip()
-            elif company_match and not role_match:
-                extracted_company = line.strip()
-            elif idx > 0 and (role_match or titles) and not company_match:
-                prev_line = lines[idx - 1].strip()
-                if not match_terms(prev_line, DESIGNATIONS) and len(prev_line.split()) <= 6:
-                    extracted_company = prev_line
+            extracted_company = cls._extract_company_from_line(line, prev_line, role_match)
 
             title_val = role_title or (titles[0] if titles else None)
-            dur_val = date_range.group(0) if date_range else (duration.group(0) if duration else None)
 
-            # Check if line signals a new entry
+            # Text duration (e.g. "Three Months Internship") vs date-range string
+            text_dur_val: str | None = duration.group(0) if duration else None
+            date_dur_val: str | None = date_range.group(0) if date_range else None
+            # Prefer human-readable text duration; fall back to date string
+            dur_val: str | None = text_dur_val or date_dur_val
+
+            start_date, end_date = None, None
+            if date_range:
+                raw_range = date_range.group(0)
+                parts = re.split(r"\s*(?:-|–|—|to)\s*", raw_range, flags=re.I)
+                if len(parts) == 2:
+                    start_date, end_date = parts[0].strip(), parts[1].strip()
+
+            is_intern = bool(re.search(r"\bintern(?:ship)?\b", line, re.I)) or (role_title and "intern" in role_title.lower())
+
             is_new_entry = False
-            if current and current.get("company") and current.get("title") and (title_val or extracted_company):
+            if current and current.get("company") and (current.get("designation") or current.get("title")) and (title_val or extracted_company):
                 is_new_entry = True
 
             if is_new_entry:
-                items.append(current)
-                current = {
-                    "company": extracted_company[:255] if extracted_company else None,
-                    "title": title_val,
-                    "duration": dur_val,
-                    "responsibilities": [],
-                }
-            elif current and not current.get("title") and title_val:
-                current["title"] = title_val
-                if extracted_company and not current.get("company"):
-                    current["company"] = extracted_company
-                if dur_val and not current.get("duration"):
-                    current["duration"] = dur_val
-            elif current and not current.get("company") and extracted_company:
-                current["company"] = extracted_company
-                if dur_val:
-                    current["duration"] = dur_val
-            elif current and dur_val and not (title_val or extracted_company):
-                current["duration"] = dur_val
-            elif title_val or extracted_company or dur_val:
-                if current and (current.get("company") or current.get("title")):
-                    items.append(current)
-
-                current = {
-                    "company": extracted_company[:255] if extracted_company else None,
-                    "title": title_val,
-                    "duration": dur_val,
-                    "responsibilities": [],
-                }
+                if current.get("description_lines"):
+                    current["description"] = " ".join(current["description_lines"])
+                items.append(cls._format_experience_item(current))
+                current = cls._new_experience_item(
+                    company=extracted_company,
+                    designation=title_val,
+                    employment_type="Internship" if is_intern else "Full-time",
+                    start_date=start_date,
+                    end_date=end_date,
+                    duration=dur_val,
+                )
             elif current:
-                current["responsibilities"].append(line)
+                if not current.get("designation") and title_val:
+                    current["designation"] = title_val
+                    current["title"] = title_val
+                    if is_intern:
+                        current["employment_type"] = "Internship"
+                if not current.get("company") and extracted_company:
+                    current["company"] = extracted_company
+                # Duration: set text duration; always update start/end from date_range
+                if text_dur_val and not current.get("duration"):
+                    current["duration"] = text_dur_val
+                if date_dur_val:
+                    # If only date range seen so far (no text), store it as duration too
+                    if not current.get("duration"):
+                        current["duration"] = date_dur_val
+                    # Extract start/end regardless of whether duration is already set
+                    if start_date and not current.get("start_date"):
+                        current["start_date"] = start_date
+                    if end_date and not current.get("end_date"):
+                        current["end_date"] = end_date
 
-        if current and (current.get("company") or current.get("title")):
-            items.append(current)
+                if not (title_val or extracted_company or dur_val):
+                    # Filter OCR noise: isolated fragments ≤8 chars that are
+                    # not alphabetic words (e.g. "Coimba", "Delh", "Mumba")
+                    if len(line) <= 8 and re.match(r'^[A-Z][a-z]+$', line) and not re.search(r'\s', line):
+                        continue  # skip city fragment noise
+                    current["description_lines"].append(line)
+                    current["responsibilities"].append(line)
+            elif title_val or extracted_company or dur_val or is_intern:
+                current = cls._new_experience_item(
+                    company=extracted_company,
+                    designation=title_val,
+                    employment_type="Internship" if is_intern else "Full-time",
+                    start_date=start_date,
+                    end_date=end_date,
+                    duration=dur_val,
+                )
+
+        if current:
+            if current.get("description_lines"):
+                current["description"] = " ".join(current["description_lines"])
+            elif not current.get("description"):
+                current["description"] = " ".join(filter(None, [current.get("company"), current.get("designation"), current.get("duration")]))
+            items.append(cls._format_experience_item(current))
 
         return items
+
+    @staticmethod
+    def _new_experience_item(
+        company: str | None,
+        designation: str | None,
+        employment_type: str,
+        start_date: str | None,
+        end_date: str | None,
+        duration: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "company": company[:255] if company else None,
+            "designation": designation,
+            "title": designation,
+            "employment_type": employment_type,
+            "start_date": start_date,
+            "end_date": end_date,
+            "duration": duration,
+            "description": "",
+            "description_lines": [],
+            "responsibilities": [],
+        }
+
+    @staticmethod
+    def _format_experience_item(item: dict[str, Any]) -> dict[str, Any]:
+        res = dict(item)
+        res.pop("description_lines", None)
+        return res
+
+    @staticmethod
+    def _extract_company_from_line(line: str, prev_line: str | None, role_match: re.Match | None) -> str | None:
+        cleaned = re.sub(
+            r",\s*(?:Coimbatore|Chennai|Bengaluru|Mumbai|Delhi|Hyderabad|London|San Francisco|CA|UK|India|[A-Z][a-zA-Z\s]{2,15})$",
+            "",
+            line,
+            flags=re.I,
+        ).strip()
+
+        at_match = re.search(r"\bat\s+(.+?)(?:\s*[|,(]|$)", line, re.I)
+        if at_match:
+            comp = at_match.group(1).strip()
+            if not match_terms(comp, DESIGNATIONS) and not DURATION_PATTERN.search(comp):
+                return comp[:255]
+
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+            for p in parts:
+                if (
+                    not match_terms(p, DESIGNATIONS)
+                    and not DURATION_PATTERN.search(p)
+                    and not DATE_RANGE_PATTERN.search(p)
+                    and len(p.split()) <= 6
+                ):
+                    return p[:255]
+
+        if " - " in line or " – " in line or " — " in line:
+            parts = [p.strip() for p in re.split(r"\s*[-–—]\s*", line)]
+            for p in parts:
+                if (
+                    not match_terms(p, DESIGNATIONS)
+                    and not DURATION_PATTERN.search(p)
+                    and not DATE_RANGE_PATTERN.search(p)
+                    and not YEAR_PATTERN.search(p)
+                    and len(p.split()) <= 6
+                ):
+                    return p[:255]
+
+        if (role_match or "role :" in line.lower() or "role:" in line.lower()) and prev_line:
+            prev_clean = re.sub(
+                r",\s*(?:Coimbatore|Chennai|Bengaluru|Mumbai|Delhi|Hyderabad|London|San Francisco|CA|UK|India|[A-Z][a-zA-Z\s]{2,15})$",
+                "",
+                prev_line,
+                flags=re.I,
+            ).strip()
+            if not match_terms(prev_clean, DESIGNATIONS) and len(prev_clean.split()) <= 6:
+                return prev_clean[:255]
+
+        company_match = COMPANY_PATTERN.search(cleaned)
+        if company_match and not role_match:
+            return cleaned[:255]
+
+        if prev_line and (role_match or "role" in line.lower()):
+            prev_clean = re.sub(
+                r",\s*(?:Coimbatore|Chennai|Bengaluru|Mumbai|Delhi|Hyderabad|London|San Francisco|CA|UK|India|[A-Z][a-zA-Z\s]{2,15})$",
+                "",
+                prev_line,
+                flags=re.I,
+            ).strip()
+            if not match_terms(prev_clean, DESIGNATIONS) and len(prev_clean.split()) <= 6:
+                return prev_clean[:255]
+
+        return None
 
     @staticmethod
     def _projects(block: str) -> list[dict[str, Any]]:
@@ -330,38 +440,60 @@ class ResumeExtractor:
 
         projects: list[dict[str, Any]] = []
         current_project: dict[str, Any] | None = None
+        lines = content_lines(block)
 
-        for raw_line in block.splitlines():
-            line = raw_line.strip()
-            if not line:
+        # Heading pattern matching "Project:", "PROJECT:", "• Project:", "● Project:", "○ Project:", "1. Project:" etc.
+        proj_heading_re = re.compile(
+            r"^(?:[•●○▪*–—\d\.\)\s]*)(?:project\s*:|\d+[\.\)]\s*project|project\b)",
+            re.IGNORECASE,
+        )
+
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
                 continue
 
-            is_bullet = raw_line.lstrip().startswith(("-", "*", "•", "▪"))
-            is_proj_header = re.match(r"(?i)^(?:project\s*:|\d+[\.\)]\s*project|project\b)", line)
-            is_header = is_proj_header or (not is_bullet and (":" in line or "(" in line or current_project is None))
+            is_proj_title = bool(proj_heading_re.match(line_str))
+            
+            # Clean heading prefixes
+            clean_text = proj_heading_re.sub("", line_str).strip()
+            clean_text = re.sub(r"^[::•●○▪*–—\s-]+", "", clean_text).strip()
 
-            clean_text = re.sub(r"^[\s•●▪*–—-]+", "", line).strip()
-            clean_text = re.sub(r"(?i)^project\s*:\s*", "", clean_text).strip()
-
-            if is_header and not (current_project and len(current_project["description"]) == 0):
+            if is_proj_title:
                 if current_project:
                     projects.append(current_project)
 
-                name, separator, desc = clean_text.partition(":")
-                title_name = name.strip() if separator else clean_text.strip()
-                desc_text = desc.strip() if separator else ""
+                title_source = clean_text if clean_text else line_str
+                title_name = re.sub(r"\s*\([^)]*\)\s*$", "", title_source).strip() or title_source
+                title_name = title_name.rstrip(" :").strip()
 
                 current_project = {
                     "name": title_name[:255],
-                    "description": desc_text,
-                    "technologies": match_terms(line, SKILLS),
+                    "description": title_source,
+                    "technologies": match_terms(line_str, SKILLS),
                 }
-            elif current_project:
-                if current_project["description"]:
-                    current_project["description"] += " " + clean_text
-                else:
-                    current_project["description"] = clean_text
+            elif current_project is None:
+                title_name = re.sub(r"\s*\([^)]*\)\s*$", "", clean_text).strip() or clean_text
+                title_name = title_name.rstrip(" :").strip()
+                current_project = {
+                    "name": title_name[:255],
+                    "description": clean_text,
+                    "technologies": match_terms(clean_text, SKILLS),
+                }
+            else:
+                # If line starts with bullet heading that indicates another project title without "Project:" keyword
+                is_bullet_heading = bool(re.match(r"^[•●○▪*]\s*[A-Z]", line_str)) and len(line_str.split()) <= 6 and ":" in line_str
+                if is_bullet_heading and not match_terms(clean_text, SKILLS):
+                    projects.append(current_project)
+                    title_name = clean_text.rstrip(" :").strip()
+                    current_project = {
+                        "name": title_name[:255],
+                        "description": clean_text,
+                        "technologies": match_terms(clean_text, SKILLS),
+                    }
+                    continue
 
+                current_project["description"] += (" " if current_project["description"] else "") + clean_text
                 techs = match_terms(clean_text, SKILLS)
                 for tech in techs:
                     if tech not in current_project["technologies"]:
@@ -372,23 +504,100 @@ class ResumeExtractor:
 
         return projects
 
+
     @staticmethod
     def _certifications(block: str) -> list[str]:
         if not block.strip():
             return []
 
-        cert_keywords = (
-            "certified", "certificate", "certification", "aws", "pmp", "cka",
-            "azure", "scrum", "oracle", "google", "coursera", "udemy", "ccna",
+        ignore_terms = (
+            "internship", "project", "education", "experience", "work history",
+            "employment", "trophies", "hobbies", "declaration",
         )
-        certs = []
-        for line in content_lines(block):
+        lines = content_lines(block)
+        raw_certs: list[str] = []
+
+        for line in lines:
             line_lower = line.lower()
-            if any(term in line_lower for term in ("internship", "project", "publication", "award")):
+            if any(term in line_lower for term in ignore_terms):
                 continue
-            if any(kw in line_lower for kw in cert_keywords):
-                certs.append(line[:255])
-        return certs
+            # Skip standalone OCR noise words that are not valid certifications
+            # e.g. a line that is only "Badge", "badge", "Badges", or similar
+            if re.fullmatch(r"badges?", line.strip(), re.I):
+                continue
+            # Strip leading bullets/numbers
+            clean = re.sub(r"^[\s•●▪*–—\d\.\)]+", "", line).strip()
+            if not clean or len(clean) < 2:
+                continue
+            # Remove OCR garbage: trailing counts like ",3" or " 3" but NOT 3-digit numbers (cert codes)
+            clean = re.sub(r",\s*\d{1,2}\s*$", "", clean).strip()   # trailing ,N or ,NN  (e.g. "badges,3")
+            clean = re.sub(r"\s+\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
+            clean = re.sub(r"\s*-?\s*\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
+            # After badge removal, if the remaining text is empty or just a noise word, skip it
+            if not clean or re.fullmatch(r"badges?", clean, re.I):
+                continue
+            # Normalize DP900-N (OCR: missing hyphen) → DP-900. Do NOT touch already-correct DP-900.
+            clean = re.sub(r"\bDP\s*900(?:-\s*\d+)?\b", "DP-900", clean, flags=re.I)
+
+            # Add missing space before opening paren: "System(IIRS)" → "System (IIRS)"
+            clean = re.sub(r"([A-Za-z])\(", r"\1 (", clean)
+            # Remove trailing " - Training" / "- Training" suffix that leaks from AWS cert OCR
+            clean = re.sub(r"\s*-\s*Training\s*$", "", clean, flags=re.I).strip()
+            # Replace 'Graduate' with nothing when it precedes a hyphen (AWS Academy Graduate- → AWS Academy)
+            clean = re.sub(r"\s*Graduate-\s*$", "", clean, flags=re.I).strip()
+            if clean and len(clean) >= 2:
+                raw_certs.append(clean)
+
+        if not raw_certs:
+            return []
+
+        cert_prefixes = (
+            "aws", "azure", "google", "oracle", "mongodb", "hackathon",
+            "certified", "certificate", "coursera", "udemy", "ccna", "pmp",
+        )
+
+        merged_certs: list[str] = []
+        i = 0
+        while i < len(raw_certs):
+            current = raw_certs[i]
+            merged = False
+
+            if i + 1 < len(raw_certs):
+                next_line = raw_certs[i + 1]
+                next_lower = next_line.lower()
+
+                is_next_standalone = any(next_lower.startswith(prefix) for prefix in cert_prefixes)
+
+                is_wrapped = (
+                    # Current ends with hyphen (continuation)
+                    current.endswith("-")
+                    # Next starts with opening paren — e.g. "(IIRS)" continuation
+                    or next_line.startswith("(")
+                    # Current ends with a joining word
+                    or re.search(r"\b(?:of|and|in|for|the|with|geographical|academy)\b$", current, re.I)
+                    # Next starts with a continuation word
+                    or re.search(
+                        r"^(?:system|systems|information|foundations|solutions|architect|associate|"
+                        r"engineer|developer|management|field|cloud|graduate|foundations)\b",
+                        next_line, re.I,
+                    )
+                )
+
+                if is_wrapped and not is_next_standalone:
+                    # Merge: strip trailing hyphen before joining
+                    base = current.rstrip("-").strip()
+                    current = f"{base} {next_line}".strip()
+                    i += 1
+                    merged = True
+
+            # Final cleanup on merged line
+            current = re.sub(r"\s*-\s*Training\s*$", "", current, flags=re.I).strip()
+            # AWS Academy Graduate Cloud Foundations → AWS Academy Cloud Foundations
+            current = re.sub(r"\bGraduate\s+", "", current, flags=re.I).strip()
+            merged_certs.append(current[:255])
+            i += 1
+
+        return merged_certs
 
     @staticmethod
     def _evaluate_quality(sections: dict[str, str], values: dict[str, Any]) -> dict[str, Any]:
@@ -396,16 +605,23 @@ class ResumeExtractor:
         detected_known = [s for s in sections if s in known_sections]
         section_detection_score = round(len(detected_known) / len(known_sections), 2)
 
+        # Languages and location can be optional depending on candidate resume composition
+        optional_fields = {"languages"}
+
         extracted_counts = 0
-        total_fields = len(values)
+        evaluable_fields = 0
         warnings: list[str] = []
 
         for key, val in values.items():
             if val:
                 extracted_counts += 1
+                evaluable_fields += 1
             else:
-                warnings.append(f"Field '{key}' could not be extracted.")
+                if key not in optional_fields:
+                    evaluable_fields += 1
+                    warnings.append(f"Field '{key}' could not be extracted.")
 
+        total_fields = evaluable_fields if evaluable_fields > 0 else len(values)
         entity_extraction_score = round(extracted_counts / total_fields, 2)
         overall_quality_score = round((section_detection_score * 0.4) + (entity_extraction_score * 0.6), 2)
 
@@ -415,3 +631,4 @@ class ResumeExtractor:
             "overall_quality_score": overall_quality_score,
             "warnings": warnings,
         }
+
