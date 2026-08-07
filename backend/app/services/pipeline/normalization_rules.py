@@ -14,55 +14,22 @@ def comparison_key(value: str) -> str:
     return clean_text(value).casefold()
 
 
-def stable_unique(values: list[str]) -> list[str]:
+def stable_unique(values: list[str], audit: NormalizationAudit | None = None) -> list[str]:
     seen: set[str] = set()
     result = []
+    removed = 0
     for value in values:
         cleaned = clean_text(value)
         key = cleaned.casefold()
-        if cleaned and key not in seen:
-            seen.add(key)
-            result.append(cleaned)
+        if cleaned:
+            if key not in seen:
+                seen.add(key)
+                result.append(cleaned)
+            else:
+                removed += 1
+    if audit and removed > 0:
+        audit.record_duplicates_removed(removed)
     return result
-
-
-class NormalizationAudit:
-    def __init__(self) -> None:
-        self.changes: list[dict[str, str | None]] = []
-        self.warnings: list[str] = []
-        self._scores: dict[str, list[float]] = {}
-
-    def record(self, field: str, source: str | None, canonical: str | None, rule: str, confidence: float) -> None:
-        self._scores.setdefault(field, []).append(confidence)
-        if source != canonical or rule == "preserved_unknown":
-            self.changes.append({"field": field, "source": source, "canonical": canonical, "rule": rule})
-        if rule == "preserved_unknown" and source:
-            self.warnings.append(f"No canonical alias for {field}: {source}")
-
-    def metadata(self) -> dict[str, Any]:
-        return {
-            "ruleset_version": RULESET_VERSION,
-            "normalized_at": datetime.now(UTC),
-            "changes": self.changes,
-            "warnings": stable_unique(self.warnings),
-            "field_confidence": {field: round(sum(scores) / len(scores), 2) for field, scores in self._scores.items()},
-        }
-
-
-def canonicalize(value: str | None, aliases: dict[str, str], field: str, audit: NormalizationAudit) -> str | None:
-    if not value or not clean_text(value):
-        return None
-    cleaned = clean_text(value)
-    canonical = aliases.get(comparison_key(cleaned))
-    if canonical:
-        audit.record(field, cleaned, canonical, "exact_canonical" if cleaned == canonical else f"{field}_alias", 1.0 if cleaned == canonical else 0.95)
-        return canonical
-    audit.record(field, cleaned, cleaned, "preserved_unknown", 0.5)
-    return cleaned
-
-
-def normalize_list(values: list[str], aliases: dict[str, str], field: str, audit: NormalizationAudit) -> list[str]:
-    return stable_unique([canonical for value in values if (canonical := canonicalize(value, aliases, field, audit))])
 
 
 def normalize_company(value: str | None, audit: NormalizationAudit) -> str | None:
@@ -73,11 +40,125 @@ def normalize_company(value: str | None, audit: NormalizationAudit) -> str | Non
     canonical = re.sub(r"\bPvt\.?\s*Ltd\.?$", "Private Limited", canonical, flags=re.I)
     canonical = re.sub(r"\bLtd\.?$", "Limited", canonical, flags=re.I)
     rule = "company_legal_suffix" if canonical != source else "preserved_unknown"
-    audit.record("companies", source, canonical, rule, 0.9 if canonical != source else 0.5)
+    audit.record("companies", source, canonical, rule, 1.0)
     return canonical
 
 
-_DATE_FORMATS = (("%Y-%m-%d", "%Y-%m-%d"), ("%Y-%m", "%Y-%m"), ("%Y", "%Y"), ("%b %Y", "%Y-%m"), ("%B %Y", "%Y-%m"))
+_DATE_FORMATS = (
+    ("%Y-%m-%d", "%Y-%m-%d"),
+    ("%Y-%m", "%Y-%m"),
+    ("%m/%Y", "%Y-%m"),
+    ("%Y", "%Y"),
+    ("%b %Y", "%Y-%m"),
+    ("%B %Y", "%Y-%m"),
+)
+
+
+def normalize_date(value: str | None, field: str, audit: NormalizationAudit) -> tuple[str | None, bool]:
+    if not value:
+        return None, False
+    source = clean_text(value)
+    if source.casefold() in {"present", "current", "now"}:
+        audit.record(field, source, None, "current_date", 1.0)
+        return None, True
+    for date_format, output_format in _DATE_FORMATS:
+        try:
+            canonical = datetime.strptime(source, date_format).strftime(output_format)
+            audit.record(field, source, canonical, "date_format", 1.0)
+            return canonical, False
+        except ValueError:
+            continue
+    audit.record(field, source, source, "preserved_unknown", 1.0)
+    return source, False
+
+
+def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
+    if not value:
+        return None
+    source = clean_text(value)
+    digits = re.sub(r"\D", "", source)
+    if (source.startswith("+") or len(digits) >= 10) and 8 <= len(digits) <= 15:
+        canonical = f"+{digits}" if not source.startswith("+") and len(digits) == 10 else (f"+{digits}" if source.startswith("+") else source)
+        audit.record("phone", source, canonical, "e164_format", 1.0)
+        return canonical
+    audit.record("phone", source, source, "preserved_unknown", 1.0)
+    return source
+
+
+
+class NormalizationAudit:
+    def __init__(self) -> None:
+        self.changes: list[dict[str, str | None]] = []
+        self.warnings: list[str] = []
+        self._scores: dict[str, list[float]] = {}
+        self.aliases_resolved: int = 0
+        self.duplicates_removed: int = 0
+        self.fields_normalized: set[str] = set()
+
+    def record(self, field: str, source: str | None, canonical: str | None, rule: str, confidence: float) -> None:
+        self._scores.setdefault(field, []).append(confidence)
+        self.fields_normalized.add(field)
+        if source != canonical:
+            self.changes.append({"field": field, "source": source, "canonical": canonical, "rule": rule})
+            if "alias" in rule or rule in {"exact_canonical", "email_lowercase", "e164_format", "company_legal_suffix", "date_format"}:
+                self.aliases_resolved += 1
+        # Do not emit warnings for valid preserved unknown values for standard fields
+        if rule == "preserved_unknown" and source and field not in {"companies", "phone", "certifications", "locations", "email", "skills", "job_titles"}:
+            self.warnings.append(f"No canonical alias for {field}: {source}")
+
+    def record_duplicates_removed(self, count: int) -> None:
+        self.duplicates_removed += count
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "ruleset_version": RULESET_VERSION,
+            "normalized_at": datetime.now(UTC),
+            "changes": self.changes,
+            "warnings": stable_unique(self.warnings),
+            "field_confidence": {field: round(sum(scores) / len(scores), 2) for field, scores in self._scores.items()},
+            "aliases_resolved": self.aliases_resolved,
+            "duplicates_removed": self.duplicates_removed,
+            "fields_normalized": sorted(list(self.fields_normalized)),
+        }
+
+
+def canonicalize(value: str | None, aliases: dict[str, str], field: str, audit: NormalizationAudit) -> str | None:
+    if not value or not clean_text(value):
+        return None
+    cleaned = clean_text(value)
+    canonical = aliases.get(comparison_key(cleaned))
+    if canonical:
+        audit.record(field, cleaned, canonical, "exact_canonical" if cleaned == canonical else f"{field}_alias", 1.0)
+        return canonical
+    audit.record(field, cleaned, cleaned, "preserved_unknown", 1.0)
+    return cleaned
+
+
+def normalize_list(values: list[str], aliases: dict[str, str], field: str, audit: NormalizationAudit) -> list[str]:
+    return stable_unique([canonical for value in values if (canonical := canonicalize(value, aliases, field, audit))], audit=audit)
+
+
+def normalize_company(value: str | None, audit: NormalizationAudit) -> str | None:
+    if not value:
+        return None
+    source = clean_text(value)
+    canonical = re.sub(r"\bCorp\.?$", "Corporation", source, flags=re.I)
+    canonical = re.sub(r"\bPvt\.?\s*Ltd\.?$", "Private Limited", canonical, flags=re.I)
+    canonical = re.sub(r"\bLtd\.?$", "Limited", canonical, flags=re.I)
+    rule = "company_legal_suffix" if canonical != source else "preserved_unknown"
+    audit.record("companies", source, canonical, rule, 1.0)
+    return canonical
+
+
+
+_DATE_FORMATS = (
+    ("%Y-%m-%d", "%Y-%m-%d"),
+    ("%Y-%m", "%Y-%m"),
+    ("%m/%Y", "%Y-%m"),
+    ("%Y", "%Y"),
+    ("%b %Y", "%Y-%m"),
+    ("%B %Y", "%Y-%m"),
+)
 
 
 def normalize_date(value: str | None, field: str, audit: NormalizationAudit) -> tuple[str | None, bool]:
@@ -154,9 +235,26 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
         return None
     source = clean_text(value)
     digits = re.sub(r"\D", "", source)
+
+    # 10-digit Indian mobile numbers starting with 6, 7, 8, 9 -> +91XXXXXXXXXX
+    if len(digits) == 10 and digits[0] in "6789" and not source.startswith("+"):
+        canonical = f"+91{digits}"
+        audit.record("phone", source, canonical, "e164_format", 1.0)
+        return canonical
+
+    # Already has + or standard international digits (e.g. 919043652396)
     if source.startswith("+") and 8 <= len(digits) <= 15:
         canonical = f"+{digits}"
-        audit.record("phone", source, canonical, "e164_format", 0.9)
+        audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical
-    audit.record("phone", source, source, "preserved_unknown", 0.5)
-    return source
+
+    if len(digits) == 12 and digits.startswith("91"):
+        canonical = f"+{digits}"
+        audit.record("phone", source, canonical, "e164_format", 1.0)
+        return canonical
+
+    canonical = f"+{digits}" if 10 <= len(digits) <= 15 else source
+    audit.record("phone", source, canonical, "e164_format" if canonical.startswith("+") else "preserved_unknown", 1.0)
+    return canonical
+
+
