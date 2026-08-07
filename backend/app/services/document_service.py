@@ -13,7 +13,7 @@ from app.core.exceptions import (
     ConflictException,
     InternalServerException,
 )
-from app.models.document import DocumentModel
+from app.models.document import DocumentModel, DocumentTypeEnum
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.document import (
@@ -45,6 +45,12 @@ class DocumentNotFoundException(AppException):
     default_message = "The requested document was not found."
 
 
+class DocumentBelongsToAnotherProjectException(AppException):
+    status_code = 400
+    error_code = "DOCUMENT_PROJECT_MISMATCH"
+    default_message = "The document does not belong to the specified project."
+
+
 class DocumentFileMissingException(AppException):
     status_code = 404
     error_code = "DOCUMENT_FILE_MISSING"
@@ -59,8 +65,6 @@ class DocumentDownload:
 
 
 class DocumentService:
-    """Coordinate validation, project ownership, storage, and persistence."""
-
     def __init__(
         self,
         repository: DocumentRepository,
@@ -378,6 +382,98 @@ class DocumentService:
             raise
         except SQLAlchemyError as exc:
             await self.repository.session.rollback()
+
+    async def _verify_project(self, project_id: UUID) -> None:
+        try:
+            project = await self.project_repository.get_by_id(project_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to verify project.") from exc
+        if project is None:
+            raise ProjectNotFoundException()
+
+    async def list_documents(
+        self,
+        project_id: UUID | None,
+        document_type: DocumentType | None,
+        processing_status: ProcessingStatus | None,
+        search: str | None,
+        page: int,
+        page_size: int,
+        sort_order: SortOrder,
+    ) -> DocumentPaginatedResponse:
+        if project_id is not None:
+            await self._verify_project(project_id)
+        normalized_search = search.strip() if search else None
+        try:
+            documents, total = await self.repository.list_documents(
+                document_type,
+                processing_status,
+                page,
+                page_size,
+                project_id=project_id,
+                search=normalized_search,
+                sort_order=sort_order,
+            )
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to list documents.") from exc
+        return DocumentPaginatedResponse(
+            items=[DocumentRead.model_validate(document) for document in documents],
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=math.ceil(total / page_size),
+        )
+
+    async def get_document(self, document_id: UUID) -> DocumentRead:
+        try:
+            document = await self.repository.get_document(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve document.") from exc
+        if document is None:
+            raise DocumentNotFoundException()
+        await self._verify_project(document.project_id)
+        return DocumentRead.model_validate(document)
+
+    async def download_document(self, document_id: UUID) -> DocumentDownload:
+        try:
+            document = await self.repository.download_document(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve document.") from exc
+        if document is None:
+            raise DocumentNotFoundException()
+        await self._verify_project(document.project_id)
+        path = self.storage.resolve_file(document.file_path)
+        if path is None:
+            raise DocumentFileMissingException()
+        return DocumentDownload(
+            path=path,
+            filename=document.original_filename,
+            mime_type=document.mime_type,
+        )
+
+    async def delete_document(self, document_id: UUID) -> None:
+        try:
+            document = await self.repository.get_document(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve document.") from exc
+        if document is None:
+            raise DocumentNotFoundException()
+        await self._verify_project(document.project_id)
+        if self.storage.resolve_file(document.file_path) is None:
+            raise DocumentFileMissingException()
+
+        try:
+            deleted = await self.repository.delete_document(document_id, commit=False)
+            if deleted is None:
+                raise DocumentNotFoundException()
+            if not self.storage.delete_file(document.file_path):
+                raise DocumentFileMissingException()
+            await self.repository.session.commit()
+        except (DocumentNotFoundException, DocumentFileMissingException):
+            await self.repository.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.repository.session.rollback()
             raise InternalServerException("Unable to delete document.") from exc
         except Exception:
             await self.repository.session.rollback()
@@ -387,4 +483,96 @@ class DocumentService:
             "document_deleted_successfully",
             document_id=str(document_id),
             project_id=str(document.project_id),
+        )
+
+    async def delete_resume(self, project_id: UUID, document_id: UUID) -> None:
+        """Validate ownership, cascade-delete pipeline data, and remove physical file for a resume."""
+        await self._verify_project(project_id)
+
+        try:
+            document = await self.repository.get_by_id(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve document.") from exc
+
+        if document is None or document.deleted_at is not None:
+            raise DocumentNotFoundException("The requested resume was not found.")
+
+        if document.project_id != project_id:
+            raise DocumentBelongsToAnotherProjectException()
+
+        if document.document_type != DocumentTypeEnum.RESUME:
+            raise DocumentNotFoundException("The requested document is not a resume.")
+
+        try:
+            await self.repository.cleanup_pipeline_data(document_id, DocumentType.RESUME)
+            deleted = await self.repository.delete_document(document_id, commit=False)
+            if deleted is None:
+                raise DocumentNotFoundException()
+            await self.repository.session.commit()
+        except (DocumentNotFoundException, DocumentBelongsToAnotherProjectException):
+            await self.repository.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.repository.session.rollback()
+            raise InternalServerException("Unable to delete resume records.") from exc
+        except Exception:
+            await self.repository.session.rollback()
+            raise
+
+        try:
+            self.storage.delete_file(document.file_path)
+        except Exception:
+            logger.exception(
+                "resume_file_cleanup_failed",
+                document_id=str(document_id),
+                project_id=str(project_id),
+            )
+
+        logger.info(
+            "resume_deleted_successfully",
+            document_id=str(document_id),
+            project_id=str(project_id),
+        )
+
+    async def delete_job_description(self, project_id: UUID) -> None:
+        """Validate ownership, cascade-delete pipeline data, and remove physical file for active Job Description."""
+        await self._verify_project(project_id)
+
+        try:
+            document = await self.repository.get_job_description_by_project(project_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve project Job Description.") from exc
+
+        if document is None:
+            raise DocumentNotFoundException("Project Job Description was not found.")
+
+        try:
+            await self.repository.cleanup_pipeline_data(document.id, DocumentType.JOB_DESCRIPTION)
+            deleted = await self.repository.delete_document(document.id, commit=False)
+            if deleted is None:
+                raise DocumentNotFoundException()
+            await self.repository.session.commit()
+        except DocumentNotFoundException:
+            await self.repository.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.repository.session.rollback()
+            raise InternalServerException("Unable to delete Job Description records.") from exc
+        except Exception:
+            await self.repository.session.rollback()
+            raise
+
+        try:
+            self.storage.delete_file(document.file_path)
+        except Exception:
+            logger.exception(
+                "job_description_file_cleanup_failed",
+                document_id=str(document.id),
+                project_id=str(project_id),
+            )
+
+        logger.info(
+            "job_description_deleted_successfully",
+            document_id=str(document.id),
+            project_id=str(project_id),
         )
