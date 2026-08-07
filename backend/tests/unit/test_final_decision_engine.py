@@ -40,7 +40,10 @@ def test_knockout_confidence_and_recommendation_thresholds() -> None:
     assert knocked and "Python" in reason
     extracted = SimpleNamespace(**{name: "x" for name in ConfidenceService.FIELDS})
     assert ConfidenceService.calculate(extracted) == 100
-    assert RecommendationService.recommend(90, 70) == RecommendationLevel.STRONG_MATCH
-    assert RecommendationService.recommend(70, 70) == RecommendationLevel.RECOMMENDED
-    assert RecommendationService.recommend(60, 70) == RecommendationLevel.NEEDS_REVIEW
-    assert RecommendationService.recommend(100, 70, True) == RecommendationLevel.NOT_RECOMMENDED
+    assert RecommendationService.recommend(90, 70) == RecommendationLevel.SHORTLIST
+    assert RecommendationService.recommend(75, 70) == RecommendationLevel.REVIEW
+    assert RecommendationService.recommend(60, 70) == RecommendationLevel.CONSIDER
+    assert RecommendationService.recommend(40, 70) == RecommendationLevel.REJECT
+
+    assert RecommendationService.recommend(100, 70, True) == RecommendationLevel.REJECT
+

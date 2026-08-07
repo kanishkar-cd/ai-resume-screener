@@ -17,7 +17,7 @@ from app.schemas.scoring import CandidateScoreCreate, ComponentScoreDetail, Comp
 
 def _score(document_id, project_id, score):
     detail = ComponentScoreDetail(score=score, explanation="test")
-    return CandidateScoreCreate(document_id=document_id, project_id=project_id, component_scores=ComponentScores(skills=detail, experience=detail, projects=detail, education=detail, certifications=detail, languages=detail), weighted_scores=WeightedScores(skills=score * .4, experience=score * .25, projects=score * .15, education=score * .1, certifications=score * .05, languages=score * .05), raw_total_score=score, weighted_total_score=score, penalty_total=0, bonus_total=0, final_score=score, confidence=score, recommendation=RecommendationLevel.STRONG_MATCH if score >= 85 else RecommendationLevel.RECOMMENDED, weight_config_version=1)
+    return CandidateScoreCreate(document_id=document_id, project_id=project_id, component_scores=ComponentScores(skills=detail, experience=detail, projects=detail, education=detail, certifications=detail, languages=detail), weighted_scores=WeightedScores(skills=score * .4, experience=score * .25, projects=score * .15, education=score * .1, certifications=score * .05, languages=score * .05), raw_total_score=score, weighted_total_score=score, penalty_total=0, bonus_total=0, final_score=score, confidence=score, recommendation=RecommendationLevel.SHORTLIST if score >= 85 else RecommendationLevel.REVIEW, weight_config_version=1)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -35,7 +35,8 @@ async def test_ranking_repository_upsert_search_filters_statistics_and_history()
             docs.append(document); score_models.append(await scores.upsert_score(_score(document.id, project.id, value)))
         first = [CandidateRankingCreate(document_id=docs[i].id, candidate_score_id=score_models[i].id, rank_position=i + 1, percentile=100 - i * 50, final_score=90 - i * 20, recommendation=score_models[i].recommendation.value, confidence=90 - i * 20) for i in range(2)]
         assert await rankings.bulk_upsert_rankings(project.id, first)
-        rows, total = await rankings.list_rankings(project.id, {"recommendation": RecommendationLevel.STRONG_MATCH, "min_score": 80, "max_score": None, "is_knocked_out": False}, "jane", 1, 20, RankingSortField.SCORE, RankingSortOrder.DESC)
+        rows, total = await rankings.list_rankings(project.id, {"recommendation": RecommendationLevel.SHORTLIST, "min_score": 80, "max_score": None, "is_knocked_out": False}, "jane", 1, 20, RankingSortField.SCORE, RankingSortOrder.DESC)
+
         assert total == 1 and rows[0]["candidate_name"] == "Jane Doe"
         stats = await rankings.get_project_statistics(project.id)
         assert stats["total_candidates"] == 2 and stats["average_score"] == 80

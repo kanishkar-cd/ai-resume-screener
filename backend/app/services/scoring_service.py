@@ -127,6 +127,30 @@ class ScoringEngineFacade:
             final_score = 0.0 if knocked_out else round(max(0, min(100, weighted_total - penalty_total + bonus_total)), 2)
             confidence = ConfidenceService.calculate(extracted)
             recommendation = RecommendationService.recommend(final_score, float(config.passing_score), knocked_out)
+            # Extract top-level summary fields directly from existing component scores
+            matched_skills = list(components.skills.matched_items)
+            missing_skills = list(components.skills.missing_items)
+
+            strengths: list[str] = []
+            weaknesses: list[str] = []
+
+            for comp_name in ("skills", "experience", "projects", "education", "certifications"):
+                comp_detail = getattr(components, comp_name, None)
+                if comp_detail:
+                    if comp_detail.score >= 80.0 and comp_detail.explanation:
+                        strengths.append(f"{comp_name.title()}: {comp_detail.explanation}")
+                    elif comp_detail.score < 60.0 and comp_detail.explanation:
+                        weaknesses.append(f"{comp_name.title()}: {comp_detail.explanation}")
+
+            if penalties:
+                for p in penalties:
+                    if p.delta_points < 0:
+                        weaknesses.append(f"Penalty: {p.description}")
+            if bonuses:
+                for b in bonuses:
+                    if b.delta_points > 0:
+                        strengths.append(f"Bonus: {b.description}")
+
             model = await self.scores.upsert_score(CandidateScoreCreate(
                 document_id=document.id, project_id=document.project_id,
                 component_scores=components, weighted_scores=weighted,
@@ -136,12 +160,17 @@ class ScoringEngineFacade:
                 is_knocked_out=knocked_out, knockout_reason=knockout_reason,
                 penalty_summary=penalties, bonus_summary=bonuses,
                 weight_config_version=config.version,
+                matched_skills=matched_skills,
+                missing_skills=missing_skills,
+                strengths=strengths,
+                weaknesses=weaknesses,
             ))
         except AppException: raise
         except Exception as exc:
             logger.exception("candidate_scoring_failed", document_id=str(document.id))
             raise ScoringFailedException() from exc
         return CandidateScoreRead.model_validate(model)
+
 
     async def _verify_project(self, project_id: UUID) -> None:
         try: project = await self.projects.get_by_id(project_id)

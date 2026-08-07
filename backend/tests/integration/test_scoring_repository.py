@@ -31,7 +31,8 @@ async def test_scoring_repository_upsert_queryable_columns_and_delete() -> None:
             document_id=document.id, project_id=project.id, component_scores=components,
             weighted_scores=WeightedScores(skills=32, experience=20, projects=12, education=8, certifications=4, languages=4),
             raw_total_score=80, weighted_total_score=80, penalty_total=0, bonus_total=0,
-            final_score=80, confidence=90, recommendation=RecommendationLevel.RECOMMENDED,
+            final_score=80, confidence=90, recommendation=RecommendationLevel.REVIEW,
+
             weight_config_version=1,
         )
         created = await scores.upsert_score(data)

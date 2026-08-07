@@ -21,7 +21,8 @@ def test_deterministic_insight_builder() -> None:
         weighted_scores={"skills": 36, "experience": 21.25, "projects": 7.5, "education": 10, "certifications": 2, "languages": 5},
         raw_total_score=77.5, weighted_total_score=81.75, penalty_total=5,
         bonus_total=2, final_score=78.75, confidence=91.67,
-        recommendation=RecommendationLevelEnum.RECOMMENDED, is_knocked_out=False,
+        recommendation=RecommendationLevelEnum.REVIEW, is_knocked_out=False,
+
         knockout_reason=None,
     )
     insight = InsightBuilder().build(uuid4(), uuid4(), extracted, normalized, score, SimpleNamespace(rank_position=2))

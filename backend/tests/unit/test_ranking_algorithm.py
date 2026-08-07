@@ -7,7 +7,8 @@ from app.services.ranking.ranking_algorithm import RankingAlgorithm
 
 
 def _score(final: float, skills: float, experience: float, confidence: float):
-    return SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=final, skills_score=skills, experience_score=experience, confidence=confidence, recommendation=RecommendationLevelEnum.RECOMMENDED)
+    return SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=final, skills_score=skills, experience_score=experience, confidence=confidence, recommendation=RecommendationLevelEnum.REVIEW)
+
 
 
 def test_five_tier_ranking_order_and_history() -> None:

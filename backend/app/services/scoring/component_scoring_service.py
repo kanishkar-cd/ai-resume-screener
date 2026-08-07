@@ -1,6 +1,8 @@
 from typing import Any
 
 from app.schemas.scoring import ComponentScoreDetail, ComponentScores
+from app.services.pipeline.extraction_pipeline import DESIGNATIONS
+
 
 
 class ComponentScoringService:
@@ -47,11 +49,37 @@ class ComponentScoringService:
         project_terms: list[str] = []
         for project in projects or []:
             project_terms.extend(project.get("technologies") or [])
-            if project.get("name"): project_terms.append(project["name"])
-        project_score = self._match(project_terms, list(job.keywords or []), "job keywords")
-        certifications = self._match(list(resume.certifications or []), list(config.required_certifications or []), "required certifications")
-        languages = self._match(list(resume.languages or []), [], "required languages")
+            if project.get("name"):
+                project_terms.append(project["name"])
+
+        # Project keyword matching strictly against project names and technologies (excluding job titles)
+        project_keywords = [k for k in list(job.keywords or []) if k.casefold() not in {t.casefold() for t in DESIGNATIONS}]
+        project_score = self._match(project_terms, project_keywords, "job keywords")
+
+        req_certs = list(config.required_certifications or [])
+        if req_certs:
+            certifications = self._match(list(resume.certifications or []), req_certs, "required certifications")
+        else:
+            certifications = ComponentScoreDetail(
+                score=100.0,
+                matched_items=[],
+                missing_items=[],
+                explanation="No specific certification requirements configured (N/A).",
+            )
+
+        req_langs = list(getattr(config, "required_languages", None) or [])
+        if req_langs:
+            languages = self._match(list(resume.languages or []), req_langs, "required languages")
+        else:
+            languages = ComponentScoreDetail(
+                score=100.0,
+                matched_items=[],
+                missing_items=[],
+                explanation="No specific language requirements configured (N/A).",
+            )
+
         return ComponentScores(skills=skills, experience=experience, projects=project_score, education=education, certifications=certifications, languages=languages)
+
 
     def _match(self, candidate: list[str], required: list[str], label: str) -> ComponentScoreDetail:
         candidate_keys = self._keys(candidate)
