@@ -29,7 +29,17 @@ class CandidateRankingModel(UUIDMixin, TimestampMixin, Base):
     rank_position: Mapped[int] = mapped_column(Integer, nullable=False)
     percentile: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     final_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
-    recommendation: Mapped[RecommendationLevelEnum] = mapped_column(Enum(RecommendationLevelEnum, name="recommendation_level_enum", create_type=False), nullable=False)
+    recommendation: Mapped[RecommendationLevelEnum] = mapped_column(
+
+        Enum(
+            RecommendationLevelEnum,
+            name="recommendation_level_enum",
+            create_type=False,
+            values_callable=lambda _: ["STRONG_MATCH", "RECOMMENDED", "NEEDS_REVIEW", "NOT_RECOMMENDED"],
+        ),
+        nullable=False,
+    )
+
     confidence: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     previous_rank: Mapped[int | None] = mapped_column(Integer)
     rank_change: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

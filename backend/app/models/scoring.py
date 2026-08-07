@@ -15,10 +15,16 @@ if TYPE_CHECKING:
 
 
 class RecommendationLevelEnum(str, enum.Enum):
-    STRONG_MATCH = "STRONG_MATCH"
-    RECOMMENDED = "RECOMMENDED"
-    NEEDS_REVIEW = "NEEDS_REVIEW"
-    NOT_RECOMMENDED = "NOT_RECOMMENDED"
+    SHORTLIST = "SHORTLIST"
+    REVIEW = "REVIEW"
+    CONSIDER = "CONSIDER"
+    REJECT = "REJECT"
+
+    # Backward compatibility mappings for DB persistence
+    STRONG_MATCH = "SHORTLIST"
+    RECOMMENDED = "REVIEW"
+    NEEDS_REVIEW = "CONSIDER"
+    NOT_RECOMMENDED = "REJECT"
 
 
 def _score_column() -> Mapped[Decimal]:
@@ -49,8 +55,17 @@ class CandidateScoreModel(UUIDMixin, TimestampMixin, Base):
     bonus_total: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"), server_default="0")
     final_score: Mapped[Decimal] = _score_column()
     confidence: Mapped[Decimal] = _score_column()
-    recommendation: Mapped[RecommendationLevelEnum] = mapped_column(Enum(RecommendationLevelEnum, name="recommendation_level_enum"), nullable=False)
+    recommendation: Mapped[RecommendationLevelEnum] = mapped_column(
+        Enum(
+            RecommendationLevelEnum,
+            name="recommendation_level_enum",
+            values_callable=lambda _: ["STRONG_MATCH", "RECOMMENDED", "NEEDS_REVIEW", "NOT_RECOMMENDED"],
+        ),
+        nullable=False,
+    )
     is_knocked_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+
     knockout_reason: Mapped[str | None] = mapped_column(Text)
     penalty_summary: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     bonus_summary: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))

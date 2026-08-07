@@ -6,10 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RecommendationLevel(str, Enum):
-    STRONG_MATCH = "STRONG_MATCH"
-    RECOMMENDED = "RECOMMENDED"
-    NEEDS_REVIEW = "NEEDS_REVIEW"
-    NOT_RECOMMENDED = "NOT_RECOMMENDED"
+    SHORTLIST = "SHORTLIST"
+    REVIEW = "REVIEW"
+    CONSIDER = "CONSIDER"
+    REJECT = "REJECT"
+
+
 
 
 class ComponentScoreDetail(BaseModel):
@@ -60,6 +62,11 @@ class CandidateScoreCreate(BaseModel):
     penalty_summary: list[AdjustmentItem] = Field(default_factory=list)
     bonus_summary: list[AdjustmentItem] = Field(default_factory=list)
     weight_config_version: int = Field(ge=1)
+    matched_skills: list[str] = Field(default_factory=list)
+    missing_skills: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+
 
 
 class CandidateScoreRead(CandidateScoreCreate):

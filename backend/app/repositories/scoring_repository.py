@@ -19,15 +19,26 @@ class ScoringRepository:
         values["document_id"] = UUID(values["document_id"])
         values["project_id"] = UUID(values["project_id"])
         values["recommendation"] = RecommendationLevelEnum(values["recommendation"])
+
+
+
         components = values["component_scores"]
+
         values.update({f"{name}_score": detail["score"] for name, detail in components.items()})
+
+        # Remove optional schema-only helper fields before constructing DB ORM model
+        db_valid_keys = {c.name for c in CandidateScoreModel.__table__.columns}
+        model_values = {k: v for k, v in values.items() if k in db_valid_keys}
+
         model = await self.get_document_score(values["document_id"])
         if model is None:
-            model = CandidateScoreModel(**values)
+            model = CandidateScoreModel(**model_values)
             self.session.add(model)
         else:
-            values.pop("document_id")
-            for field, value in values.items(): setattr(model, field, value)
+            model_values.pop("document_id", None)
+            for field, value in model_values.items():
+                setattr(model, field, value)
+
         try:
             await self.session.commit()
         except SQLAlchemyError:

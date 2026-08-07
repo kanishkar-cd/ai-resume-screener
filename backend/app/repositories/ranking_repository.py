@@ -25,6 +25,11 @@ class RankingRepository:
             data = CandidateRankingCreate.model_validate(item)
             values = data.model_dump()
             values["recommendation"] = RecommendationLevelEnum(data.recommendation.value)
+
+
+
+
+
             model = existing.get(data.document_id)
             if model is None:
                 model = CandidateRankingModel(project_id=project_id, **values)
