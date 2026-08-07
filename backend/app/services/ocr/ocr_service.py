@@ -24,9 +24,28 @@ class OCRService:
 
     def process_page_images(self, page_images: Sequence[bytes]) -> str:
         """Process page image bytes sequentially and return combined page text."""
+        provider_name = type(self.provider).__name__
+        logger.info(
+            "ocr_service_processing_pages",
+            page_count=len(page_images),
+            provider=provider_name,
+        )
         extracted_pages: list[str] = []
         for index, image_bytes in enumerate(page_images):
             page_text = self.provider.extract_text_from_image(image_bytes)
-            logger.debug("ocr_page_processed", page_index=index, text_length=len(page_text))
+            logger.info(
+                "ocr_page_processed",
+                page_index=index,
+                text_length=len(page_text),
+                provider=provider_name,
+            )
             extracted_pages.append(page_text.strip())
-        return "\n\n".join(extracted_pages)
+
+        combined_text = "\n\n".join(extracted_pages)
+        logger.info(
+            "ocr_service_completed",
+            total_pages=len(page_images),
+            combined_text_len=len(combined_text),
+            provider=provider_name,
+        )
+        return combined_text

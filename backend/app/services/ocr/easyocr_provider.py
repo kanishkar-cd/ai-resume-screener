@@ -30,6 +30,6 @@ class EasyOCRProvider(BaseOCRProvider):
             if isinstance(results, list):
                 return "\n".join(str(item) for item in results)
             return str(results)
-        except Exception:
-            logger.exception("easyocr_text_extraction_failed")
-            return ""
+        except Exception as exc:
+            logger.exception("easyocr_text_extraction_failed", error=str(exc))
+            raise RuntimeError(f"EasyOCR text extraction failed: {exc}") from exc

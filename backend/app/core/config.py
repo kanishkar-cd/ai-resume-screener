@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = Field(default_factory=list)
 
     ENABLE_OCR_FALLBACK: bool = True
-    OCR_ENGINE: str = "easyocr"
+    OCR_ENGINE: str = "paddleocr"
     OCR_LANGUAGES: list[str] | str = Field(default_factory=lambda: ["en"])
     OCR_DPI: int = 200
 

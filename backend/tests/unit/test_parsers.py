@@ -8,6 +8,7 @@ from docx import Document
 from app.schemas.parsed_document import ParserEngineEnum
 from app.services.ocr.base import BaseOCRProvider
 from app.services.ocr.easyocr_provider import EasyOCRProvider
+from app.services.ocr.paddleocr_provider import PaddleOCRProvider
 from app.services.ocr.factory import OCRProviderFactory
 from app.services.ocr.ocr_service import OCRService
 from app.services.parsers.base_parser import CorruptedFileException
@@ -76,7 +77,7 @@ def test_scanned_pdf_triggers_ocr_fallback(tmp_path: Path) -> None:
     assert result.page_count == 1
     assert result.parser_engine == ParserEngineEnum.PYMUPDF
     assert result.metadata["ocr_used"] is True
-    assert result.metadata["ocr_engine"] == "EASYOCR"
+    assert result.metadata["ocr_engine"] == "PADDLEOCR"
     assert "OCR Extracted Text From Image" in result.raw_text
 
 
@@ -155,14 +156,17 @@ def test_corrupted_pdf_is_rejected(tmp_path: Path) -> None:
 
 
 def test_ocr_provider_factory_registration() -> None:
-    factory_provider = OCRProviderFactory.create("easyocr")
-    assert factory_provider is not None
+    factory_paddle = OCRProviderFactory.create("paddleocr")
+    assert factory_paddle is not None
+    factory_easy = OCRProviderFactory.create("easyocr")
+    assert factory_easy is not None
 
     with pytest.raises(ValueError):
         OCRProviderFactory.create("unsupported_engine_xyz")
 
 
 def test_real_easyocr_provider_extraction() -> None:
+    pytest.importorskip("easyocr")
     img = Image.new("RGB", (300, 100), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     draw.text((20, 30), "HELLO OCR", fill=(0, 0, 0))
@@ -172,3 +176,17 @@ def test_real_easyocr_provider_extraction() -> None:
     provider = EasyOCRProvider(languages=["en"])
     text = provider.extract_text_from_image(buf.getvalue())
     assert "HELLO" in text.upper() or "OCR" in text.upper() or len(text) > 0
+
+
+def test_paddleocr_provider_extraction() -> None:
+    pytest.importorskip("paddleocr")
+    img = Image.new("RGB", (300, 100), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((20, 30), "HELLO PADDLE", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+
+    provider = OCRProviderFactory.create("paddleocr", languages=["en"])
+    text = provider.extract_text_from_image(buf.getvalue())
+    assert isinstance(text, str)
+

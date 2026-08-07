@@ -43,7 +43,13 @@ class PDFParser(BaseParser):
 
                 # 2. Scanned / Image-based PDF detection and OCR fallback
                 if (not raw_text.strip() or word_count == 0) and settings.ENABLE_OCR_FALLBACK:
-                    logger.info("scanned_pdf_detected_invoking_ocr", file_path=str(file_path))
+                    ocr_engine = settings.OCR_ENGINE.upper()
+                    logger.info(
+                        "scanned_pdf_detected_invoking_ocr",
+                        file_path=str(file_path),
+                        page_count=document.page_count,
+                        ocr_engine=ocr_engine,
+                    )
                     page_images: list[bytes] = []
                     dpi = getattr(settings, "OCR_DPI", 200)
 
@@ -51,9 +57,25 @@ class PDFParser(BaseParser):
                         pix = page.get_pixmap(dpi=dpi)
                         page_images.append(pix.tobytes("png"))
 
-                    raw_text = self.ocr_service.process_page_images(page_images)
-                    ocr_used = True
-                    ocr_engine = settings.OCR_ENGINE.upper()
+                    try:
+                        raw_text = self.ocr_service.process_page_images(page_images)
+                        ocr_used = True
+                        logger.info(
+                            "ocr_fallback_completed",
+                            file_path=str(file_path),
+                            ocr_engine=ocr_engine,
+                            extracted_text_len=len(raw_text),
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "ocr_fallback_execution_failed",
+                            file_path=str(file_path),
+                            ocr_engine=ocr_engine,
+                            error=str(exc),
+                        )
+                        raise CorruptedFileException(
+                            f"OCR fallback failed using {ocr_engine}: {exc}"
+                        ) from exc
 
                 metadata = {
                     "parser_engine": ParserEngineEnum.PYMUPDF.value,

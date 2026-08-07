@@ -2,12 +2,14 @@ from typing import Type
 
 from app.services.ocr.base import BaseOCRProvider
 from app.services.ocr.easyocr_provider import EasyOCRProvider
+from app.services.ocr.paddleocr_provider import PaddleOCRProvider
 
 
 class OCRProviderFactory:
     """Factory to register and instantiate OCR providers dynamically."""
 
     _providers: dict[str, Type[BaseOCRProvider]] = {
+        "paddleocr": PaddleOCRProvider,
         "easyocr": EasyOCRProvider,
     }
 
@@ -17,7 +19,7 @@ class OCRProviderFactory:
 
     @classmethod
     def create(
-        cls, engine_name: str = "easyocr", languages: list[str] | None = None
+        cls, engine_name: str = "paddleocr", languages: list[str] | None = None
     ) -> BaseOCRProvider:
         provider_cls = cls._providers.get(engine_name.lower())
         if provider_cls is None:

@@ -1,7 +1,9 @@
+from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
 from typing import Any
+
 
 from app.services.pipeline.canonical_dictionaries import RULESET_VERSION
 
