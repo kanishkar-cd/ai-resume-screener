@@ -515,3 +515,59 @@ Hackathon (Techgium)
     assert not any("badges" in c.lower() for c in certs)
     assert not any("Coimba" in (exp.get("description") or "") for exp in result["experience"])
 
+
+def test_ocr_extraction_polish_requirements() -> None:
+    ocr_resume_text = """Kumaraguru College of Technology
+kanishkakr@gmail.comwww.linkedin.com/in/kanishka
+9876543210
+Coimbatore
+
+EDUCATION
+Kumaraguru College of Technology
+BE Electronics & Instrumentation Engineering
+2020 - 2024
+8.5 CGPA
+
+PROJECT EXPERIENCE
+• Project: Automated Smart Agriculture System
+- Built IoT monitoring app using Python, Raspberry Pi, and MQTT.
+- Integrated React dashboard and PostgreSQL for real-time analytics.
+
+• Project: Industrial Motor Health Monitoring
+- Developed predictive maintenance pipeline using Scikit-learn and Flask.
+- Reduced machine downtime by 30%.
+
+WORK EXPERIENCE
+TechCorp Systems, Bangalore
+Role : Software Engineer Intern
+01/2024 - 06/2024
+- Built REST APIs in FastAPI and Dockerized services.
+"""
+    extractor = ResumeExtractor()
+    result = extractor.extract(ocr_resume_text)
+
+    # 1. Merged email + URL cleanup
+    assert result["email"] == "kanishkakr@gmail.com"
+
+    # 2. Section classification: PROJECT EXPERIENCE must be classified under projects, not experience
+    assert len(result["projects"]) == 2, f"Expected 2 projects, got {len(result['projects'])}"
+    assert result["projects"][0]["name"] == "Automated Smart Agriculture System"
+    assert result["projects"][1]["name"] == "Industrial Motor Health Monitoring"
+    assert "Python" in result["projects"][0]["technologies"]
+    assert "Flask" in result["projects"][1]["technologies"]
+
+    # 3. Work experience / companies isolation (project titles MUST NOT be classified as companies)
+    assert len(result["experience"]) == 1
+    assert result["experience"][0]["company"] == "TechCorp Systems"
+    assert result["experience"][0]["designation"] == "Software Engineer Intern"
+    assert "Automated Smart Agriculture System" not in result["companies"]
+    assert "Industrial Motor Health Monitoring" not in result["companies"]
+    assert "TechCorp Systems" in result["companies"]
+
+    # 4. Education pairing (degree belongs to correct institution)
+    assert len(result["education"]) >= 1
+    edu = result["education"][0]
+    assert edu["degree"] == "Bachelor of Engineering"
+    assert "Kumaraguru College of Technology" in (edu["institution"] or "")
+
+

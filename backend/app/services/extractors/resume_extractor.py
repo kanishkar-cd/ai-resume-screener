@@ -47,8 +47,9 @@ class ResumeExtractor:
         header_lines = content_lines(header_text)
 
         candidate_name = self._candidate_name(header_lines)
-        email = first_match(EMAIL_PATTERN, text)
+        email = self._extract_email(text)
         phone = self._extract_phone(text)
+
         location = self._location(header_text, text)
         skills = match_terms(text, SKILLS)
         education = self._education(sections.get("education", ""))
@@ -100,7 +101,17 @@ class ResumeExtractor:
         }
 
     @staticmethod
+    def _extract_email(text: str) -> str | None:
+        matched = first_match(EMAIL_PATTERN, text)
+        if not matched:
+            return None
+        # Clean merged OCR text (e.g. "abc@gmail.comwww.linkedin.com" -> "abc@gmail.com")
+        cleaned_email = re.sub(r"(?i)(?:www\.|https?://|linkedin\.com|github\.com).*", "", matched).strip(" ,.;:()")
+        return cleaned_email or matched
+
+    @staticmethod
     def _candidate_name(lines: list[str]) -> str | None:
+
         for line in lines[:5]:
             if re.search(r"[@\d:/]|http", line):
                 continue
@@ -207,16 +218,35 @@ class ResumeExtractor:
             grade_match = GRADE_PATTERN.search(line)
 
             if matched_degree:
-                if current and (current.get("degree") or current.get("institution")):
+                # If current already has a degree, start new entry
+                if current and current.get("degree"):
                     items.append(current)
-
-                current = {
-                    "degree": matched_degree,
-                    "institution": line[:255] if is_inst else None,
-                    "year": year_match.group(0) if year_match else None,
-                    "field_of_study": field_match.group(0) if field_match else None,
-                    "grade": grade_match.group(0) if grade_match else None,
-                }
+                    current = {
+                        "degree": matched_degree,
+                        "institution": line[:255] if is_inst else None,
+                        "year": year_match.group(0) if year_match else None,
+                        "field_of_study": field_match.group(0) if field_match else None,
+                        "grade": grade_match.group(0) if grade_match else None,
+                    }
+                elif current:
+                    # Fill missing degree in current entry (e.g. Institution appeared on previous line)
+                    current["degree"] = matched_degree
+                    if is_inst and not current.get("institution"):
+                        current["institution"] = line[:255]
+                    if year_match and not current.get("year"):
+                        current["year"] = year_match.group(0)
+                    if field_match and not current.get("field_of_study"):
+                        current["field_of_study"] = field_match.group(0)
+                    if grade_match and not current.get("grade"):
+                        current["grade"] = grade_match.group(0)
+                else:
+                    current = {
+                        "degree": matched_degree,
+                        "institution": line[:255] if is_inst else None,
+                        "year": year_match.group(0) if year_match else None,
+                        "field_of_study": field_match.group(0) if field_match else None,
+                        "grade": grade_match.group(0) if grade_match else None,
+                    }
             elif current:
                 if not current.get("institution") and (is_inst or (not grade_match and not year_match and not field_match and len(line.split()) <= 8)):
                     current["institution"] = line[:255]
@@ -226,7 +256,7 @@ class ResumeExtractor:
                     current["field_of_study"] = field_match.group(0)
                 if not current.get("grade") and grade_match:
                     current["grade"] = grade_match.group(0)
-            elif is_inst or year_match:
+            elif is_inst or year_match or field_match or grade_match:
                 current = {
                     "degree": None,
                     "institution": line[:255] if is_inst else None,
@@ -239,6 +269,7 @@ class ResumeExtractor:
             items.append(current)
 
         return items
+
 
     @classmethod
     def _experience(cls, block: str) -> list[dict[str, Any]]:
@@ -332,12 +363,13 @@ class ResumeExtractor:
                     duration=dur_val,
                 )
 
-        if current:
+        if current and (current.get("designation") or current.get("title")):
             if current.get("description_lines"):
                 current["description"] = " ".join(current["description_lines"])
             elif not current.get("description"):
                 current["description"] = " ".join(filter(None, [current.get("company"), current.get("designation"), current.get("duration")]))
             items.append(cls._format_experience_item(current))
+
 
         return items
 
@@ -440,20 +472,19 @@ class ResumeExtractor:
 
         projects: list[dict[str, Any]] = []
         current_project: dict[str, Any] | None = None
-        lines = content_lines(block)
-
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
         # Heading pattern matching "Project:", "PROJECT:", "• Project:", "● Project:", "○ Project:", "1. Project:" etc.
         proj_heading_re = re.compile(
             r"^(?:[•●○▪*–—\d\.\)\s]*)(?:project\s*:|\d+[\.\)]\s*project|project\b)",
             re.IGNORECASE,
         )
 
-        for line in lines:
-            line_str = line.strip()
+        for line_str in lines:
             if not line_str:
                 continue
 
             is_proj_title = bool(proj_heading_re.match(line_str))
+
             
             # Clean heading prefixes
             clean_text = proj_heading_re.sub("", line_str).strip()
@@ -482,22 +513,24 @@ class ResumeExtractor:
                 }
             else:
                 # If line starts with bullet heading that indicates another project title without "Project:" keyword
-                is_bullet_heading = bool(re.match(r"^[•●○▪*]\s*[A-Z]", line_str)) and len(line_str.split()) <= 6 and ":" in line_str
-                if is_bullet_heading and not match_terms(clean_text, SKILLS):
+                is_bullet_heading = (bool(re.match(r"^[•●○▪*]\s*[A-Z]", line_str)) or bool(re.match(r"^[•●○▪*]\s*Project\b", line_str, re.I))) and len(clean_text.split()) <= 8 and (":" in line_str or proj_heading_re.match(line_str))
+                if is_bullet_heading and not is_proj_title:
                     projects.append(current_project)
                     title_name = clean_text.rstrip(" :").strip()
                     current_project = {
                         "name": title_name[:255],
                         "description": clean_text,
-                        "technologies": match_terms(clean_text, SKILLS),
+                        "technologies": match_terms(line_str, SKILLS),
                     }
                     continue
 
+
                 current_project["description"] += (" " if current_project["description"] else "") + clean_text
-                techs = match_terms(clean_text, SKILLS)
+                techs = match_terms(line_str, SKILLS)
                 for tech in techs:
                     if tech not in current_project["technologies"]:
                         current_project["technologies"].append(tech)
+
 
         if current_project:
             projects.append(current_project)
