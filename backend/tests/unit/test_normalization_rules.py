@@ -18,6 +18,9 @@ def test_duration_phone_and_unknown_rules() -> None:
     assert parse_experience_requirement("3-5 years", audit)["maximum_months"] == 60
     assert parse_experience_requirement("3+ years", audit)["maximum_months"] is None
     assert normalize_phone("+91-98765-43210", audit) == "+919876543210"
-    assert normalize_phone("9876543210", audit) == "9876543210"
+    assert normalize_phone("9876543210", audit) == "+919876543210"
+
     assert duration_between("2021-01", "2023-12", False) == 36
-    assert any("phone" in warning for warning in audit.metadata()["warnings"])
+    # Verified standard field phone should not emit warnings
+    assert not any("phone" in warning for warning in audit.metadata()["warnings"])
+

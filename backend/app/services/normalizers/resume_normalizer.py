@@ -53,10 +53,50 @@ class ResumeNormalizer:
         source = clean_text(value)
         canonical = LOCATION_ALIASES.get(source.casefold())
         if canonical:
-            audit.record("locations", source, canonical["display_name"], "location_alias", 0.95)
+            audit.record("locations", source, canonical["display_name"], "location_alias", 1.0)
             return dict(canonical)
-        audit.record("locations", source, source, "preserved_unknown", 0.5)
-        return {"city": None, "region": None, "country": None, "country_code": None, "display_name": source}
+
+        # Heuristic parsing for unknown location strings: "City, Region, Country"
+        parts = [p.strip() for p in source.split(",") if p.strip()]
+        city, region, country = None, None, None
+        if len(parts) == 1:
+            city = parts[0]
+        elif len(parts) == 2:
+            city, region = parts[0], parts[1]
+        elif len(parts) >= 3:
+            city, region, country = parts[0], parts[1], parts[2]
+
+        COUNTRY_MAP = {
+            "india": "IN", "in": "IN",
+            "united states": "US", "usa": "US", "us": "US",
+            "united kingdom": "GB", "uk": "GB", "great britain": "GB",
+            "canada": "CA", "ca": "CA",
+            "australia": "AU", "au": "AU",
+            "germany": "DE", "de": "DE",
+        }
+
+        country_code = None
+        if country:
+            country_code = COUNTRY_MAP.get(country.casefold())
+        elif city and city.casefold() in COUNTRY_MAP:
+            country_code = COUNTRY_MAP.get(city.casefold())
+            country = city
+            city = None
+        elif region and region.casefold() in COUNTRY_MAP:
+            country_code = COUNTRY_MAP.get(region.casefold())
+            country = region
+            region = None
+
+        audit.record("locations", source, source, "preserved_unknown", 1.0)
+        return {
+            "city": city,
+            "region": region,
+            "country": country,
+            "country_code": country_code,
+            "display_name": source,
+        }
+
+
 
     @staticmethod
     def _education(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, str | None]:
@@ -70,17 +110,23 @@ class ResumeNormalizer:
 
     @staticmethod
     def _experience(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, Any]:
-        duration = clean_text(item.get("duration") or "")
-        parts = re.split(r"\s+(?:-|–|—|to)\s+", duration, maxsplit=1, flags=re.I) if duration else []
-        start_source = parts[0] if parts else None
-        end_source = parts[1] if len(parts) == 2 else None
+        start_source = item.get("start_date")
+        end_source = item.get("end_date")
+
+        if not start_source and not end_source:
+            duration = clean_text(item.get("duration") or "")
+            parts = re.split(r"\s+(?:-|–|—|to)\s+", duration, maxsplit=1, flags=re.I) if duration else []
+            start_source = parts[0] if parts else None
+            end_source = parts[1] if len(parts) == 2 else None
+
         start, _ = normalize_date(start_source, "experience.start_date", audit)
         end, current = normalize_date(end_source, "experience.end_date", audit)
         months = duration_between(start, end, current)
         company = normalize_company(item.get("company"), audit)
-        title = canonicalize(item.get("title"), TITLE_ALIASES, "job_titles", audit)
+        title = canonicalize(item.get("title") or item.get("designation"), TITLE_ALIASES, "job_titles", audit)
         return {
             "company": company, "job_title": title, "start_date": start,
             "end_date": end, "is_current": current, "duration_months": months,
             "duration_display": format_duration(months),
         }
+
