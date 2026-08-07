@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Path, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Path, Query, Response, UploadFile, status
 
 from app.api.v1.endpoints.documents import get_document_service
 from app.schemas.document import (
@@ -114,3 +114,45 @@ async def list_project_resumes(
             sort_order,
         )
     )
+
+
+@router.delete(
+    "/projects/{project_id}/resumes/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a resume from a project",
+    description=(
+        "Delete one uploaded candidate resume and cascade clean up all "
+        "downstream parsed, extracted, normalized, scoring, ranking, and AI insight records."
+    ),
+    responses={
+        400: {"model": ErrorResponsePayload, "description": "Document does not belong to project."},
+        404: {"model": ErrorResponsePayload, "description": "Project or document not found."},
+    },
+)
+async def delete_resume(
+    project_id: ProjectId,
+    document_id: Annotated[UUID, Path(description="Resume document ID")],
+    service: DocumentServiceDependency,
+) -> Response:
+    await service.delete_resume(project_id, document_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/projects/{project_id}/job-description",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete active Job Description",
+    description=(
+        "Delete the project's active Job Description and cascade clean up "
+        "all downstream parsed, extracted, and normalized job description records."
+    ),
+    responses={
+        404: {"model": ErrorResponsePayload, "description": "Project or Job Description not found."},
+    },
+)
+async def delete_job_description(
+    project_id: ProjectId,
+    service: DocumentServiceDependency,
+) -> Response:
+    await service.delete_job_description(project_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import (
@@ -10,12 +10,24 @@ from app.models.document import (
     ProcessingStageEnum,
     ProcessingStatusEnum,
 )
+from app.models.extracted_info import (
+    ExtractedJobDescriptionModel,
+    ExtractedResumeModel,
+)
+from app.models.insights import CandidateInsightModel
+from app.models.normalized_info import (
+    NormalizedJobDescriptionModel,
+    NormalizedResumeModel,
+)
+from app.models.parsed_document import ParsedDocumentModel
+from app.models.ranking import CandidateRankingModel
+from app.models.scoring import CandidateScoreModel
 from app.schemas.document import (
     DocumentCreate,
     DocumentType,
+    ProcessingStage,
     ProcessingStatus,
     SortOrder,
-    ProcessingStage,
 )
 
 
@@ -207,3 +219,68 @@ class DocumentRepository:
     async def soft_delete(self, document_id: UUID) -> bool:
         """Backward-compatible soft-delete helper."""
         return await self.delete_document(document_id) is not None
+
+    async def cleanup_pipeline_data(
+        self, document_id: UUID, document_type: DocumentType | None = None
+    ) -> None:
+        """Cascade delete all downstream records associated with document_id."""
+        await self.session.execute(
+            delete(CandidateInsightModel).where(CandidateInsightModel.document_id == document_id)
+        )
+        await self.session.execute(
+            delete(CandidateRankingModel).where(CandidateRankingModel.document_id == document_id)
+        )
+        await self.session.execute(
+            delete(CandidateScoreModel).where(CandidateScoreModel.document_id == document_id)
+        )
+
+        extracted_resume_sub = select(ExtractedResumeModel.id).where(
+            ExtractedResumeModel.document_id == document_id
+        )
+        await self.session.execute(
+            delete(NormalizedResumeModel).where(
+                NormalizedResumeModel.extracted_resume_id.in_(extracted_resume_sub)
+            )
+        )
+        await self.session.execute(
+            delete(ExtractedResumeModel).where(ExtractedResumeModel.document_id == document_id)
+        )
+
+        extracted_jd_sub = select(ExtractedJobDescriptionModel.id).where(
+            ExtractedJobDescriptionModel.document_id == document_id
+        )
+        await self.session.execute(
+            delete(NormalizedJobDescriptionModel).where(
+                NormalizedJobDescriptionModel.extracted_job_description_id.in_(extracted_jd_sub)
+            )
+        )
+        await self.session.execute(
+            delete(ExtractedJobDescriptionModel).where(
+                ExtractedJobDescriptionModel.document_id == document_id
+            )
+        )
+
+        await self.session.execute(
+            delete(ParsedDocumentModel).where(ParsedDocumentModel.document_id == document_id)
+        )
+        await self.session.flush()
+
+    async def delete_resume(
+        self, project_id: UUID, document_id: UUID, *, commit: bool = True
+    ) -> DocumentModel | None:
+        """Cascade delete downstream pipeline data and soft-delete a resume."""
+        document = await self.get_document(document_id)
+        if document is None or document.project_id != project_id or document.document_type != DocumentTypeEnum.RESUME:
+            return None
+        await self.cleanup_pipeline_data(document_id, DocumentType.RESUME)
+        return await self.delete_document(document_id, commit=commit)
+
+    async def delete_job_description(
+        self, project_id: UUID, *, commit: bool = True
+    ) -> DocumentModel | None:
+        """Cascade delete downstream pipeline data and soft-delete the project's active Job Description."""
+        document = await self.get_job_description_by_project(project_id)
+        if document is None:
+            return None
+        await self.cleanup_pipeline_data(document.id, DocumentType.JOB_DESCRIPTION)
+        return await self.delete_document(document.id, commit=commit)

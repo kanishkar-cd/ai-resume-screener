@@ -35,6 +35,27 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     CORS_ORIGINS: list[str] = Field(default_factory=list)
 
+    ENABLE_OCR_FALLBACK: bool = True
+    OCR_ENGINE: str = "easyocr"
+    OCR_LANGUAGES: list[str] | str = Field(default_factory=lambda: ["en"])
+    OCR_DPI: int = 200
+
+    @field_validator("OCR_LANGUAGES", mode="before")
+    @classmethod
+    def assemble_ocr_languages(cls, v: object) -> object:
+        if isinstance(v, str):
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed]
+                except Exception:
+                    pass
+            return [lang.strip() for lang in v_str.split(",") if lang.strip()]
+        return v
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def normalize_debug(cls, value: object) -> object:
