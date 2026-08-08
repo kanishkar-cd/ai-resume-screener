@@ -11,8 +11,12 @@ interface UploadCardProps {
   icon?: ReactNode
   color?: 'blue' | 'red'
   files: UploadedFile[]
-  onUpload: (files: UploadedFile[]) => void
+  /** Local/fake upload path (used by resume flow). Ignored when onSelectFiles is set. */
+  onUpload?: (files: UploadedFile[]) => void
+  /** Raw File selection — parent owns API upload (JD flow). */
+  onSelectFiles?: (files: File[]) => void
   onRemove: (id: string) => void
+  disabled?: boolean
 }
 
 function makeUploadedFile(file: File): UploadedFile {
@@ -48,7 +52,9 @@ export default function UploadCard({
   color = 'blue',
   files,
   onUpload,
+  onSelectFiles,
   onRemove,
+  disabled = false,
 }: UploadCardProps) {
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -59,11 +65,19 @@ export default function UploadCard({
   const accentBorder = isSky ? 'border-sky-200' : 'border-red-100'
   const btnClass = isSky ? 'btn-primary' : 'btn-danger-outline'
 
-  const processFiles = (fileList: FileList | null) => {
-    if (!fileList) return
-    const uploads = Array.from(fileList).map(makeUploadedFile)
-    onUpload(uploads)
-  }
+  const processFiles = useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList || disabled) return
+      const selected = Array.from(fileList)
+      if (selected.length === 0) return
+      if (onSelectFiles) {
+        onSelectFiles(selected)
+        return
+      }
+      onUpload?.(selected.map(makeUploadedFile))
+    },
+    [disabled, onSelectFiles, onUpload]
+  )
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -71,12 +85,12 @@ export default function UploadCard({
       setIsDragging(false)
       processFiles(e.dataTransfer.files)
     },
-    [onUpload]
+    [processFiles]
   )
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
-    setIsDragging(true)
+    if (!disabled) setIsDragging(true)
   }
 
   const handleDragLeave = () => setIsDragging(false)
@@ -113,8 +127,9 @@ export default function UploadCard({
         <motion.button
           className={btnClass}
           onClick={() => inputRef.current?.click()}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
+          disabled={disabled}
+          whileHover={disabled ? undefined : { scale: 1.03 }}
+          whileTap={disabled ? undefined : { scale: 0.97 }}
         >
           <Upload size={14} />
           {multiple ? 'Choose Folder' : 'Choose File'}
@@ -137,7 +152,11 @@ export default function UploadCard({
         accept={accept}
         multiple={multiple}
         className="hidden"
-        onChange={(e) => processFiles(e.target.files)}
+        disabled={disabled}
+        onChange={(e) => {
+          processFiles(e.target.files)
+          e.target.value = ''
+        }}
       />
 
       {/* Uploaded files list */}
@@ -159,17 +178,37 @@ export default function UploadCard({
                   exit={{ opacity: 0, x: 8 }}
                   layout
                 >
-                  <CheckCircle2 size={14} className="text-sky-500 flex-shrink-0" />
+                  <CheckCircle2
+                    size={14}
+                    className={`flex-shrink-0 ${
+                      file.status === 'error'
+                        ? 'text-red-400'
+                        : file.status === 'uploading' || file.status === 'processing'
+                          ? 'text-slate-300'
+                          : 'text-sky-500'
+                    }`}
+                  />
                   <FileText size={13} className="text-slate-400 flex-shrink-0" />
                   <span className="text-[12px] text-slate-600 truncate flex-1 font-medium">
                     {file.name}
                   </span>
-                  <span className="text-[11px] text-slate-400 flex-shrink-0">
-                    {formatSize(file.size)}
+                  <span
+                    className={`text-[11px] flex-shrink-0 max-w-[140px] truncate ${
+                      file.status === 'error' ? 'text-red-400' : 'text-slate-400'
+                    }`}
+                    title={file.errorMessage || file.statusLabel}
+                  >
+                    {file.status === 'uploading' || file.status === 'processing'
+                      ? file.statusLabel ||
+                        (file.status === 'processing' ? 'Processing…' : 'Uploading…')
+                      : file.status === 'error'
+                        ? file.errorMessage || 'Failed'
+                        : formatSize(file.size)}
                   </span>
                   <button
                     onClick={() => onRemove(file.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 ml-1"
+                    disabled={disabled || file.status === 'uploading' || file.status === 'processing'}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 ml-1 disabled:opacity-30"
                   >
                     <X size={13} />
                   </button>

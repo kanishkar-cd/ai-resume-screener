@@ -16,6 +16,7 @@ import { usePipeline } from '@/store/pipelineStore'
 import { useNavigate } from 'react-router-dom'
 import { ROLE_PRESETS } from '@/constants'
 import { WeightCriterion } from '@/types'
+import { api, ApiError, type WeightDistribution } from '@/api'
 
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } }
@@ -27,6 +28,24 @@ const ICON_MAP: Record<string, LucideIcon> = {
   GraduationCap,
   Award,
   Code2,
+}
+
+/** Build WeightDistribution 1:1 from UI criteria (ids match backend keys). */
+function toWeightDistribution(weights: WeightCriterion[]): WeightDistribution {
+  const distribution: WeightDistribution = {
+    skills: 0,
+    experience: 0,
+    projects: 0,
+    education: 0,
+    certifications: 0,
+    languages: 0,
+  }
+
+  for (const criterion of weights) {
+    distribution[criterion.id] = Math.round(criterion.weight)
+  }
+
+  return distribution
 }
 
 // ─── SVG Donut Chart Component ────────────────────────────────
@@ -104,12 +123,28 @@ export default function WeightageSetting() {
 
   const [localWeights, setLocalWeights] = useState<WeightCriterion[]>(state.weights)
   const [selectedPreset, setSelectedPreset] = useState<string>('balanced')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState(state.weightConfigSaved)
 
   const total = localWeights.reduce((s, w) => s + Math.round(w.weight), 0)
   const isValid = Math.abs(total - 100) < 0.5
+  const canSubmit = isValid && !isSaving && Boolean(state.projectId)
+
+  const clearSavedFlag = () => {
+    setSaveSuccess(false)
+    if (state.weightConfigSaved) {
+      dispatch({
+        type: 'SET_WEIGHT_CONFIG_SAVED',
+        payload: { saved: false, weightConfigId: null },
+      })
+    }
+  }
 
   const updateWeight = (id: string, requestedVal: number) => {
     setSelectedPreset('custom')
+    setSaveError(null)
+    clearSavedFlag()
     setLocalWeights((prev) => {
       const otherSum = prev
         .filter((w) => w.id !== id)
@@ -127,6 +162,8 @@ export default function WeightageSetting() {
     const preset = ROLE_PRESETS.find((p) => p.id === presetId)
     if (!preset) return
     setSelectedPreset(presetId)
+    setSaveError(null)
+    clearSavedFlag()
     setLocalWeights((prev) =>
       prev.map((w) => {
         const newWeight = preset.weights[w.id as keyof typeof preset.weights] ?? w.weight
@@ -135,13 +172,61 @@ export default function WeightageSetting() {
     )
   }
 
-  const handleContinue = () => {
-    if (!isValid) return
-    localWeights.forEach((w) =>
-      dispatch({ type: 'UPDATE_WEIGHT', payload: { id: w.id, weight: w.weight } })
-    )
-    completeAndAdvance()
-    navigate('/resume-upload')
+  const handleContinue = async () => {
+    if (!canSubmit) return
+
+    const projectId = state.projectId
+    if (!projectId) {
+      setSaveError('No project found. Upload and process a job description first.')
+      return
+    }
+
+    const distribution = toWeightDistribution(localWeights)
+    const mappedTotal =
+      distribution.skills +
+      distribution.experience +
+      distribution.projects +
+      distribution.education +
+      distribution.certifications +
+      distribution.languages
+
+    if (Math.abs(mappedTotal - 100) > 0.5) {
+      setSaveError(`Weights must total 100% (currently ${mappedTotal}%).`)
+      return
+    }
+
+    setIsSaving(true)
+    setSaveError(null)
+
+    try {
+      localWeights.forEach((w) =>
+        dispatch({ type: 'UPDATE_WEIGHT', payload: { id: w.id, weight: w.weight } })
+      )
+
+      const saved = await api.createWeightConfig(projectId, { weights: distribution })
+
+      dispatch({
+        type: 'SET_WEIGHT_CONFIG_SAVED',
+        payload: { saved: true, weightConfigId: saved.id },
+      })
+      setSaveSuccess(true)
+      completeAndAdvance()
+      navigate('/resume-upload')
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to save weight configuration'
+      setSaveError(message)
+      dispatch({
+        type: 'SET_WEIGHT_CONFIG_SAVED',
+        payload: { saved: false, weightConfigId: null },
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleBack = () => {
@@ -172,6 +257,7 @@ export default function WeightageSetting() {
                 <motion.button
                   key={preset.id}
                   onClick={() => applyPreset(preset.id)}
+                  disabled={isSaving}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className={`px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 ${
@@ -243,8 +329,9 @@ export default function WeightageSetting() {
                       min={0}
                       max={100}
                       value={criterion.weight}
+                      disabled={isSaving}
                       onChange={(e) => updateWeight(criterion.id, Number(e.target.value))}
-                      className="w-full h-2 rounded-lg appearance-none cursor-pointer outline-none bg-slate-100"
+                      className="w-full h-2 rounded-lg appearance-none cursor-pointer outline-none bg-slate-100 disabled:opacity-60"
                       style={{
                         background: `linear-gradient(to right, ${criterion.color || '#10b981'} 0%, ${
                           criterion.color || '#10b981'
@@ -309,12 +396,22 @@ export default function WeightageSetting() {
               <div className="w-6 h-2 rounded-full bg-slate-200" />
               <div className="w-6 h-2 rounded-full bg-slate-200" />
             </div>
+            {isSaving && (
+              <p className="text-[11px] text-sky-600 mt-2 font-medium">Saving weight configuration…</p>
+            )}
+            {saveError && (
+              <p className="text-[11px] text-red-500 mt-2 max-w-sm leading-relaxed">{saveError}</p>
+            )}
+            {saveSuccess && !saveError && !isSaving && (
+              <p className="text-[11px] text-green-600 mt-2 font-medium">Weight configuration saved.</p>
+            )}
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <motion.button
               onClick={handleBack}
+              disabled={isSaving}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               className="btn-outline flex-1 sm:flex-initial py-2.5 px-5 text-[13px] flex items-center justify-center gap-2 font-medium"
@@ -325,17 +422,17 @@ export default function WeightageSetting() {
 
             <motion.button
               onClick={handleContinue}
-              disabled={!isValid}
-              whileHover={isValid ? { scale: 1.02 } : undefined}
-              whileTap={isValid ? { scale: 0.98 } : undefined}
+              disabled={!canSubmit}
+              whileHover={canSubmit ? { scale: 1.02 } : undefined}
+              whileTap={canSubmit ? { scale: 0.98 } : undefined}
               className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-                isValid
+                canSubmit
                   ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
               }`}
             >
-              Continue to Resume Upload
-              <ArrowRight size={15} />
+              {isSaving ? 'Saving…' : 'Continue to Resume Upload'}
+              {!isSaving && <ArrowRight size={15} />}
             </motion.button>
           </div>
         </div>

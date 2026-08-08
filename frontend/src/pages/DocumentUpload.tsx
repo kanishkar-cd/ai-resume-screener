@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   FileText,
@@ -9,8 +10,9 @@ import {
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
-import { UploadedFile } from '@/types'
+import { UploadedFile, JdProcessingStage, JdProcessingStatus } from '@/types'
 import { useNavigate } from 'react-router-dom'
+import { api, ApiError, type ProjectCreate } from '@/api'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -24,15 +26,231 @@ const container = {
   },
 }
 
+const PARSE_POLL_INTERVAL_MS = 1000
+const PARSE_POLL_TIMEOUT_MS = 90_000
+
+function fileTypeFromName(name: string): UploadedFile['type'] {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (ext === 'pdf') return 'pdf'
+  if (ext === 'docx' || ext === 'doc') return 'docx'
+  if (ext === 'txt') return 'txt'
+  return 'unknown'
+}
+
+/**
+ * POST /projects requires title + target_role; Document Upload UI does not collect them.
+ * Temporary placeholders so the JD upload flow can run — see mismatch notes in the PR/response.
+ */
+function buildProjectCreatePayload(file: File): ProjectCreate {
+  const stem = file.name.replace(/\.[^.]+$/, '').trim()
+  const title = (stem.length >= 3 ? stem : `${stem || 'JD'} Campaign`).slice(0, 255)
+  return {
+    title,
+    target_role: 'Open Role',
+    status: 'DRAFT',
+    metadata_json: { source_jd_filename: file.name },
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message
+  if (err instanceof Error) return err.message
+  return fallback
+}
+
+function isParseTerminalSuccess(status: JdProcessingStatus): boolean {
+  // Backend parse_document sets COMPLETED (not PARSED) on success.
+  // Accept PARSED as well if an older path ever emits it.
+  return status === 'COMPLETED' || status === 'PARSED'
+}
+
+function processingLabel(
+  stage: JdProcessingStage | null,
+  status: JdProcessingStatus | null,
+  normalized: boolean,
+  isProcessing: boolean,
+): string {
+  if (normalized) return 'JD normalized — ready for weightage'
+  if (!isProcessing) {
+    if (status === 'FAILED' || stage === 'FAILED') return 'JD processing failed'
+    return 'No JD uploaded yet'
+  }
+  if (stage === 'PARSING' || status === 'IN_PROGRESS' || status === 'PARSING_PENDING') {
+    return 'Parsing job description…'
+  }
+  if (stage === 'EXTRACTION') return 'Extracting JD fields…'
+  if (stage === 'NORMALIZATION') return 'Normalizing JD data…'
+  return 'Processing job description…'
+}
+
 export default function DocumentUpload() {
   const { state, dispatch, canProceedJD, completeAndAdvance } = usePipeline()
   const navigate = useNavigate()
+  const [flowError, setFlowError] = useState<string | null>(null)
+  const [flowPhase, setFlowPhase] = useState<
+    'idle' | 'uploading' | 'parsing' | 'extracting' | 'normalizing' | 'ready' | 'error'
+  >('idle')
 
-  const handleJDUpload = (files: UploadedFile[]) => {
-    if (files[0]) dispatch({ type: 'SET_JD', payload: files[0] })
+  const busy =
+    flowPhase === 'uploading' ||
+    flowPhase === 'parsing' ||
+    flowPhase === 'extracting' ||
+    flowPhase === 'normalizing' ||
+    state.isProcessing
+
+  const updateJdProcessing = (payload: {
+    status?: JdProcessingStatus | null
+    stage?: JdProcessingStage | null
+    normalized?: boolean
+  }) => {
+    dispatch({ type: 'SET_JD_PROCESSING', payload })
   }
 
-  const handleRemoveJD = () => dispatch({ type: 'SET_JD', payload: null })
+  /**
+   * Poll GET /projects/{projectId}/job-description until parse finishes or fails.
+   * Uses document.processing_status / processing_stage from the existing Document contract.
+   */
+  const pollUntilParsed = async (projectId: string) => {
+    const started = Date.now()
+    while (Date.now() - started < PARSE_POLL_TIMEOUT_MS) {
+      const doc = await api.getJobDescription(projectId)
+      updateJdProcessing({
+        status: doc.processing_status,
+        stage: doc.processing_stage,
+      })
+
+      if (doc.processing_status === 'FAILED' || doc.processing_stage === 'FAILED') {
+        throw new Error(doc.error_message || 'JD parsing failed')
+      }
+
+      if (isParseTerminalSuccess(doc.processing_status)) {
+        return doc
+      }
+
+      await sleep(PARSE_POLL_INTERVAL_MS)
+    }
+    throw new Error('Timed out waiting for JD parsing to complete')
+  }
+
+  const processUploadedJd = async (projectId: string, documentId: string) => {
+    dispatch({ type: 'SET_PROCESSING', payload: true })
+    updateJdProcessing({ normalized: false })
+
+    try {
+      setFlowPhase('parsing')
+      const parseResult = await api.parseDocument(documentId)
+      updateJdProcessing({
+        status: parseResult.status,
+        stage: parseResult.processing_stage,
+      })
+
+      if (!isParseTerminalSuccess(parseResult.status)) {
+        await pollUntilParsed(projectId)
+      }
+
+      setFlowPhase('extracting')
+      updateJdProcessing({ stage: 'EXTRACTION', status: 'IN_PROGRESS' })
+      const extractResult = await api.extractDocument(documentId)
+      updateJdProcessing({
+        stage: extractResult.processing_stage,
+        status: 'COMPLETED',
+      })
+
+      setFlowPhase('normalizing')
+      updateJdProcessing({ stage: 'NORMALIZATION', status: 'IN_PROGRESS' })
+      const normalizeResult = await api.normalizeDocument(documentId)
+      updateJdProcessing({
+        stage: normalizeResult.processing_stage,
+        status: 'COMPLETED',
+        normalized: true,
+      })
+
+      setFlowPhase('ready')
+    } finally {
+      dispatch({ type: 'SET_PROCESSING', payload: false })
+    }
+  }
+
+  const handleJDSelect = async (files: File[]) => {
+    const file = files[0]
+    if (!file || busy) return
+
+    setFlowError(null)
+    setFlowPhase('uploading')
+    updateJdProcessing({
+      status: null,
+      stage: null,
+      normalized: false,
+    })
+
+    const localPreview: UploadedFile = {
+      id: `pending-${Date.now()}`,
+      name: file.name,
+      size: file.size,
+      type: fileTypeFromName(file.name),
+      status: 'uploading',
+    }
+    dispatch({ type: 'SET_JD', payload: localPreview })
+    dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: null })
+
+    let uploadedFile: UploadedFile | null = null
+
+    try {
+      let projectId = state.projectId
+      if (!projectId) {
+        const project = await api.createProject(buildProjectCreatePayload(file))
+        projectId = project.id
+        dispatch({ type: 'SET_PROJECT_ID', payload: projectId })
+      }
+
+      const uploaded = await api.uploadJobDescription(projectId, file)
+
+      uploadedFile = {
+        id: uploaded.document_id,
+        name: uploaded.filename,
+        size: file.size,
+        type: fileTypeFromName(uploaded.filename),
+        status: 'done',
+        uploadedAt: new Date(),
+      }
+
+      dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: uploaded.document_id })
+      updateJdProcessing({
+        status: uploaded.processing_status,
+        stage: uploaded.processing_stage,
+        normalized: false,
+      })
+      dispatch({ type: 'SET_JD', payload: uploadedFile })
+
+      await processUploadedJd(projectId, uploaded.document_id)
+    } catch (err) {
+      const message = errorMessage(err, 'JD upload / processing failed')
+      setFlowError(message)
+      setFlowPhase('error')
+      updateJdProcessing({ status: 'FAILED', stage: 'FAILED', normalized: false })
+      dispatch({
+        type: 'SET_JD',
+        payload: {
+          ...(uploadedFile ?? localPreview),
+          status: 'error',
+        },
+      })
+      dispatch({ type: 'SET_PROCESSING', payload: false })
+    }
+  }
+
+  const handleRemoveJD = () => {
+    if (busy) return
+    setFlowError(null)
+    setFlowPhase('idle')
+    dispatch({ type: 'SET_JD', payload: null })
+    dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: null })
+    updateJdProcessing({ status: null, stage: null, normalized: false })
+  }
 
   const handleContinue = () => {
     if (!canProceedJD) return
@@ -40,7 +258,13 @@ export default function DocumentUpload() {
     navigate('/weightage')
   }
 
-  const jdCount = state.upload.jobDescription ? 1 : 0
+  const jdCount = state.jdNormalized && state.jdDocumentId ? 1 : 0
+  const statusText = processingLabel(
+    state.jdProcessingStage,
+    state.jdProcessingStatus,
+    state.jdNormalized,
+    busy,
+  )
 
   return (
     <motion.div
@@ -124,9 +348,21 @@ export default function DocumentUpload() {
           color="blue"
           multiple={false}
           files={state.upload.jobDescription ? [state.upload.jobDescription] : []}
-          onUpload={handleJDUpload}
+          onSelectFiles={handleJDSelect}
           onRemove={handleRemoveJD}
+          disabled={busy}
         />
+        {busy && (
+          <p className="mt-2 text-[12px] text-sky-600 text-center font-medium">{statusText}</p>
+        )}
+        {flowError && (
+          <p className="mt-2 text-[12px] text-red-500 text-center">{flowError}</p>
+        )}
+        {state.jdNormalized && !busy && !flowError && (
+          <p className="mt-2 text-[12px] text-green-600 text-center font-medium">
+            Job description parsed, extracted, and normalized successfully.
+          </p>
+        )}
       </motion.div>
 
       {/* Bottom Row */}
@@ -150,7 +386,13 @@ export default function DocumentUpload() {
               {jdCount}
             </motion.p>
             <p className="text-[11px] text-slate-400 mt-1">
-              {jdCount === 0 ? 'No JD uploaded yet' : 'Job Description ready'}
+              {jdCount === 0
+                ? busy
+                  ? statusText
+                  : flowPhase === 'error'
+                    ? 'Processing failed'
+                    : 'No JD uploaded yet'
+                : 'Job Description ready'}
             </p>
           </div>
 
@@ -197,7 +439,8 @@ export default function DocumentUpload() {
               <ArrowRight size={15} />
             </motion.button>
             <p className="text-[10px] text-slate-400 text-center leading-relaxed">
-              You can only proceed when<br />Job Description is uploaded.
+              You can only proceed when<br />
+              the JD is normalized.
             </p>
           </div>
         </div>

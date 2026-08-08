@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Folder,
@@ -13,6 +14,7 @@ import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
 import { UploadedFile } from '@/types'
 import { useNavigate } from 'react-router-dom'
+import { api, ApiError } from '@/api'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -26,12 +28,110 @@ const container = {
   },
 }
 
+function fileTypeFromName(name: string): UploadedFile['type'] {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (ext === 'pdf') return 'pdf'
+  if (ext === 'docx' || ext === 'doc') return 'docx'
+  if (ext === 'txt') return 'txt'
+  return 'unknown'
+}
+
 export default function ResumeUpload() {
   const { state, dispatch, canProceedResumes, completeAndAdvance } = usePipeline()
   const navigate = useNavigate()
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
-  const handleResumeUpload = (files: UploadedFile[]) => {
-    dispatch({ type: 'ADD_RESUMES', payload: files })
+  const successfulCount = state.resumeDocumentIds.length
+  const failedCount = state.upload.resumes.filter((r) => r.status === 'error').length
+
+  const handleResumeSelect = async (files: File[]) => {
+    if (files.length === 0 || isUploading) return
+
+    const projectId = state.projectId
+    if (!projectId) {
+      setUploadError('No project found. Complete JD upload and weightage first.')
+      return
+    }
+
+    setUploadError(null)
+    setIsUploading(true)
+
+    const pending: UploadedFile[] = files.map((file, index) => ({
+      id: `pending-resume-${Date.now()}-${index}`,
+      name: file.name,
+      size: file.size,
+      type: fileTypeFromName(file.name),
+      status: 'uploading',
+    }))
+    dispatch({ type: 'ADD_RESUMES', payload: pending })
+
+    const sizeByName = new Map(files.map((f) => [f.name, f.size]))
+
+    try {
+      // POST /projects/{id}/resumes/batch — multipart field name: "files"
+      // Backend returns HTTP 207 with successful_uploads + failed_uploads.
+      const batch = await api.uploadResumeBatch(projectId, files)
+
+      for (const item of pending) {
+        dispatch({ type: 'REMOVE_RESUME', payload: item.id })
+      }
+
+      const successes: UploadedFile[] = batch.successful_uploads.map((upload) => ({
+        id: upload.document_id,
+        name: upload.filename,
+        size: sizeByName.get(upload.filename) ?? 0,
+        type: fileTypeFromName(upload.filename),
+        status: 'done',
+        uploadedAt: new Date(),
+      }))
+
+      const failures: UploadedFile[] = batch.failed_uploads.map((failed, index) => ({
+        id: `failed-resume-${Date.now()}-${index}`,
+        name: failed.original_filename,
+        size: sizeByName.get(failed.original_filename) ?? 0,
+        type: fileTypeFromName(failed.original_filename),
+        status: 'error',
+        errorMessage: failed.message || failed.error_code,
+      }))
+
+      if (successes.length > 0 || failures.length > 0) {
+        dispatch({ type: 'ADD_RESUMES', payload: [...successes, ...failures] })
+      }
+
+      if (batch.successful_count === 0 && batch.failed_count > 0) {
+        setUploadError('All resumes failed to upload. Check file format and size limits.')
+      }
+    } catch (err) {
+      for (const item of pending) {
+        dispatch({ type: 'REMOVE_RESUME', payload: item.id })
+      }
+
+      const failures: UploadedFile[] = files.map((file, index) => ({
+        id: `failed-resume-${Date.now()}-${index}`,
+        name: file.name,
+        size: file.size,
+        type: fileTypeFromName(file.name),
+        status: 'error',
+        errorMessage:
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Upload failed',
+      }))
+      dispatch({ type: 'ADD_RESUMES', payload: failures })
+
+      setUploadError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Resume batch upload failed',
+      )
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const handleRemoveResume = (id: string) =>
@@ -46,8 +146,6 @@ export default function ResumeUpload() {
   const handleBack = () => {
     navigate('/weightage')
   }
-
-  const resumeCount = state.upload.resumes.length
 
   return (
     <motion.div
@@ -133,9 +231,18 @@ export default function ResumeUpload() {
           color="red"
           multiple={true}
           files={state.upload.resumes}
-          onUpload={handleResumeUpload}
+          onSelectFiles={handleResumeSelect}
           onRemove={handleRemoveResume}
+          disabled={isUploading}
         />
+        {isUploading && (
+          <p className="mt-2 text-[12px] text-sky-600 text-center font-medium">
+            Uploading resumes…
+          </p>
+        )}
+        {uploadError && (
+          <p className="mt-2 text-[12px] text-red-500 text-center">{uploadError}</p>
+        )}
       </motion.div>
 
       {/* Bottom Summary Strip & Action Footer */}
@@ -150,16 +257,21 @@ export default function ResumeUpload() {
               </p>
             </div>
             <motion.p
-              key={resumeCount}
+              key={successfulCount}
               className="text-[32px] font-bold text-slate-800 leading-none"
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: 'spring', stiffness: 300 }}
             >
-              {resumeCount}
+              {successfulCount}
             </motion.p>
             <p className="text-[11px] text-slate-400 mt-1">
-              {resumeCount === 0 ? 'No resumes uploaded yet' : `${resumeCount} candidate resume${resumeCount > 1 ? 's' : ''} ready`}
+              {successfulCount === 0
+                ? isUploading
+                  ? 'Upload in progress…'
+                  : 'No resumes uploaded yet'
+                : `${successfulCount} candidate resume${successfulCount > 1 ? 's' : ''} ready`}
+              {failedCount > 0 ? ` · ${failedCount} failed` : ''}
             </p>
           </div>
 
@@ -211,6 +323,7 @@ export default function ResumeUpload() {
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <motion.button
             onClick={handleBack}
+            disabled={isUploading}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className="btn-outline flex-1 sm:flex-initial py-2.5 px-5 text-[13px] flex items-center justify-center gap-2 font-medium"
@@ -221,11 +334,11 @@ export default function ResumeUpload() {
 
           <motion.button
             onClick={handleContinue}
-            disabled={!canProceedResumes}
-            whileHover={canProceedResumes ? { scale: 1.02 } : undefined}
-            whileTap={canProceedResumes ? { scale: 0.98 } : undefined}
+            disabled={!canProceedResumes || isUploading}
+            whileHover={canProceedResumes && !isUploading ? { scale: 1.02 } : undefined}
+            whileTap={canProceedResumes && !isUploading ? { scale: 0.98 } : undefined}
             className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-              canProceedResumes
+              canProceedResumes && !isUploading
                 ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
             }`}
