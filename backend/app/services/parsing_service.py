@@ -79,11 +79,13 @@ class ParsingService:
         if path is None:
             raise DocumentFileMissingException()
 
+        metadata = dict(document.metadata_json or {})
+
         await self._set_status(
             document_id,
             ProcessingStatus.PARSING_PENDING,
             {
-                **dict(document.metadata_json or {}),
+                **metadata,
                 "parse_error": None,
             },
         )
@@ -97,6 +99,7 @@ class ParsingService:
                 ParsedDocumentCreate(
                     document_id=document_id,
                     raw_text=parsed.raw_text,
+                    normalized_text=parsed.raw_text,
                     page_count=parsed.page_count,
                     word_count=word_count,
                     character_count=character_count,
@@ -109,7 +112,7 @@ class ParsingService:
                 document_id,
                 ProcessingStatus.PARSED,
                 {
-                    **dict(document.metadata_json or {}),
+                    **metadata,
                     "parse_error": None,
                     "parser_engine": parsed.parser_engine.value,
                 },
@@ -118,13 +121,13 @@ class ParsingService:
             await self.document_repository.session.commit()
         except AppException:
             await self.document_repository.session.rollback()
-            await self._mark_failed(document_id, document.metadata_json, "Parse rejected.")
+            await self._mark_failed(document_id, metadata, "Parse rejected.")
             raise
         except Exception as exc:
             await self.document_repository.session.rollback()
             await self._mark_failed(
                 document_id,
-                document.metadata_json,
+                metadata,
                 str(exc) or "Unexpected parse failure.",
             )
             logger.exception(

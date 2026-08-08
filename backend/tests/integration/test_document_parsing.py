@@ -59,6 +59,9 @@ async def test_parse_persists_text_and_updates_status(tmp_path) -> None:
         assert parsed.word_count >= 3
         assert parsed.character_count == len(content)
         assert parsed.page_count == 1
+        
+        db_parsed = await parsed_repository.get_by_document_id(uploaded.document_id)
+        assert db_parsed.normalized_text == db_parsed.raw_text
 
         await documents.delete_document(uploaded.document_id)
         assert await project_repository.soft_delete(project.id) is True

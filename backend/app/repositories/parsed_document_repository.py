@@ -29,6 +29,7 @@ class ParsedDocumentRepository:
             model = ParsedDocumentModel(
                 document_id=payload.document_id,
                 raw_text=payload.raw_text,
+                normalized_text=payload.normalized_text,
                 page_count=payload.page_count,
                 word_count=payload.word_count,
                 character_count=payload.character_count,
@@ -38,6 +39,7 @@ class ParsedDocumentRepository:
             self.session.add(model)
         else:
             existing.raw_text = payload.raw_text
+            existing.normalized_text = payload.normalized_text
             existing.page_count = payload.page_count
             existing.word_count = payload.word_count
             existing.character_count = payload.character_count

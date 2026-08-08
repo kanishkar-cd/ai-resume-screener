@@ -12,7 +12,7 @@ settings = get_settings()
 
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URI,
-    pool_pre_ping=True,
+    pool_pre_ping=False,
     pool_size=10,
     max_overflow=20,
 )

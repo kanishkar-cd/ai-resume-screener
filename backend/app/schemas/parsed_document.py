@@ -16,6 +16,7 @@ class ParserEngine(str, Enum):
 class ParsedDocumentCreate(BaseModel):
     document_id: UUID
     raw_text: str
+    normalized_text: str
     page_count: int | None = None
     word_count: int = Field(ge=0)
     character_count: int = Field(ge=0)

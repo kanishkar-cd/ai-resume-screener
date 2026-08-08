@@ -21,6 +21,7 @@ class ParsedDocumentModel(UUIDMixin, TimestampMixin, Base):
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
     character_count: Mapped[int] = mapped_column(Integer, nullable=False)
