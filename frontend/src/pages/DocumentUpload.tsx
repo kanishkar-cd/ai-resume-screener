@@ -114,17 +114,17 @@ export default function DocumentUpload() {
    * Poll GET /projects/{projectId}/job-description until parse finishes or fails.
    * Uses document.processing_status / processing_stage from the existing Document contract.
    */
-  const pollUntilParsed = async (projectId: string) => {
+  const pollUntilParsed = async (documentId: string) => {
     const started = Date.now()
     while (Date.now() - started < PARSE_POLL_TIMEOUT_MS) {
-      const doc = await api.getJobDescription(projectId)
+      const doc = await api.getDocument(documentId)
       updateJdProcessing({
         status: doc.processing_status,
         stage: doc.processing_stage,
       })
 
       if (doc.processing_status === 'FAILED' || doc.processing_stage === 'FAILED') {
-        throw new Error(doc.error_message || 'JD parsing failed')
+        throw new Error('JD parsing failed')
       }
 
       if (isParseTerminalSuccess(doc.processing_status)) {
@@ -144,32 +144,41 @@ export default function DocumentUpload() {
       setFlowPhase('parsing')
       const parseResult = await api.parseDocument(documentId)
       updateJdProcessing({
-        status: parseResult.status,
+        status: parseResult.processing_status,
         stage: parseResult.processing_stage,
       })
 
-      if (!isParseTerminalSuccess(parseResult.status)) {
-        await pollUntilParsed(projectId)
+      if (!isParseTerminalSuccess(parseResult.processing_status)) {
+        await pollUntilParsed(documentId)
       }
 
+      const parsedData = await api.getParsedDocument(documentId)
+      console.log(`[Phase 1] JD Parsed successfully. Raw text length: ${parsedData.raw_text.length}`)
+      
+      // Real extraction call
       setFlowPhase('extracting')
       updateJdProcessing({ stage: 'EXTRACTION', status: 'IN_PROGRESS' })
       const extractResult = await api.extractDocument(documentId)
       updateJdProcessing({
+        status: extractResult.processing_status,
         stage: extractResult.processing_stage,
-        status: 'COMPLETED',
       })
 
+      // Real normalization call
       setFlowPhase('normalizing')
       updateJdProcessing({ stage: 'NORMALIZATION', status: 'IN_PROGRESS' })
       const normalizeResult = await api.normalizeDocument(documentId)
       updateJdProcessing({
+        status: normalizeResult.processing_status,
         stage: normalizeResult.processing_stage,
-        status: 'COMPLETED',
         normalized: true,
       })
 
       setFlowPhase('ready')
+    } catch (err) {
+      setFlowPhase('error')
+      setFlowError(onmessage(err, 'JD processing failed'))
+      updateJdProcessing({ status: 'FAILED', stage: 'FAILED' })
     } finally {
       dispatch({ type: 'SET_PROCESSING', payload: false })
     }

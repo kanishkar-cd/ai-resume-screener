@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Play,
@@ -26,6 +26,7 @@ import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
 import { MOCK_CANDIDATES, AI_PIPELINE_STAGES } from '@/constants'
 import { useNavigate } from 'react-router-dom'
+import { api, ApiError, type ProjectScoring } from '@/api'
 
 // ─── Animation variants ───────────────────────────────────────
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -42,6 +43,62 @@ function getScoreClass(score: number) {
   if (score >= 80) return 'score-high'
   if (score >= 60) return 'score-med'
   return 'score-low'
+}
+
+function recommendationToStatus(
+  recommendation: string,
+  knockedOut: boolean,
+): ScreeningStatus {
+  if (knockedOut || recommendation === 'REJECT') return 'rejected'
+  if (recommendation === 'SHORTLIST') return 'screened'
+  return 'pending'
+}
+
+/** Map POST /score payload into existing Candidate rows (provisional order by final_score). */
+function mapScoringToCandidates(
+  scoring: ProjectScoring,
+  resumes: { id: string; name: string }[],
+): Candidate[] {
+  const resumeName = (documentId: string) =>
+    resumes.find((r) => r.id === documentId)?.name.replace(/\.[^.]+$/, '') ||
+    'Candidate'
+
+  return [...scoring.scores]
+    .sort((a, b) => b.final_score - a.final_score)
+    .map((score, index) => ({
+      id: score.document_id,
+      name: resumeName(score.document_id),
+      email: '',
+      resumeFile: resumes.find((r) => r.id === score.document_id)?.name || '',
+      overallScore: Math.round(score.final_score),
+      rank: index + 1,
+      status: recommendationToStatus(score.recommendation, score.is_knocked_out),
+      extractedFields: [],
+      scores: (
+        Object.keys(score.component_scores) as Array<keyof typeof score.component_scores>
+      ).map((key) => ({
+        criterionId: key,
+        label: key.charAt(0).toUpperCase() + key.slice(1),
+        score: Math.round(score.component_scores[key].score),
+        weight: 0,
+        weightedScore: score.weighted_scores[key],
+      })),
+      keyStrengths: score.strengths,
+      keyWeaknesses: score.weaknesses,
+      scoredAt: new Date(score.created_at),
+    }))
+}
+
+function scoringPrerequisitesMet(state: ReturnType<typeof usePipeline>['state']): string | null {
+  if (!state.projectId) return 'No project found. Complete JD upload first.'
+  if (!state.jdNormalized) return 'Job description must be normalized before scoring.'
+  if (!state.weightConfigSaved) return 'Weight configuration must be saved before scoring.'
+  if (state.resumeDocumentIds.length === 0) return 'Upload at least one resume before scoring.'
+  const allNormalized = state.resumeDocumentIds.every(
+    (id) => state.resumeProcessing[id]?.normalized === true,
+  )
+  if (!allNormalized) return 'All uploaded resumes must be normalized before scoring.'
+  return null
 }
 
 // ─── AI Explanation Drawer ────────────────────────────────────
@@ -234,10 +291,12 @@ export default function CandidateRanking() {
   const [sortBy, setSortBy] = useState<'rank' | 'score'>('rank')
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null)
 
-  // Derive candidates
-  const candidates: Candidate[] = state.candidates.length > 0
+  // Derive candidates — prefer scored results; avoid mock fallback after a real score run
+  const candidates: Candidate[] = state.scoringComplete
     ? state.candidates
-    : (MOCK_CANDIDATES as Candidate[])
+    : state.candidates.length > 0
+      ? state.candidates
+      : (MOCK_CANDIDATES as Candidate[])
 
   const filtered = candidates
     .filter((c) => {
@@ -251,27 +310,50 @@ export default function CandidateRanking() {
   const updateStatus = (id: string, status: ScreeningStatus) =>
     dispatch({ type: 'UPDATE_CANDIDATE_STATUS', payload: { id, status } })
 
-  // ─── AI Pipeline Runner ──────────────────────────────────────
-  const runPipeline = async () => {
-    if (state.isProcessing || state.aiPipelineComplete) return
-    dispatch({ type: 'SET_AI_PIPELINE_STEP', payload: 1 })
+  // ─── Scoring (POST /projects/{id}/score) ─────────────────────
+  const runScoring = async () => {
+    if (state.isProcessing || state.scoringComplete) return
 
-    for (let step = 1; step <= AI_PIPELINE_STAGES.length; step++) {
-      dispatch({ type: 'SET_AI_PIPELINE_STEP', payload: step })
-      // variable delay per stage for realism
-      const delays = [900, 700, 1100, 800, 1000, 700, 900]
-      await new Promise((r) => setTimeout(r, delays[step - 1]))
+    const prerequisiteError = scoringPrerequisitesMet(state)
+    if (prerequisiteError) {
+      dispatch({ type: 'SET_SCORING_ERROR', payload: prerequisiteError })
+      return
     }
 
-    dispatch({ type: 'COMPLETE_AI_PIPELINE' })
+    const projectId = state.projectId!
+    dispatch({ type: 'SET_SCORING_ERROR', payload: null })
+    dispatch({ type: 'SET_PROCESSING', payload: true })
+    dispatch({ type: 'SET_AI_PIPELINE_STEP', payload: 5 })
+
+    try {
+      const scoring = await api.scoreProject(projectId)
+      const mapped = mapScoringToCandidates(scoring, state.upload.resumes)
+      dispatch({
+        type: 'SET_SCORING_RESULT',
+        payload: { scoring, candidates: mapped },
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Scoring failed'
+      dispatch({ type: 'SET_SCORING_ERROR', payload: message })
+    }
   }
 
   // Stats
   const screened = candidates.filter((c) => c.status === 'screened').length
-  const avgScore = Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
-  const topScore = Math.max(...candidates.map((c) => c.overallScore))
+  const avgScore = candidates.length
+    ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
+    : 0
+  const topScore = candidates.length
+    ? Math.max(...candidates.map((c) => c.overallScore))
+    : 0
 
   const handleContinue = () => {
+    if (!state.scoringComplete) return
     completeAndAdvance()
     navigate('/dashboard')
   }
@@ -289,7 +371,13 @@ export default function CandidateRanking() {
         {/* ── AI Pipeline Rail ── */}
         <motion.div variants={fadeUp}>
           <AIPipelineRail
-            currentAIStep={state.aiPipelineComplete ? AI_PIPELINE_STAGES.length + 1 : state.aiPipelineStep}
+            currentAIStep={
+              state.scoringComplete
+                ? AI_PIPELINE_STAGES.length + 1
+                : state.isProcessing
+                  ? state.aiPipelineStep
+                  : 0
+            }
             isProcessing={state.isProcessing}
           />
         </motion.div>
@@ -305,11 +393,11 @@ export default function CandidateRanking() {
               </p>
             </div>
 
-            {/* Run Pipeline / Status CTA */}
-            {!state.aiPipelineComplete && !state.isProcessing && (
+            {/* Run Scoring / Status CTA */}
+            {!state.scoringComplete && !state.isProcessing && (
               <motion.button
                 className="btn-primary px-5 py-3 flex-shrink-0"
-                onClick={runPipeline}
+                onClick={runScoring}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -326,18 +414,21 @@ export default function CandidateRanking() {
                   transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
                 />
                 <span className="text-[12px] font-semibold text-sky-700">
-                  Processing stage {state.aiPipelineStep}…
+                  Scoring candidates…
                 </span>
               </div>
             )}
 
-            {state.aiPipelineComplete && (
+            {state.scoringComplete && (
               <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-3 flex-shrink-0">
                 <CheckCircle2 size={15} className="text-green-500" />
-                <span className="text-[12px] font-semibold text-green-700">Pipeline complete</span>
+                <span className="text-[12px] font-semibold text-green-700">Scoring complete</span>
               </div>
             )}
           </div>
+          {state.scoringError && (
+            <p className="mt-2 text-[12px] text-red-500">{state.scoringError}</p>
+          )}
         </motion.div>
 
         {/* ── Stats ── */}
@@ -408,7 +499,7 @@ export default function CandidateRanking() {
           </div>
 
           {/* Hint row */}
-          {state.aiPipelineComplete && (
+          {state.scoringComplete && (
             <div className="flex items-center gap-2 px-5 py-2.5 bg-sky-50/60 border-b border-sky-100">
               <Sparkles size={13} className="text-sky-500" />
               <p className="text-[11px] text-sky-700 font-medium">
@@ -427,7 +518,7 @@ export default function CandidateRanking() {
                   <th>Score</th>
                   <th>Status</th>
                   <th>Action</th>
-                  {state.aiPipelineComplete && <th>AI Details</th>}
+                  {state.scoringComplete && <th>AI Details</th>}
                 </tr>
               </thead>
               <tbody>
@@ -440,9 +531,9 @@ export default function CandidateRanking() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0 }}
                         transition={{ delay: idx * 0.05 }}
-                        className={state.aiPipelineComplete ? 'cursor-pointer hover:bg-sky-50/40' : ''}
+                        className={state.scoringComplete ? 'cursor-pointer hover:bg-sky-50/40' : ''}
                         onClick={() => {
-                          if (state.aiPipelineComplete) setSelectedCandidate(candidate)
+                          if (state.scoringComplete) setSelectedCandidate(candidate)
                         }}
                       >
                         <td>
@@ -498,7 +589,7 @@ export default function CandidateRanking() {
                             <option value="rejected">Reject</option>
                           </select>
                         </td>
-                        {state.aiPipelineComplete && (
+                        {state.scoringComplete && (
                           <td>
                             <motion.button
                               className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-600 hover:text-sky-700 px-2.5 py-1.5 rounded-lg hover:bg-sky-50 border border-sky-100 transition-colors"
@@ -535,9 +626,9 @@ export default function CandidateRanking() {
           <motion.button
             className="btn-primary px-6"
             onClick={handleContinue}
-            disabled={!state.aiPipelineComplete}
-            whileHover={state.aiPipelineComplete ? { scale: 1.02 } : undefined}
-            whileTap={state.aiPipelineComplete ? { scale: 0.98 } : undefined}
+            disabled={!state.scoringComplete}
+            whileHover={state.scoringComplete ? { scale: 1.02 } : undefined}
+            whileTap={state.scoringComplete ? { scale: 0.98 } : undefined}
           >
             Go to Recruiter Dashboard
             <ArrowRight size={15} />

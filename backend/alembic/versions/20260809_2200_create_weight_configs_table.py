@@ -1,0 +1,115 @@
+"""Create weight_configs table.
+
+Revision ID: 20260809_2200
+Revises: 20260808_2100
+Create Date: 2026-08-09 22:00:00
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
+
+revision: str = "20260809_2200"
+down_revision: str | None = "20260808_2100"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "weight_configs",
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
+        ),
+        sa.Column("project_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column(
+            "weights",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "passing_score",
+            sa.Float(),
+            server_default=sa.text("60.0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "min_experience_years",
+            sa.Float(),
+            server_default=sa.text("0.0"),
+            nullable=False,
+        ),
+        sa.Column("required_degree", sa.String(length=255), nullable=True),
+        sa.Column(
+            "required_certifications",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "mandatory_skills",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "preferred_skills",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "knockout_rules",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "custom_keywords",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
+            "version",
+            sa.Integer(),
+            server_default=sa.text("1"),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.id"],
+            name="fk_weight_configs_project_id_projects",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name="pk_weight_configs"),
+        sa.UniqueConstraint("project_id", name="uq_weight_configs_project_id"),
+    )
+    op.create_index(
+        "ix_weight_configs_project_id", "weight_configs", ["project_id"]
+    )
+    op.execute("CREATE INDEX ix_weight_configs_created_at ON weight_configs (created_at DESC)")
+
+
+def downgrade() -> None:
+    op.drop_index("ix_weight_configs_created_at", table_name="weight_configs")
+    op.drop_index("ix_weight_configs_project_id", table_name="weight_configs")
+    op.drop_table("weight_configs")

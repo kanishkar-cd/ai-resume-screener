@@ -39,8 +39,10 @@ export const api = {
   // ── JD upload ─────────────────────────────────────────────
   uploadJobDescription(projectId: string, file: File): Promise<DocumentUpload> {
     const form = new FormData()
+    form.append('project_id', projectId)
+    form.append('document_type', 'JOB_DESCRIPTION')
     form.append('file', file)
-    return apiRequest<DocumentUpload>(`/projects/${projectId}/job-description`, {
+    return apiRequest<DocumentUpload>(`/documents/upload`, {
       method: 'POST',
       body: form,
       isMultipart: true,

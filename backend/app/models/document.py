@@ -18,6 +18,12 @@ class DocumentTypeEnum(str, enum.Enum):
 
 class ProcessingStageEnum(str, enum.Enum):
     UPLOAD = "UPLOAD"
+    INGESTION = "INGESTION"
+    PARSING = "PARSING"
+    EXTRACTION = "EXTRACTION"
+    NORMALIZATION = "NORMALIZATION"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class ProcessingStatusEnum(str, enum.Enum):
@@ -25,6 +31,8 @@ class ProcessingStatusEnum(str, enum.Enum):
     PARSING_PENDING = "PARSING_PENDING"
     PARSED = "PARSED"
     FAILED = "FAILED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
 
 
 class DocumentModel(UUIDMixin, TimestampMixin, Base):

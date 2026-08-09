@@ -193,6 +193,56 @@ export interface PipelineState {
   resumeDocumentIds: string[]
   /** Per-resume parse → extract → normalize tracking keyed by document id. */
   resumeProcessing: Record<string, ResumeProcessingState>
+  /** True after POST /projects/{id}/score succeeds. */
+  scoringComplete: boolean
+  /** Last scoring API error message, if any. */
+  scoringError: string | null
+  /**
+   * Raw scoring payload from POST /projects/{id}/score.
+   * Shape matches api ProjectScoring (project_id, total_evaluated, scores[]).
+   */
+  projectScoring: {
+    project_id: string
+    total_evaluated: number
+    scores: Array<{
+      id: string
+      document_id: string
+      project_id: string
+      final_score: number
+      confidence: number
+      recommendation: string
+      is_knocked_out: boolean
+      knockout_reason: string | null
+      strengths: string[]
+      weaknesses: string[]
+      matched_skills: string[]
+      missing_skills: string[]
+      skills_score: number
+      experience_score: number
+      projects_score: number
+      education_score: number
+      certifications_score: number
+      languages_score: number
+      component_scores: {
+        skills: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+        experience: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+        projects: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+        education: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+        certifications: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+        languages: { score: number; matched_items: string[]; missing_items: string[]; explanation: string }
+      }
+      weighted_scores: {
+        skills: number
+        experience: number
+        projects: number
+        education: number
+        certifications: number
+        languages: number
+      }
+      created_at: string
+      updated_at: string
+    }>
+  } | null
   upload: UploadState
   weights: WeightCriterion[]
   candidates: Candidate[]

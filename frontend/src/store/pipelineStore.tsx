@@ -23,6 +23,9 @@ const initialState: PipelineState = {
   weightConfigId: null,
   resumeDocumentIds: [],
   resumeProcessing: {},
+  scoringComplete: false,
+  scoringError: null,
+  projectScoring: null,
   upload: { jobDescription: null, resumes: [] },
   weights: DEFAULT_WEIGHTS,
   candidates: [],
@@ -62,6 +65,14 @@ type Action =
       type: 'SET_WEIGHT_CONFIG_SAVED'
       payload: { saved: boolean; weightConfigId?: string | null }
     }
+  | {
+      type: 'SET_SCORING_RESULT'
+      payload: {
+        scoring: PipelineState['projectScoring']
+        candidates: Candidate[]
+      }
+    }
+  | { type: 'SET_SCORING_ERROR'; payload: string | null }
   | { type: 'SET_PROCESSING'; payload: boolean }
   | { type: 'SET_AI_PIPELINE_STEP'; payload: number }
   | { type: 'COMPLETE_AI_PIPELINE' }
@@ -214,6 +225,25 @@ function reducer(state: PipelineState, action: Action): PipelineState {
             : action.payload.saved
               ? state.weightConfigId
               : null,
+      }
+
+    case 'SET_SCORING_RESULT':
+      return {
+        ...state,
+        projectScoring: action.payload.scoring,
+        candidates: action.payload.candidates,
+        scoringComplete: true,
+        scoringError: null,
+        scoringRunAt: new Date(),
+        isProcessing: false,
+      }
+
+    case 'SET_SCORING_ERROR':
+      return {
+        ...state,
+        scoringError: action.payload,
+        scoringComplete: false,
+        isProcessing: false,
       }
 
     case 'SET_PROCESSING':

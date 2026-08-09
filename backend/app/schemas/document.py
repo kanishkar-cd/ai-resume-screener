@@ -13,6 +13,12 @@ class DocumentType(str, Enum):
 
 class ProcessingStage(str, Enum):
     UPLOAD = "UPLOAD"
+    INGESTION = "INGESTION"
+    PARSING = "PARSING"
+    EXTRACTION = "EXTRACTION"
+    NORMALIZATION = "NORMALIZATION"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class ProcessingStatus(str, Enum):
@@ -20,6 +26,8 @@ class ProcessingStatus(str, Enum):
     PARSING_PENDING = "PARSING_PENDING"
     PARSED = "PARSED"
     FAILED = "FAILED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
 
 
 class SortOrder(str, Enum):

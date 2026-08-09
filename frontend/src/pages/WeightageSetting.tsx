@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Briefcase,
@@ -130,6 +130,37 @@ export default function WeightageSetting() {
   const total = localWeights.reduce((s, w) => s + Math.round(w.weight), 0)
   const isValid = Math.abs(total - 100) < 0.5
   const canSubmit = isValid && !isSaving && Boolean(state.projectId)
+
+  useEffect(() => {
+    let active = true
+    if (state.projectId) {
+      api
+        .getWeightConfig(state.projectId)
+        .then((config) => {
+          if (!active || !config?.weights) return
+          setLocalWeights((prev) =>
+            prev.map((w) => {
+              const weightVal = config.weights[w.id as keyof typeof config.weights]
+              return weightVal !== undefined ? { ...w, weight: weightVal } : w
+            })
+          )
+          Object.entries(config.weights).forEach(([id, weight]) => {
+            dispatch({ type: 'UPDATE_WEIGHT', payload: { id, weight } })
+          })
+          dispatch({
+            type: 'SET_WEIGHT_CONFIG_SAVED',
+            payload: { saved: true, weightConfigId: config.id },
+          })
+          setSaveSuccess(true)
+        })
+        .catch(() => {
+          // No saved weight config yet; keep current local/store state
+        })
+    }
+    return () => {
+      active = false
+    }
+  }, [state.projectId, dispatch])
 
   const clearSavedFlag = () => {
     setSaveSuccess(false)

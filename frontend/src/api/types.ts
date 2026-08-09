@@ -110,7 +110,6 @@ export interface Document {
   file_hash: string
   processing_stage: ProcessingStage
   processing_status: ProcessingStatus
-  error_message: string | null
   metadata_json: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -135,7 +134,7 @@ export interface BatchResumeUpload {
 
 export interface ParseResult {
   document_id: string
-  status: ProcessingStatus
+  processing_status: ProcessingStatus
   processing_stage: ProcessingStage
   message: string
 }
@@ -143,14 +142,12 @@ export interface ParseResult {
 export interface ParsedDocument {
   id: string
   document_id: string
-  normalized_text: string
+  raw_text: string
   page_count: number | null
   word_count: number
   character_count: number
-  language: string | null
   parser_engine: ParserEngine
   parsing_duration_ms: number
-  parsing_metadata: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -220,6 +217,7 @@ export interface ExtractedJobDescription {
 export type ExtractedDocument = ExtractedResume | ExtractedJobDescription
 
 export interface ExtractResult {
+  processing_status: DocumentProcessingStatus | null | undefined
   document_id: string
   document_type: DocumentType
   processing_stage: ProcessingStage
@@ -310,6 +308,7 @@ export interface NormalizedJobDescription {
 export type NormalizedDocument = NormalizedResume | NormalizedJobDescription
 
 export interface NormalizeResult {
+  processing_status: DocumentProcessingStatus | null | undefined
   document_id: string
   document_type: DocumentType
   processing_stage: ProcessingStage

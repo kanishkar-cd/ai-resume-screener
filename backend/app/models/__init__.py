@@ -4,15 +4,21 @@ from app.models.document import (
     ProcessingStageEnum,
     ProcessingStatusEnum,
 )
+from app.models.extracted_job_description import ExtractedJDModel
+from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
 from app.models.project import ProjectModel, ProjectStatusEnum
+from app.models.weight_config import WeightConfigModel
 
 __all__ = [
     "DocumentModel",
     "DocumentTypeEnum",
+    "ExtractedJDModel",
+    "NormalizedJDModel",
     "ParsedDocumentModel",
     "ProcessingStageEnum",
     "ProcessingStatusEnum",
     "ProjectModel",
     "ProjectStatusEnum",
+    "WeightConfigModel",
 ]
