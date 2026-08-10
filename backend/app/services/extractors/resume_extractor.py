@@ -485,7 +485,6 @@ class ResumeExtractor:
 
             is_proj_title = bool(proj_heading_re.match(line_str))
 
-            
             # Clean heading prefixes
             clean_text = proj_heading_re.sub("", line_str).strip()
             clean_text = re.sub(r"^[::•●○▪*–—\s-]+", "", clean_text).strip()
@@ -512,25 +511,44 @@ class ResumeExtractor:
                     "technologies": match_terms(clean_text, SKILLS),
                 }
             else:
-                # If line starts with bullet heading that indicates another project title without "Project:" keyword
+                # Check for project title without "Project:" prefix (e.g. OCR plain lines or bullet headings)
+                is_standalone_title = False
+
+                # 1) Bullet heading with colon or project keyword
                 is_bullet_heading = (bool(re.match(r"^[•●○▪*]\s*[A-Z]", line_str)) or bool(re.match(r"^[•●○▪*]\s*Project\b", line_str, re.I))) and len(clean_text.split()) <= 8 and (":" in line_str or proj_heading_re.match(line_str))
-                if is_bullet_heading and not is_proj_title:
+
+                # 2) Standalone title line (e.g., OCR text with title-cased short line, no trailing period/colon/bullet, or title followed by bullet points)
+                # Word count <= 10, starts with Capital letter, doesn't start with standard bullet symbol or sentence continuation
+                raw_clean = re.sub(r"^[•●○▪*–—\s-]+", "", line_str).strip()
+                words = raw_clean.split()
+                if (
+                    not line_str.startswith(("-", "*", "•", "●", "○", "▪"))
+                    and len(words) <= 10
+                    and not raw_clean.endswith(".")
+                    and (
+                        ":" in line_str
+                        or re.search(r"\b(?:Website|System|Platform|App|Application|Tool|Dashboard|Service|Services|API|Engine|Portal)\b", raw_clean, re.I)
+                        or (len(words) <= 7 and raw_clean[0].isupper())
+                    )
+                ):
+                    is_standalone_title = True
+
+                if is_bullet_heading or is_standalone_title:
                     projects.append(current_project)
-                    title_name = clean_text.rstrip(" :").strip()
+                    title_name = re.sub(r"\s*\([^)]*\)\s*$", "", raw_clean).strip() or raw_clean
+                    title_name = title_name.rstrip(" :").strip()
                     current_project = {
                         "name": title_name[:255],
-                        "description": clean_text,
+                        "description": raw_clean,
                         "technologies": match_terms(line_str, SKILLS),
                     }
                     continue
-
 
                 current_project["description"] += (" " if current_project["description"] else "") + clean_text
                 techs = match_terms(line_str, SKILLS)
                 for tech in techs:
                     if tech not in current_project["technologies"]:
                         current_project["technologies"].append(tech)
-
 
         if current_project:
             projects.append(current_project)
