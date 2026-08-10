@@ -47,15 +47,19 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     )
 
 
+from fastapi.encoders import jsonable_encoder
+
+
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    logger.warning("Request validation failed", errors=jsonable_encoder(exc.errors()))
     return _error_response(
         request,
         status_code=422,
         code=VALIDATION_ERROR,
         message="Request validation failed.",
-        details={"errors": exc.errors()},
+        details={"errors": jsonable_encoder(exc.errors())},
     )
 
 

@@ -8,9 +8,12 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.extracted_jd_repository import ExtractedJDRepository
 from app.repositories.normalized_jd_repository import NormalizedJDRepository
 from app.repositories.parsed_document_repository import ParsedDocumentRepository
+from app.models.document import DocumentTypeEnum
 from app.schemas.error import ErrorResponsePayload
+from app.schemas.extracted_info import ExtractDocumentResponse, ExtractResponseEnvelope, ExtractedDocumentResponse
 from app.schemas.extracted_jd import ExtractedJDResponse, JDExtractResponse
 from app.schemas.normalized_jd import JDNormalizeResponse, NormalizedJDResponse
+from app.services.document_service import DocumentNotFoundException
 from app.services.jd_extraction_service import JDExtractionService
 from app.services.jd_normalization_service import JDNormalizationService
 
@@ -43,74 +46,140 @@ ExtractionServiceDep = Annotated[JDExtractionService, Depends(get_extraction_ser
 NormalizationServiceDep = Annotated[JDNormalizationService, Depends(get_normalization_service)]
 
 
+from app.repositories.extraction_repository import ExtractionRepository
+from app.services.extraction_service import ExtractionService
+
+
+def get_general_extraction_service(db: DatabaseDependency) -> ExtractionService:
+    return ExtractionService(
+        DocumentRepository(db),
+        ParsedDocumentRepository(db),
+        ExtractionRepository(db),
+    )
+
+
+GeneralExtractionServiceDep = Annotated[ExtractionService, Depends(get_general_extraction_service)]
+
+
 # ─── Extract endpoints ───────────────────────────────────────────────────────
 
 @router.post(
     "/{document_id}/extract",
-    response_model=JDExtractResponse,
+    response_model=JDExtractResponse | ExtractResponseEnvelope,
     status_code=status.HTTP_200_OK,
-    summary="Extract JD fields",
+    summary="Extract document fields",
     description=(
-        "Run heuristic extraction on a parsed JD document to produce structured fields: "
-        "skills, responsibilities, education, experience, certifications, keywords, domain."
+        "Run heuristic extraction on a parsed document (Resume or Job Description) "
+        "to produce structured fields."
     ),
     responses={404: _404, 409: _409},
 )
 async def extract_document(
     document_id: Annotated[UUID, _DOC_ID_PATH],
-    service: ExtractionServiceDep,
-) -> JDExtractResponse:
-    result = await service.extract_document(document_id)
+    jd_service: ExtractionServiceDep,
+    general_service: GeneralExtractionServiceDep,
+    db: DatabaseDependency,
+) -> JDExtractResponse | ExtractResponseEnvelope:
+    doc_repo = DocumentRepository(db)
+    document = await doc_repo.get_by_id(document_id)
+    if document is None:
+        raise DocumentNotFoundException()
+    if document.document_type == DocumentTypeEnum.RESUME:
+        result = await general_service.extract_document_data(document_id)
+        return ExtractResponseEnvelope(data=result)
+    result = await jd_service.extract_document(document_id)
     return JDExtractResponse(data=result)
 
 
 @router.get(
     "/{document_id}/extracted",
-    response_model=ExtractedJDResponse,
-    summary="Get extracted JD",
-    description="Return the persisted extraction result for a JD document.",
+    response_model=ExtractedJDResponse | ExtractedDocumentResponse,
+    summary="Get extracted document",
+    description="Return the persisted extraction result for a Resume or JD document.",
     responses={404: _404},
 )
 async def get_extracted_document(
     document_id: Annotated[UUID, _DOC_ID_PATH],
-    service: ExtractionServiceDep,
-) -> ExtractedJDResponse:
-    result = await service.get_extracted_document(document_id)
+    jd_service: ExtractionServiceDep,
+    general_service: GeneralExtractionServiceDep,
+    db: DatabaseDependency,
+) -> ExtractedJDResponse | ExtractedDocumentResponse:
+    doc_repo = DocumentRepository(db)
+    document = await doc_repo.get_by_id(document_id)
+    if document is None:
+        raise DocumentNotFoundException()
+    if document.document_type == DocumentTypeEnum.RESUME:
+        data = await general_service.get_extracted_data(document_id)
+        return ExtractedDocumentResponse(data=data)
+    result = await jd_service.get_extracted_document(document_id)
     return ExtractedJDResponse(data=result)
+
+
+from app.repositories.normalization_repository import NormalizationRepository
+from app.schemas.normalized_info import NormalizeResponseEnvelope, NormalizedDocumentResponse
+from app.services.normalization_service import NormalizationService
+
+
+def get_general_normalization_service(db: DatabaseDependency) -> NormalizationService:
+    return NormalizationService(
+        DocumentRepository(db),
+        ExtractionRepository(db),
+        NormalizationRepository(db),
+    )
+
+
+GeneralNormalizationServiceDep = Annotated[NormalizationService, Depends(get_general_normalization_service)]
 
 
 # ─── Normalize endpoints ─────────────────────────────────────────────────────
 
 @router.post(
     "/{document_id}/normalize",
-    response_model=JDNormalizeResponse,
+    response_model=JDNormalizeResponse | NormalizeResponseEnvelope,
     status_code=status.HTTP_200_OK,
-    summary="Normalize extracted JD",
+    summary="Normalize extracted document",
     description=(
-        "Produce a canonical, deduplicated requirement set from an extracted JD. "
-        "Normalizes skills (lowercase/sort), degrees (canonical names), "
-        "experience (min/max months), and keywords."
+        "Produce a canonical, deduplicated requirement/profile set from an extracted document "
+        "(Resume or Job Description)."
     ),
     responses={404: _404, 409: _409},
 )
 async def normalize_document(
     document_id: Annotated[UUID, _DOC_ID_PATH],
-    service: NormalizationServiceDep,
-) -> JDNormalizeResponse:
-    result = await service.normalize_document(document_id)
+    jd_service: NormalizationServiceDep,
+    general_service: GeneralNormalizationServiceDep,
+    db: DatabaseDependency,
+) -> JDNormalizeResponse | NormalizeResponseEnvelope:
+    doc_repo = DocumentRepository(db)
+    document = await doc_repo.get_by_id(document_id)
+    if document is None:
+        raise DocumentNotFoundException()
+    if document.document_type == DocumentTypeEnum.RESUME:
+        result = await general_service.normalize_document_data(document_id)
+        return NormalizeResponseEnvelope(data=result)
+    result = await jd_service.normalize_document(document_id)
     return JDNormalizeResponse(data=result)
 
 
 @router.get(
     "/{document_id}/normalized",
-    response_model=NormalizedJDResponse,
-    summary="Get normalized JD",
-    description="Return the persisted normalization result for a JD document.",
+    response_model=NormalizedJDResponse | NormalizedDocumentResponse,
+    summary="Get normalized document",
+    description="Return the persisted normalization result for a Resume or JD document.",
     responses={404: _404},
 )
 async def get_normalized_document(
     document_id: Annotated[UUID, _DOC_ID_PATH],
-    service: NormalizationServiceDep,
-) -> NormalizedJDResponse:
-    result = await service.get_normalized_document(document_id)
+    jd_service: NormalizationServiceDep,
+    general_service: GeneralNormalizationServiceDep,
+    db: DatabaseDependency,
+) -> NormalizedJDResponse | NormalizedDocumentResponse:
+    doc_repo = DocumentRepository(db)
+    document = await doc_repo.get_by_id(document_id)
+    if document is None:
+        raise DocumentNotFoundException()
+    if document.document_type == DocumentTypeEnum.RESUME:
+        data = await general_service.get_normalized_data(document_id)
+        return NormalizedDocumentResponse(data=data)
+    result = await jd_service.get_normalized_document(document_id)
     return NormalizedJDResponse(data=result)
