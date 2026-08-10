@@ -4,64 +4,133 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from app.api.v1.endpoints.weight_config import get_weight_config_service
+from app.api.v1.endpoints.weight_configs import get_weight_config_service
 from app.main import app
 from app.schemas.weight_config import (
-    WeightConfigCreate, WeightConfigRead, WeightConfigUpdate, WeightDistribution,
+    WeightConfigCreate,
+    WeightConfigRead,
+    WeightConfigUpdate,
 )
-from app.services.weight_config_service import WeightConfigNotFoundException, WeightConfigService
+from app.services.project_service import ProjectNotFoundException
+from app.services.weight_config_service import WeightConfigNotFoundException
 
 
 class FakeWeightConfigService:
-    def __init__(self) -> None: self.project_id = uuid4(); self.config = None
-    def _read(self, project_id: UUID, version: int, passing_score: float = 70) -> WeightConfigRead:
+    def __init__(self) -> None:
+        self.configs: dict[UUID, WeightConfigRead] = {}
+        self.existing_projects: set[UUID] = set()
+
+    async def create_or_update_weight_config(
+        self, project_id: UUID, payload: WeightConfigCreate
+    ) -> WeightConfigRead:
+        if project_id not in self.existing_projects:
+            raise ProjectNotFoundException()
         now = datetime.now(UTC)
-        return WeightConfigRead(id=uuid4(), project_id=project_id, weights=WeightDistribution(), passing_score=passing_score, min_experience_years=0, required_degree=None, required_certifications=[], mandatory_skills=["Python"], preferred_skills=[], knockout_rules=[], custom_keywords=[], version=version, created_at=now, updated_at=now)
-    async def create_weight_config(self, project_id: UUID, payload: WeightConfigCreate) -> WeightConfigRead:
-        payload = WeightConfigService._validate(payload)
-        self.config = self._read(project_id, 1, payload.passing_score); return self.config
+        existing = self.configs.get(project_id)
+        version = existing.version + 1 if existing else 1
+        config = WeightConfigRead(
+            id=existing.id if existing else uuid4(),
+            project_id=project_id,
+            version=version,
+            created_at=existing.created_at if existing else now,
+            updated_at=now,
+            **payload.model_dump(),
+        )
+        self.configs[project_id] = config
+        return config
+
     async def get_weight_config(self, project_id: UUID) -> WeightConfigRead:
-        if self.config is None: raise WeightConfigNotFoundException()
-        return self.config
-    async def update_weight_config(self, project_id: UUID, payload: WeightConfigUpdate) -> WeightConfigRead:
-        if self.config is None: raise WeightConfigNotFoundException()
-        self.config = self._read(project_id, self.config.version + 1, payload.passing_score or self.config.passing_score); return self.config
-    async def delete_weight_config(self, project_id: UUID) -> None:
-        if self.config is None: raise WeightConfigNotFoundException()
-        self.config = None
+        if project_id not in self.existing_projects:
+            raise ProjectNotFoundException()
+        if project_id not in self.configs:
+            raise WeightConfigNotFoundException()
+        return self.configs[project_id]
+
+    async def update_weight_config(
+        self, project_id: UUID, payload: WeightConfigUpdate
+    ) -> WeightConfigRead:
+        if project_id not in self.existing_projects:
+            raise ProjectNotFoundException()
+        if project_id not in self.configs:
+            raise WeightConfigNotFoundException()
+        current = self.configs[project_id]
+        update_data = payload.model_dump(exclude_unset=True)
+        updated = current.model_copy(
+            update={**update_data, "version": current.version + 1, "updated_at": datetime.now(UTC)}
+        )
+        self.configs[project_id] = updated
+        return updated
 
 
 @pytest.mark.asyncio
-async def test_weight_config_crud_api(async_client: httpx.AsyncClient) -> None:
+async def test_weight_config_api_flow(async_client: httpx.AsyncClient) -> None:
     service = FakeWeightConfigService()
+    project_id = uuid4()
+    service.existing_projects.add(project_id)
+
     app.dependency_overrides[get_weight_config_service] = lambda: service
-    path = f"/api/v1/projects/{service.project_id}/weight-config"
-    created = await async_client.post(path, json={"mandatory_skills": ["Python"]})
-    assert created.status_code == 201 and created.json()["data"]["version"] == 1
-    assert (await async_client.get(path)).status_code == 200
-    updated = await async_client.patch(path, json={"passing_score": 80})
-    assert updated.status_code == 200 and updated.json()["data"]["version"] == 2
-    assert updated.json()["data"]["passing_score"] == 80
-    assert (await async_client.delete(path)).status_code == 204
-    assert (await async_client.get(path)).status_code == 404
 
+    # 1. Create weight config
+    create_resp = await async_client.post(
+        f"/api/v1/projects/{project_id}/weight-config",
+        json={
+            "weights": {
+                "skills": 40,
+                "experience": 25,
+                "projects": 15,
+                "education": 10,
+                "certifications": 5,
+                "languages": 5,
+            }
+        },
+    )
+    assert create_resp.status_code == 201
+    assert create_resp.json()["data"]["project_id"] == str(project_id)
+    assert create_resp.json()["data"]["weights"]["skills"] == 40
 
-@pytest.mark.asyncio
-async def test_weight_config_request_bounds(async_client: httpx.AsyncClient) -> None:
-    service = FakeWeightConfigService()
-    app.dependency_overrides[get_weight_config_service] = lambda: service
-    path = f"/api/v1/projects/{service.project_id}/weight-config"
-    assert (await async_client.post(path, json={"passing_score": 101})).status_code == 422
-    assert (await async_client.post(path, json={"weights": {"skills": 101}})).status_code == 422
-    invalid_total = await async_client.post(path, json={"weights": {"skills": 35}})
-    assert invalid_total.status_code == 422
-    assert invalid_total.json()["error"]["code"] == "INVALID_WEIGHT_TOTAL"
-    duplicates = await async_client.post(path, json={"mandatory_skills": ["Python", " python "]})
-    assert duplicates.status_code == 422
-    assert duplicates.json()["error"]["code"] == "DUPLICATE_MANDATORY_SKILL"
+    # 2. Get weight config
+    get_resp = await async_client.get(f"/api/v1/projects/{project_id}/weight-config")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["data"]["weights"]["experience"] == 25
 
+    # 3. Update weight config
+    patch_resp = await async_client.patch(
+        f"/api/v1/projects/{project_id}/weight-config",
+        json={
+            "weights": {
+                "skills": 50,
+                "experience": 20,
+                "projects": 15,
+                "education": 5,
+                "certifications": 5,
+                "languages": 5,
+            }
+        },
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["data"]["weights"]["skills"] == 50
+    assert patch_resp.json()["data"]["version"] == 2
 
-def test_weight_config_openapi_preserves_previous_stages() -> None:
-    paths = app.openapi()["paths"]
-    assert set(paths["/api/v1/projects/{project_id}/weight-config"]) >= {"post", "get", "patch", "delete"}
-    assert "/api/v1/documents/{document_id}/normalized" in paths
+    # 4. Invalid total weight (sum = 110 != 100) -> 422
+    invalid_resp = await async_client.post(
+        f"/api/v1/projects/{project_id}/weight-config",
+        json={
+            "weights": {
+                "skills": 50,
+                "experience": 25,
+                "projects": 15,
+                "education": 10,
+                "certifications": 5,
+                "languages": 5,
+            }
+        },
+    )
+    assert invalid_resp.status_code == 422
+
+    # 5. Missing project -> 404
+    missing_proj_resp = await async_client.get(
+        f"/api/v1/projects/{uuid4()}/weight-config"
+    )
+    assert missing_proj_resp.status_code == 404
+
+    app.dependency_overrides.clear()

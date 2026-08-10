@@ -1,11 +1,31 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react'
-import { PipelineState, UploadedFile, Candidate, ScreeningStatus } from '@/types'
+import {
+  PipelineState,
+  UploadedFile,
+  Candidate,
+  ScreeningStatus,
+  JdProcessingStatus,
+  JdProcessingStage,
+  ResumeProcessingState,
+} from '@/types'
 import { DEFAULT_WEIGHTS, MOCK_CANDIDATES, NAV_STAGES } from '@/constants'
 
 // ─── Initial State ────────────────────────────────────────────
 const initialState: PipelineState = {
   currentStep: 1,
   completedSteps: [],
+  projectId: null,
+  jdDocumentId: null,
+  jdProcessingStatus: null,
+  jdProcessingStage: null,
+  jdNormalized: false,
+  weightConfigSaved: false,
+  weightConfigId: null,
+  resumeDocumentIds: [],
+  resumeProcessing: {},
+  scoringComplete: false,
+  scoringError: null,
+  projectScoring: null,
   upload: { jobDescription: null, resumes: [] },
   weights: DEFAULT_WEIGHTS,
   candidates: [],
@@ -18,11 +38,41 @@ const initialState: PipelineState = {
 type Action =
   | { type: 'GO_TO_STEP'; payload: number }
   | { type: 'COMPLETE_STEP'; payload: number }
+  | { type: 'SET_PROJECT_ID'; payload: string }
+  | { type: 'SET_JD_DOCUMENT_ID'; payload: string | null }
+  | {
+      type: 'SET_JD_PROCESSING'
+      payload: {
+        status?: JdProcessingStatus | null
+        stage?: JdProcessingStage | null
+        normalized?: boolean
+      }
+    }
   | { type: 'SET_JD'; payload: UploadedFile | null }
   | { type: 'ADD_RESUMES'; payload: UploadedFile[] }
   | { type: 'REMOVE_RESUME'; payload: string }
+  | {
+      type: 'UPDATE_RESUME'
+      payload: { id: string; patch: Partial<UploadedFile> }
+    }
+  | {
+      type: 'UPSERT_RESUME_PROCESSING'
+      payload: ResumeProcessingState
+    }
   | { type: 'CLEAR_UPLOAD' }
   | { type: 'UPDATE_WEIGHT'; payload: { id: string; weight: number } }
+  | {
+      type: 'SET_WEIGHT_CONFIG_SAVED'
+      payload: { saved: boolean; weightConfigId?: string | null }
+    }
+  | {
+      type: 'SET_SCORING_RESULT'
+      payload: {
+        scoring: PipelineState['projectScoring']
+        candidates: Candidate[]
+      }
+    }
+  | { type: 'SET_SCORING_ERROR'; payload: string | null }
   | { type: 'SET_PROCESSING'; payload: boolean }
   | { type: 'SET_AI_PIPELINE_STEP'; payload: number }
   | { type: 'COMPLETE_AI_PIPELINE' }
@@ -42,39 +92,158 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           : [...state.completedSteps, action.payload],
       }
 
+    case 'SET_PROJECT_ID':
+      return { ...state, projectId: action.payload }
+
+    case 'SET_JD_DOCUMENT_ID':
+      return { ...state, jdDocumentId: action.payload }
+
+    case 'SET_JD_PROCESSING':
+      return {
+        ...state,
+        jdProcessingStatus:
+          action.payload.status !== undefined
+            ? action.payload.status
+            : state.jdProcessingStatus,
+        jdProcessingStage:
+          action.payload.stage !== undefined
+            ? action.payload.stage
+            : state.jdProcessingStage,
+        jdNormalized:
+          action.payload.normalized !== undefined
+            ? action.payload.normalized
+            : state.jdNormalized,
+      }
+
     case 'SET_JD':
       return {
         ...state,
         upload: { ...state.upload, jobDescription: action.payload },
+        jdDocumentId:
+          action.payload === null ? null : state.jdDocumentId,
+        ...(action.payload === null
+          ? {
+              jdProcessingStatus: null,
+              jdProcessingStage: null,
+              jdNormalized: false,
+            }
+          : {}),
       }
 
-    case 'ADD_RESUMES':
+    case 'ADD_RESUMES': {
+      const successfulIds = action.payload
+        .filter((r) => r.status === 'done')
+        .map((r) => r.id)
+      const nextProcessing = { ...state.resumeProcessing }
+      for (const id of successfulIds) {
+        if (!nextProcessing[id]) {
+          nextProcessing[id] = {
+            documentId: id,
+            phase: 'uploaded',
+            status: 'UPLOADED',
+            stage: 'INGESTION',
+            normalized: false,
+          }
+        }
+      }
       return {
         ...state,
         upload: {
           ...state.upload,
           resumes: [...state.upload.resumes, ...action.payload],
         },
+        resumeDocumentIds: [
+          ...state.resumeDocumentIds,
+          ...successfulIds.filter((id) => !state.resumeDocumentIds.includes(id)),
+        ],
+        resumeProcessing: nextProcessing,
       }
+    }
 
-    case 'REMOVE_RESUME':
+    case 'REMOVE_RESUME': {
+      const { [action.payload]: _removed, ...restProcessing } = state.resumeProcessing
       return {
         ...state,
         upload: {
           ...state.upload,
           resumes: state.upload.resumes.filter((r) => r.id !== action.payload),
         },
+        resumeDocumentIds: state.resumeDocumentIds.filter((id) => id !== action.payload),
+        resumeProcessing: restProcessing,
+      }
+    }
+
+    case 'UPDATE_RESUME':
+      return {
+        ...state,
+        upload: {
+          ...state.upload,
+          resumes: state.upload.resumes.map((r) =>
+            r.id === action.payload.id ? { ...r, ...action.payload.patch } : r
+          ),
+        },
+      }
+
+    case 'UPSERT_RESUME_PROCESSING':
+      return {
+        ...state,
+        resumeProcessing: {
+          ...state.resumeProcessing,
+          [action.payload.documentId]: action.payload,
+        },
       }
 
     case 'CLEAR_UPLOAD':
-      return { ...state, upload: { jobDescription: null, resumes: [] } }
+      return {
+        ...state,
+        jdDocumentId: null,
+        jdProcessingStatus: null,
+        jdProcessingStage: null,
+        jdNormalized: false,
+        resumeDocumentIds: [],
+        resumeProcessing: {},
+        upload: { jobDescription: null, resumes: [] },
+      }
 
     case 'UPDATE_WEIGHT':
       return {
         ...state,
+        weightConfigSaved: false,
+        weightConfigId: null,
         weights: state.weights.map((w) =>
           w.id === action.payload.id ? { ...w, weight: action.payload.weight } : w
         ),
+      }
+
+    case 'SET_WEIGHT_CONFIG_SAVED':
+      return {
+        ...state,
+        weightConfigSaved: action.payload.saved,
+        weightConfigId:
+          action.payload.weightConfigId !== undefined
+            ? action.payload.weightConfigId
+            : action.payload.saved
+              ? state.weightConfigId
+              : null,
+      }
+
+    case 'SET_SCORING_RESULT':
+      return {
+        ...state,
+        projectScoring: action.payload.scoring,
+        candidates: action.payload.candidates,
+        scoringComplete: true,
+        scoringError: null,
+        scoringRunAt: new Date(),
+        isProcessing: false,
+      }
+
+    case 'SET_SCORING_ERROR':
+      return {
+        ...state,
+        scoringError: action.payload,
+        scoringComplete: false,
+        isProcessing: false,
       }
 
     case 'SET_PROCESSING':
@@ -141,8 +310,20 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   const totalFiles =
     (state.upload.jobDescription ? 1 : 0) + state.upload.resumes.length
 
-  const canProceedJD = state.upload.jobDescription !== null
-  const canProceedResumes = state.upload.resumes.length > 0
+  const canProceedJD =
+    state.projectId !== null &&
+    state.jdDocumentId !== null &&
+    state.upload.jobDescription?.status === 'done' &&
+    state.jdNormalized === true &&
+    state.isProcessing === false
+  const canProceedResumes =
+    state.resumeDocumentIds.length > 0 &&
+    state.resumeDocumentIds.every(
+      (id) => state.resumeProcessing[id]?.normalized === true,
+    ) &&
+    !Object.values(state.resumeProcessing).some((p) =>
+      p.phase === 'parsing' || p.phase === 'extracting' || p.phase === 'normalizing',
+    )
   const canProceed = canProceedJD
 
   return (

@@ -1,97 +1,18 @@
 from pathlib import Path
+
 import fitz
-import structlog
 
-from app.core.config import get_settings
-from app.schemas.parsed_document import ParserEngineEnum
-from app.services.ocr.ocr_service import OCRService
-from app.services.parsers.base_parser import (
-    BaseParser,
-    CorruptedFileException,
-    ExtractionResult,
-)
-
-logger = structlog.get_logger(__name__)
+from app.schemas.parsed_document import ParserEngine
+from app.services.parsers.base import ParseOutput
 
 
-class PDFParser(BaseParser):
-    """Extract PDF text using PyMuPDF with automated OCR fallback for scanned PDFs."""
-
-    def __init__(self, ocr_service: OCRService | None = None) -> None:
-        self._ocr_service = ocr_service
-
-    @property
-    def ocr_service(self) -> OCRService:
-        if self._ocr_service is None:
-            self._ocr_service = OCRService()
-        return self._ocr_service
-
-    def parse(self, file_path: Path) -> ExtractionResult:
-        try:
-            with fitz.open(file_path) as document:
-                if document.needs_pass:
-                    raise CorruptedFileException("Encrypted PDFs are not supported.")
-
-                # 1. Primary extraction via PyMuPDF
-                page_texts = [page.get_text("text") for page in document]
-                raw_text = "\n".join(page_texts)
-                word_count = len(raw_text.split())
-
-                settings = get_settings()
-                ocr_used = False
-                ocr_engine = None
-
-                # 2. Scanned / Image-based PDF detection and OCR fallback
-                if (not raw_text.strip() or word_count == 0) and settings.ENABLE_OCR_FALLBACK:
-                    ocr_engine = settings.OCR_ENGINE.upper()
-                    logger.info(
-                        "scanned_pdf_detected_invoking_ocr",
-                        file_path=str(file_path),
-                        page_count=document.page_count,
-                        ocr_engine=ocr_engine,
-                    )
-                    page_images: list[bytes] = []
-                    dpi = getattr(settings, "OCR_DPI", 200)
-
-                    for page in document:
-                        pix = page.get_pixmap(dpi=dpi)
-                        page_images.append(pix.tobytes("png"))
-
-                    try:
-                        raw_text = self.ocr_service.process_page_images(page_images)
-                        ocr_used = True
-                        logger.info(
-                            "ocr_fallback_completed",
-                            file_path=str(file_path),
-                            ocr_engine=ocr_engine,
-                            extracted_text_len=len(raw_text),
-                        )
-                    except Exception as exc:
-                        logger.exception(
-                            "ocr_fallback_execution_failed",
-                            file_path=str(file_path),
-                            ocr_engine=ocr_engine,
-                            error=str(exc),
-                        )
-                        raise CorruptedFileException(
-                            f"OCR fallback failed using {ocr_engine}: {exc}"
-                        ) from exc
-
-                metadata = {
-                    "parser_engine": ParserEngineEnum.PYMUPDF.value,
-                    "ocr_used": ocr_used,
-                    "ocr_engine": ocr_engine,
-                    "pdf_version": document.metadata.get("format", ""),
-                    "is_encrypted": bool(document.is_encrypted),
-                }
-
-                return ExtractionResult(
-                    raw_text=raw_text,
-                    page_count=document.page_count,
-                    parser_engine=ParserEngineEnum.PYMUPDF,
-                    metadata=metadata,
-                )
-        except CorruptedFileException:
-            raise
-        except (fitz.FileDataError, RuntimeError, ValueError) as exc:
-            raise CorruptedFileException("The PDF is corrupted or unreadable.") from exc
+def parse_pdf(path: Path) -> ParseOutput:
+    with fitz.open(path) as document:
+        pages = [page.get_text("text") for page in document]
+        page_count = document.page_count
+    raw_text = "\n".join(pages)
+    return ParseOutput(
+        raw_text=raw_text,
+        page_count=page_count,
+        parser_engine=ParserEngine.PYMUPDF,
+    )

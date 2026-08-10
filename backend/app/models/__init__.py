@@ -4,36 +4,21 @@ from app.models.document import (
     ProcessingStageEnum,
     ProcessingStatusEnum,
 )
-from app.models.project import ProjectModel, ProjectStatusEnum
+from app.models.extracted_job_description import ExtractedJDModel
+from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
-from app.models.extracted_info import (
-    ExtractedJobDescriptionModel,
-    ExtractedResumeModel,
-)
-from app.models.normalized_info import (
-    NormalizedJobDescriptionModel,
-    NormalizedResumeModel,
-)
-from app.models.weight_config import ProjectWeightConfigModel
-from app.models.scoring import CandidateScoreModel, RecommendationLevelEnum
-from app.models.ranking import CandidateRankingModel
-from app.models.insights import CandidateInsightModel
+from app.models.project import ProjectModel, ProjectStatusEnum
+from app.models.weight_config import WeightConfigModel
 
 __all__ = [
     "DocumentModel",
     "DocumentTypeEnum",
+    "ExtractedJDModel",
+    "NormalizedJDModel",
+    "ParsedDocumentModel",
     "ProcessingStageEnum",
     "ProcessingStatusEnum",
-    "ExtractedJobDescriptionModel",
-    "ExtractedResumeModel",
-    "NormalizedJobDescriptionModel",
-    "NormalizedResumeModel",
-    "ParsedDocumentModel",
     "ProjectModel",
     "ProjectStatusEnum",
-    "ProjectWeightConfigModel",
-    "CandidateScoreModel",
-    "RecommendationLevelEnum",
-    "CandidateRankingModel",
-    "CandidateInsightModel",
+    "WeightConfigModel",
 ]

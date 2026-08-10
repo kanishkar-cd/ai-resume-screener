@@ -173,15 +173,22 @@ class DocumentRepository:
         self,
         document_id: UUID,
         status: ProcessingStatus,
-        metadata: dict[str, object],
+        metadata: dict[str, object] | None = None,
+        *,
+        commit: bool = True,
     ) -> DocumentModel | None:
         document = await self.get_document(document_id)
         if document is None:
             return None
         document.processing_status = ProcessingStatusEnum(status.value)
-        document.metadata_json = metadata
-        await self.session.commit()
-        await self.session.refresh(document)
+        if metadata is not None:
+            document.metadata_json = metadata
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(document)
+        else:
+            await self.session.flush()
+            await self.session.refresh(document)
         return document
 
     async def update_processing(
