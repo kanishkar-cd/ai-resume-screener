@@ -105,7 +105,7 @@ class NormalizationAudit:
             if "alias" in rule or rule in {"exact_canonical", "email_lowercase", "e164_format", "company_legal_suffix", "date_format"}:
                 self.aliases_resolved += 1
         # Do not emit warnings for valid preserved unknown values for standard fields
-        if rule == "preserved_unknown" and source and field not in {"companies", "phone", "certifications", "locations", "email", "skills", "job_titles"}:
+        if rule == "preserved_unknown" and source and field not in {"companies", "phone", "certifications", "locations", "email", "skills", "job_titles", "keywords"}:
             self.warnings.append(f"No canonical alias for {field}: {source}")
 
     def record_duplicates_removed(self, count: int) -> None:

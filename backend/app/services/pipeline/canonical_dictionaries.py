@@ -26,6 +26,7 @@ SKILL_ALIASES = {
     "scikit-learn": "Scikit-learn", "sklearn": "Scikit-learn",
     "tensorflow": "TensorFlow", "pytorch": "PyTorch", "pytest": "Pytest",
     "bash": "Bash", "shell": "Shell", "mysql": "MySQL", "sqlite": "SQLite", "oracle": "Oracle",
+    "embedded systems": "Embedded Systems", "plc programming": "PLC Programming", "plc": "PLC Programming", "iot": "IoT",
 }
 
 DEGREE_ALIASES = {
@@ -43,7 +44,7 @@ DEGREE_ALIASES = {
 }
 
 TITLE_ALIASES = {
-    "c++ developer": "Software Engineer", "software developer": "Software Engineer",
+    "software engineer": "Software Engineer", "c++ developer": "Software Engineer", "software developer": "Software Engineer",
     "sr. backend dev": "Senior Backend Engineer", "sr backend dev": "Senior Backend Engineer",
     "backend developer": "Backend Engineer", "python developer": "Python Developer",
     "full stack developer": "Full Stack Engineer", "frontend developer": "Frontend Engineer",

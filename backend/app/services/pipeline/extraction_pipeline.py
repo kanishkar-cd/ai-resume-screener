@@ -17,6 +17,7 @@ SKILLS = (
     "Angular", "Next.js", "Tailwind", "Kafka", "Elasticsearch", "RabbitMQ",
     "Rust", "C#", ".NET", "Redux", "Pandas", "NumPy", "Scikit-learn",
     "TensorFlow", "PyTorch", "Bash", "Shell", "MySQL", "SQLite", "Oracle",
+    "Embedded Systems", "PLC Programming", "PLC", "IoT",
 )
 
 LANGUAGES = (
@@ -63,15 +64,15 @@ DEGREES = tuple(
 SECTION_ALIASES = {
     "contact": {"contact", "contact information", "personal info", "personal details"},
     "summary": {"summary", "profile", "objective", "professional summary", "about me", "executive summary"},
-    "skills": {"skills", "technical skills", "core skills", "core competencies", "skills & tools", "technologies", "key skills"},
-    "requirements": {"requirements", "required skills", "job requirements", "prerequisites"},
+    "skills": {"skills", "technical skills", "core skills", "core competencies", "skills & tools", "technologies", "key skills", "preferred skills", "preferred qualifications", "desired skills", "nice to have", "keywords"},
+    "requirements": {"requirements", "required skills", "job requirements", "prerequisites", "qualifications", "basic qualifications"},
     "experience": {
         "experience", "work experience", "professional experience", "work history",
         "employment", "employment history", "career history", "relevant experience",
         "internship", "internships", "internship experience",
         "intership", "interships",
     },
-    "education": {"education", "academic background", "academic qualifications", "qualifications", "education & qualifications"},
+    "education": {"education", "academic background", "academic qualifications", "education & qualifications"},
     "projects": {"projects", "project experience", "project details", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
 
     "certifications": {
@@ -82,7 +83,7 @@ SECTION_ALIASES = {
     "awards": {"awards", "honors", "achievements", "awards & honors", "awards & achievements"},
     "publications": {"publications", "research publications", "papers"},
     "languages": {"languages", "language proficiency", "languages known"},
-    "responsibilities": {"responsibilities", "key responsibilities", "duties"},
+    "responsibilities": {"responsibilities", "key responsibilities", "duties", "job responsibilities", "role responsibilities"},
     "benefits": {"benefits", "what we offer"},
 }
 
@@ -149,14 +150,12 @@ def segment_sections(text: str) -> dict[str, str]:
 
         if not matched_section:
             heading_words = len(clean_heading.split())
-            for alias, canonical in alias_map.items():
-                alias_words = len(alias.split())
-                # Only fire fuzzy match if:
-                #   1. The heading is short (≤4 words) — likely a standalone heading
-                #   2. OR the alias covers the majority of heading words
-                if heading_words <= 4 or alias_words >= (heading_words // 2 + 1):
-                    if re.search(rf"\b{re.escape(alias)}\b", clean_heading):
-                        if len(clean_heading.split()) <= 6:
+            # Only attempt fuzzy heading matching if line is short (<= 6 words) and doesn't look like a standard descriptive sentence
+            if heading_words <= 6:
+                for alias, canonical in alias_map.items():
+                    alias_words = len(alias.split())
+                    if heading_words <= 4 or alias_words >= (heading_words // 2 + 1):
+                        if re.search(rf"\b{re.escape(alias)}\b", clean_heading):
                             matched_section = canonical
                             break
 
