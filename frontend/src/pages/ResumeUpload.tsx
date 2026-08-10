@@ -283,7 +283,7 @@ export default function ResumeUpload() {
         dispatch({ type: 'REMOVE_RESUME', payload: item.id })
       }
 
-      const successes: UploadedFile[] = batch.successful_uploads.map((upload) => ({
+      const successes: UploadedFile[] = batch.successful_uploads.map((upload: any) => ({
         id: upload.document_id,
         name: upload.filename,
         size: sizeByName.get(upload.filename) ?? 0,
@@ -292,7 +292,7 @@ export default function ResumeUpload() {
         uploadedAt: new Date(),
       }))
 
-      const failures: UploadedFile[] = batch.failed_uploads.map((failed, index) => ({
+      const failures: UploadedFile[] = batch.failed_uploads.map((failed: any, index: number) => ({
         id: `failed-resume-${Date.now()}-${index}`,
         name: failed.original_filename,
         size: sizeByName.get(failed.original_filename) ?? 0,

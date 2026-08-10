@@ -26,7 +26,7 @@ import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
 import { MOCK_CANDIDATES, AI_PIPELINE_STAGES } from '@/constants'
 import { useNavigate } from 'react-router-dom'
-import { api, ApiError, type ProjectScoring } from '@/api'
+import { api, ApiError, type ProjectScoring, type CandidateInsights } from '@/api'
 
 // ─── Animation variants ───────────────────────────────────────
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -108,6 +108,33 @@ interface ExplanationDrawerProps {
 }
 
 function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
+  const [insights, setInsights] = useState<CandidateInsights | null>(null)
+  const [loadingInsights, setLoadingInsights] = useState(false)
+
+  React.useEffect(() => {
+    if (!candidate?.id) {
+      setInsights(null)
+      return
+    }
+    let isMounted = true
+    setLoadingInsights(true)
+    api.getInsights(candidate.id)
+      .then((res) => {
+        if (isMounted) {
+          setInsights(res)
+          setLoadingInsights(false)
+        }
+      })
+      .catch(() => {
+        if (isMounted) setLoadingInsights(false)
+      })
+    return () => { isMounted = false }
+  }, [candidate?.id])
+
+  const aiSummaryText = insights?.summary || candidate?.aiExplanation || 'AI explanation not yet generated. Please run the AI pipeline first.'
+  const displayStrengths = insights?.strengths?.length ? insights.strengths : candidate?.keyStrengths || []
+  const displayWeaknesses = insights?.weaknesses?.length ? insights.weaknesses : candidate?.keyWeaknesses || []
+
   return (
     <AnimatePresence>
       {candidate && (
@@ -177,16 +204,21 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles size={14} className="text-sky-500" />
                   <p className="text-[11px] font-bold text-sky-600 uppercase tracking-widest">
-                    AI Explanation
+                    AI Explanation {loadingInsights ? '(Loading...)' : ''}
                   </p>
                 </div>
                 <p className="text-[13px] text-slate-600 leading-relaxed">
-                  {candidate.aiExplanation ?? 'AI explanation not yet generated. Please run the AI pipeline first.'}
+                  {aiSummaryText}
                 </p>
+                {insights?.score_explanation && (
+                  <p className="mt-2 text-[12px] text-slate-500 italic">
+                    {insights.score_explanation}
+                  </p>
+                )}
               </div>
 
               {/* Key Strengths */}
-              {candidate.keyStrengths && candidate.keyStrengths.length > 0 && (
+              {displayStrengths.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-2.5">
                     <TrendingUp size={13} className="text-green-500" />
@@ -195,7 +227,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                     </p>
                   </div>
                   <ul className="space-y-1.5">
-                    {candidate.keyStrengths.map((s, i) => (
+                    {displayStrengths.map((s, i) => (
                       <motion.li
                         key={i}
                         initial={{ opacity: 0, x: -6 }}
@@ -212,7 +244,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
               )}
 
               {/* Key Weaknesses */}
-              {candidate.keyWeaknesses && candidate.keyWeaknesses.length > 0 && (
+              {displayWeaknesses.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-2.5">
                     <AlertCircle size={13} className="text-amber-500" />
@@ -221,7 +253,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                     </p>
                   </div>
                   <ul className="space-y-1.5">
-                    {candidate.keyWeaknesses.map((w, i) => (
+                    {displayWeaknesses.map((w, i) => (
                       <motion.li
                         key={i}
                         initial={{ opacity: 0, x: -6 }}
@@ -492,10 +524,32 @@ export default function CandidateRanking() {
               Sort: {sortBy === 'rank' ? 'Rank' : 'Score'}
             </button>
 
-            <button className="btn-outline py-2 px-4 text-[12px]">
-              <Download size={13} />
-              Export CSV
-            </button>
+            <select
+              className="text-[12px] border border-slate-200 rounded-lg px-2 py-2 text-slate-600 outline-none bg-white font-medium hover:border-sky-300 transition-colors"
+              onChange={async (e) => {
+                const val = e.target.value as 'csv' | 'excel' | 'json' | 'pdf' | ''
+                if (!val || !state.projectId) return
+                try {
+                  const blob = await api.exportProjectData(state.projectId, val)
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `project_${state.projectId}_rankings.${val === 'excel' ? 'xlsx' : val}`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch (err) {
+                  console.error('Export error:', err)
+                }
+                e.target.value = ''
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>Export Data...</option>
+              <option value="csv">Export CSV</option>
+              <option value="excel">Export Excel (.xlsx)</option>
+              <option value="json">Export JSON</option>
+              <option value="pdf">Export PDF</option>
+            </select>
           </div>
 
           {/* Hint row */}

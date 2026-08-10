@@ -217,7 +217,7 @@ export interface ExtractedJobDescription {
 export type ExtractedDocument = ExtractedResume | ExtractedJobDescription
 
 export interface ExtractResult {
-  processing_status: DocumentProcessingStatus | null | undefined
+  processing_status: ProcessingStatus | null | undefined
   document_id: string
   document_type: DocumentType
   processing_stage: ProcessingStage
@@ -308,7 +308,7 @@ export interface NormalizedJobDescription {
 export type NormalizedDocument = NormalizedResume | NormalizedJobDescription
 
 export interface NormalizeResult {
-  processing_status: DocumentProcessingStatus | null | undefined
+  processing_status: ProcessingStatus | null | undefined
   document_id: string
   document_type: DocumentType
   processing_stage: ProcessingStage
@@ -531,4 +531,30 @@ export interface ProjectDashboard {
   pipeline_completion_percentage: number
   processing_time_seconds: number
   last_updated: string
+}
+
+export interface CandidateInsights {
+  id: string
+  document_id: string
+  project_id: string
+  summary: string
+  strengths: string[]
+  weaknesses: string[]
+  matched_skills: string[]
+  missing_skills: string[]
+  score_explanation: string
+  recommendation_reason: string
+  improvement_suggestions: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface PipelineStatusResponse {
+  project_id: string
+  current_stage: ProcessingStage
+  completed_stages: ProcessingStage[]
+  remaining_stages: ProcessingStage[]
+  resume_count: number
+  stage_counts: Record<string, number>
+  completion_percentage: number
 }

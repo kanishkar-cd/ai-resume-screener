@@ -5,6 +5,7 @@
 import { apiRequest } from './client'
 import type {
   BatchResumeUpload,
+  CandidateInsights,
   CandidateRanking,
   CandidateScore,
   Document,
@@ -16,7 +17,9 @@ import type {
   Paginated,
   ParseResult,
   ParsedDocument,
+  PipelineStatusResponse,
   Project,
+  ProjectAnalytics,
   ProjectCreate,
   ProjectDashboard,
   ProjectScoring,
@@ -147,8 +150,25 @@ export const api = {
     )
   },
 
-  // ── Dashboard ─────────────────────────────────────────────
+  // ── Dashboard & Analytics ──────────────────────────────────
   getDashboard(projectId: string): Promise<ProjectDashboard> {
     return apiRequest<ProjectDashboard>(`/projects/${projectId}/dashboard`)
+  },
+
+  getAnalytics(projectId: string): Promise<ProjectAnalytics> {
+    return apiRequest<ProjectAnalytics>(`/projects/${projectId}/analytics`)
+  },
+
+  getPipelineStatus(projectId: string): Promise<PipelineStatusResponse> {
+    return apiRequest<PipelineStatusResponse>(`/projects/${projectId}/pipeline-status`)
+  },
+
+  getInsights(documentId: string): Promise<CandidateInsights> {
+    return apiRequest<CandidateInsights>(`/documents/${documentId}/insights`)
+  },
+
+  async exportProjectData(projectId: string, format: 'csv' | 'excel' | 'json' | 'pdf'): Promise<Blob> {
+    const res = await apiRequest<Response>(`/projects/${projectId}/export/${format}`, { raw: true })
+    return res.blob()
   },
 }

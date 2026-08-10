@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
@@ -16,7 +16,7 @@ import {
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
 import { MOCK_CANDIDATES } from '@/constants'
-
+import { api, ProjectDashboard, ProjectAnalytics, CandidateRanking } from '@/api'
 
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } }
@@ -33,16 +33,67 @@ function getScoreClass(score: number) {
   return 'score-low'
 }
 
+function rankingToStatus(recommendation: string, isKnockedOut: boolean): ScreeningStatus {
+  if (isKnockedOut || recommendation === 'REJECT') return 'rejected'
+  if (recommendation === 'SHORTLIST') return 'screened'
+  return 'pending'
+}
+
 export default function RecruiterDashboard() {
   const { state, dispatch } = usePipeline()
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'rank' | 'score'>('rank')
+  
+  const [dashboard, setDashboard] = useState<ProjectDashboard | null>(null)
+  const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
+  const [fetchedCandidates, setFetchedCandidates] = useState<Candidate[]>([])
 
+  useEffect(() => {
+    if (!state.projectId) return
+    let active = true
+
+    Promise.all([
+      api.getDashboard(state.projectId).catch(() => null),
+      api.getAnalytics(state.projectId).catch(() => null),
+      api.getRankings(state.projectId).catch(() => null),
+    ]).then(([dashData, analyticsData, rankingsData]) => {
+      if (!active) return
+      if (dashData) setDashboard(dashData)
+      if (analyticsData) setAnalytics(analyticsData)
+
+      if (rankingsData && rankingsData.items.length > 0) {
+        const mapped: Candidate[] = rankingsData.items.map((r: CandidateRanking) => ({
+          id: r.document_id,
+          name: r.candidate_name || 'Candidate',
+          email: r.email || '',
+          resumeFile: r.document_id,
+          overallScore: Math.round(r.final_score),
+          rank: r.rank_position,
+          status: rankingToStatus(r.recommendation, r.is_knocked_out),
+          extractedFields: [],
+          scores: [
+            { criterionId: 'skills', label: 'Skills', score: Math.round(r.skills_score), weight: 0, weightedScore: 0 },
+            { criterionId: 'experience', label: 'Experience', score: Math.round(r.experience_score), weight: 0, weightedScore: 0 },
+          ],
+          scoredAt: new Date(r.created_at),
+        }))
+        setFetchedCandidates(mapped)
+      }
+    })
+
+    return () => { active = false }
+  }, [state.projectId, state.scoringComplete])
+
+  // Derive candidates: prefer pipeline store state, then fetched API candidates, then mock candidates only if no project active
   const candidates: Candidate[] = state.candidates.length > 0
     ? state.candidates
-    : (MOCK_CANDIDATES as Candidate[])
+    : fetchedCandidates.length > 0
+      ? fetchedCandidates
+      : state.projectId
+        ? []
+        : (MOCK_CANDIDATES as Candidate[])
 
   const filtered = candidates
     .filter((c) => {
@@ -56,8 +107,21 @@ export default function RecruiterDashboard() {
   const updateStatus = (id: string, status: ScreeningStatus) =>
     dispatch({ type: 'UPDATE_CANDIDATE_STATUS', payload: { id, status } })
 
-  const screened = candidates.filter((c) => c.status === 'screened').length
-  const avgScore = Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
+  // Real stats calculation
+  const totalCandidatesCount = dashboard?.project_summary.total_candidates ?? analytics?.total_candidates ?? candidates.length
+  const screenedCount = analytics
+    ? (analytics.recommendation_distribution?.SHORTLIST || 0)
+    : candidates.filter((c) => c.status === 'screened').length
+  const avgScoreVal = analytics
+    ? Math.round(analytics.average_score)
+    : candidates.length > 0
+      ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
+      : 0
+  const topScoreVal = analytics
+    ? Math.round(analytics.highest_score)
+    : candidates.length > 0
+      ? Math.max(...candidates.map((c) => c.overallScore))
+      : 0
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="max-w-5xl mx-auto">
@@ -72,10 +136,10 @@ export default function RecruiterDashboard() {
       {/* Stats */}
       <motion.div variants={fadeUp} className="grid grid-cols-4 gap-3 mb-5">
         {[
-          { icon: Users, label: 'Total Candidates', value: candidates.length, color: 'text-sky-600', bg: 'bg-sky-50' },
-          { icon: Star, label: 'Screened', value: screened, color: 'text-green-600', bg: 'bg-green-50' },
-          { icon: Trophy, label: 'Avg Score', value: `${avgScore}%`, color: 'text-sky-600', bg: 'bg-sky-50' },
-          { icon: LayoutDashboard, label: 'Top Score', value: `${Math.max(...candidates.map(c => c.overallScore))}%`, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { icon: Users, label: 'Total Candidates', value: totalCandidatesCount, color: 'text-sky-600', bg: 'bg-sky-50' },
+          { icon: Star, label: 'Screened', value: screenedCount, color: 'text-green-600', bg: 'bg-green-50' },
+          { icon: Trophy, label: 'Avg Score', value: `${avgScoreVal}%`, color: 'text-sky-600', bg: 'bg-sky-50' },
+          { icon: LayoutDashboard, label: 'Top Score', value: `${topScoreVal}%`, color: 'text-amber-600', bg: 'bg-amber-50' },
         ].map((s) => {
           const Icon = s.icon
           return (
@@ -88,7 +152,7 @@ export default function RecruiterDashboard() {
                 <Icon size={14} className={s.color} />
                 <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">{s.label}</p>
               </div>
-              <motion.p key={s.value} className={`text-[24px] font-bold ${s.color}`} initial={{ scale: 0.85 }} animate={{ scale: 1 }}>
+              <motion.p key={String(s.value)} className={`text-[24px] font-bold ${s.color}`} initial={{ scale: 0.85 }} animate={{ scale: 1 }}>
                 {s.value}
               </motion.p>
             </motion.div>
@@ -130,10 +194,32 @@ export default function RecruiterDashboard() {
             Sort: {sortBy === 'rank' ? 'Rank' : 'Score'}
           </button>
 
-          <button className="btn-outline py-2 px-4 text-[12px]">
-            <Download size={13} />
-            Export CSV
-          </button>
+          <select
+            className="text-[12px] border border-slate-200 rounded-lg px-2 py-2 text-slate-600 outline-none bg-white font-medium hover:border-sky-300 transition-colors"
+            onChange={async (e) => {
+              const val = e.target.value as 'csv' | 'excel' | 'json' | 'pdf' | ''
+              if (!val || !state.projectId) return
+              try {
+                const blob = await api.exportProjectData(state.projectId, val)
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `project_${state.projectId}_dashboard.${val === 'excel' ? 'xlsx' : val}`
+                a.click()
+                URL.revokeObjectURL(url)
+              } catch (err) {
+                console.error('Export error:', err)
+              }
+              e.target.value = ''
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>Export Data...</option>
+            <option value="csv">Export CSV</option>
+            <option value="excel">Export Excel (.xlsx)</option>
+            <option value="json">Export JSON</option>
+            <option value="pdf">Export PDF</option>
+          </select>
         </div>
 
         {/* Table */}
