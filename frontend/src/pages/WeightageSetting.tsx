@@ -126,6 +126,7 @@ export default function WeightageSetting() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(state.weightConfigSaved)
+  const [advanced, setAdvanced] = useState({ passingScore: 60, minExperience: 0, requiredDegree: '', mandatorySkills: '', preferredSkills: '', knockoutRules: '', customKeywords: '' })
 
   const total = localWeights.reduce((s, w) => s + Math.round(w.weight), 0)
   const isValid = Math.abs(total - 100) < 0.5
@@ -152,6 +153,7 @@ export default function WeightageSetting() {
             payload: { saved: true, weightConfigId: config.id },
           })
           setSaveSuccess(true)
+          setAdvanced({ passingScore: config.passing_score, minExperience: config.min_experience_years, requiredDegree: config.required_degree ?? '', mandatorySkills: config.mandatory_skills.join(', '), preferredSkills: config.preferred_skills.join(', '), knockoutRules: config.knockout_rules.map((rule) => rule.rule_type).join(', '), customKeywords: config.custom_keywords.join(', ') })
         })
         .catch(() => {
           // No saved weight config yet; keep current local/store state
@@ -234,7 +236,8 @@ export default function WeightageSetting() {
         dispatch({ type: 'UPDATE_WEIGHT', payload: { id: w.id, weight: w.weight } })
       )
 
-      const saved = await api.createWeightConfig(projectId, { weights: distribution })
+      const split = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)
+      const saved = await api.createWeightConfig(projectId, { weights: distribution, passing_score: advanced.passingScore, min_experience_years: advanced.minExperience, required_degree: advanced.requiredDegree.trim() || null, mandatory_skills: split(advanced.mandatorySkills), preferred_skills: split(advanced.preferredSkills), knockout_rules: split(advanced.knockoutRules).map((rule_type) => ({ rule_type, enabled: true })), custom_keywords: split(advanced.customKeywords) })
 
       dispatch({
         type: 'SET_WEIGHT_CONFIG_SAVED',
@@ -242,7 +245,7 @@ export default function WeightageSetting() {
       })
       setSaveSuccess(true)
       completeAndAdvance()
-      navigate('/resume-upload')
+      navigate(`/projects/${projectId}/resumes`)
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -261,7 +264,7 @@ export default function WeightageSetting() {
   }
 
   const handleBack = () => {
-    navigate('/')
+    navigate(`/projects/${state.projectId}/job-description`)
   }
 
   return (
@@ -409,6 +412,16 @@ export default function WeightageSetting() {
                 The AI uses these weights to generate a composite score for each candidate. Heavily weighted categories have more influence on the final ranking.
               </p>
             </div>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-slate-100">
+          <h2 className="text-[14px] font-bold text-slate-800 mb-4">Screening Requirements</h2>
+          <div className="grid md:grid-cols-3 gap-4">
+            <label className="text-[11px] font-semibold text-slate-600">Passing score<input type="number" min={0} max={100} value={advanced.passingScore} onChange={(e)=>setAdvanced({...advanced,passingScore:Number(e.target.value)})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
+            <label className="text-[11px] font-semibold text-slate-600">Minimum experience<input type="number" min={0} value={advanced.minExperience} onChange={(e)=>setAdvanced({...advanced,minExperience:Number(e.target.value)})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
+            <label className="text-[11px] font-semibold text-slate-600">Required degree<input value={advanced.requiredDegree} onChange={(e)=>setAdvanced({...advanced,requiredDegree:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
+            {([['Mandatory skills','mandatorySkills'],['Preferred skills','preferredSkills'],['Knockout rules','knockoutRules'],['Custom keywords','customKeywords']] as const).map(([label,key])=><label key={key} className="text-[11px] font-semibold text-slate-600">{label}<input placeholder="Comma separated" value={advanced[key]} onChange={(e)=>setAdvanced({...advanced,[key]:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>)}
           </div>
         </div>
 

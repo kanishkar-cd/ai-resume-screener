@@ -1,6 +1,6 @@
 import type { ApiDataEnvelope, ApiErrorBody } from './types'
 
-const DEFAULT_BASE_URL = 'http://localhost:8000/api/v1'
+const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/api/v1'
 
 export function getApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
@@ -96,11 +96,21 @@ export async function apiRequest<T>(
     }
   }
 
-  const response = await fetch(buildUrl(path, query), {
-    ...rest,
-    headers,
-    body: resolvedBody,
-  })
+  let response: Response
+  try {
+    response = await fetch(buildUrl(path, query), {
+      ...rest,
+      headers,
+      body: resolvedBody,
+    })
+  } catch (error) {
+    throw new ApiError(
+      0,
+      'BACKEND_UNREACHABLE',
+      'Cannot reach the resume screening service at ' + getApiBaseUrl() + '. Check that the backend is running.',
+      { cause: error instanceof Error ? error.message : String(error) },
+    )
+  }
 
   if (!response.ok) {
     throw await parseError(response)

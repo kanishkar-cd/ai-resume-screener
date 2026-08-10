@@ -46,11 +46,26 @@ class DocumentRepository:
         await self.session.refresh(model)
         return model
 
-    async def get_by_hash(self, file_hash: str) -> DocumentModel | None:
+    async def get_by_hash(
+        self,
+        project_id: UUID,
+        file_hash: str,
+        document_type: DocumentTypeEnum | DocumentType | None = None,
+    ) -> DocumentModel | None:
         statement = select(DocumentModel).where(
+            DocumentModel.project_id == project_id,
             DocumentModel.file_hash == file_hash,
             DocumentModel.deleted_at.is_(None),
         )
+        if document_type is not None:
+            doc_type_val = (
+                document_type.value
+                if hasattr(document_type, "value")
+                else str(document_type)
+            )
+            statement = statement.where(
+                DocumentModel.document_type == DocumentTypeEnum(doc_type_val)
+            )
         return await self.session.scalar(statement)
 
     async def get_job_description_by_project(

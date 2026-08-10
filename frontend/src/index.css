@@ -134,6 +134,7 @@ h1, h2, h3, h4, h5, h6 {
   opacity: 0;
   transition: opacity 0.25s ease;
   border-radius: 12px;
+  pointer-events: none;
 }
 
 .upload-dropzone:hover::before,

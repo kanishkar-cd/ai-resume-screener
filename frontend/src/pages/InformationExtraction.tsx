@@ -27,7 +27,7 @@ const INITIAL_FIELDS: ExtractionField[] = [
 ]
 
 const RESULTS: Record<string, string> = {
-  name: 'Sarah Johnson, Marcus Chen, Priya Sharma, Alex Rivera',
+  name: 'Candidate records from uploaded resumes',
   experience: '2–8 years (avg. 5.2 years)',
   education: "B.Sc CS × 3, M.Sc ML × 1",
   skills: 'Python, React, SQL, AWS, Docker, FastAPI...',

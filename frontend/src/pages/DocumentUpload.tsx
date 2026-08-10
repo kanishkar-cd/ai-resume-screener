@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   FileText,
@@ -12,7 +12,7 @@ import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
 import { UploadedFile, JdProcessingStage, JdProcessingStatus } from '@/types'
 import { useNavigate } from 'react-router-dom'
-import { api, ApiError, type ProjectCreate } from '@/api'
+import { api, ApiError } from '@/api'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -41,17 +41,6 @@ function fileTypeFromName(name: string): UploadedFile['type'] {
  * POST /projects requires title + target_role; Document Upload UI does not collect them.
  * Temporary placeholders so the JD upload flow can run — see mismatch notes in the PR/response.
  */
-function buildProjectCreatePayload(file: File): ProjectCreate {
-  const stem = file.name.replace(/\.[^.]+$/, '').trim()
-  const title = (stem.length >= 3 ? stem : `${stem || 'JD'} Campaign`).slice(0, 255)
-  return {
-    title,
-    target_role: 'Open Role',
-    status: 'DRAFT',
-    metadata_json: { source_jd_filename: file.name },
-  }
-}
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -109,6 +98,26 @@ export default function DocumentUpload() {
   }) => {
     dispatch({ type: 'SET_JD_PROCESSING', payload })
   }
+
+  useEffect(() => {
+    if (!state.projectId || state.jdDocumentId) return
+    api.getJobDescription(state.projectId).then((document) => {
+      dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: document.id })
+      dispatch({
+        type: 'SET_JD',
+        payload: {
+          id: document.id,
+          name: document.original_filename,
+          size: document.file_size_bytes,
+          type: fileTypeFromName(document.original_filename),
+          status: document.processing_status === 'FAILED' ? 'error' : 'done',
+          errorMessage: document.error_message ?? undefined,
+          uploadedAt: new Date(document.created_at),
+        },
+      })
+      updateJdProcessing({ status: document.processing_status, stage: document.processing_stage })
+    }).catch(() => undefined)
+  }, [dispatch, state.jdDocumentId, state.projectId])
 
   /**
    * Poll GET /projects/{projectId}/job-description until parse finishes or fails.
@@ -188,6 +197,11 @@ export default function DocumentUpload() {
     const file = files[0]
     if (!file || busy) return
 
+    if (!state.projectId) {
+      setFlowError('Open or create a project before uploading a job description.')
+      return
+    }
+
     setFlowError(null)
     setFlowPhase('uploading')
     updateJdProcessing({
@@ -209,12 +223,7 @@ export default function DocumentUpload() {
     let uploadedFile: UploadedFile | null = null
 
     try {
-      let projectId = state.projectId
-      if (!projectId) {
-        const project = await api.createProject(buildProjectCreatePayload(file))
-        projectId = project.id
-        dispatch({ type: 'SET_PROJECT_ID', payload: projectId })
-      }
+      const projectId = state.projectId
 
       const uploaded = await api.uploadJobDescription(projectId, file)
 
@@ -237,15 +246,24 @@ export default function DocumentUpload() {
 
       await processUploadedJd(projectId, uploaded.document_id)
     } catch (err) {
-      const message = errorMessage(err, 'JD upload / processing failed')
+      const isDuplicate = err instanceof ApiError &&
+        (err.status === 409 || err.code === 'DUPLICATE_DOCUMENT')
+      const message = isDuplicate
+        ? 'This job description already exists in the current project. Continue this screening or start a New Screening to use it in a new project.'
+        : errorMessage(err, 'JD upload / processing failed')
       setFlowError(message)
       setFlowPhase('error')
-      updateJdProcessing({ status: 'FAILED', stage: 'FAILED', normalized: false })
+      updateJdProcessing({
+        status: isDuplicate ? null : 'FAILED',
+        stage: isDuplicate ? null : 'FAILED',
+        normalized: false,
+      })
       dispatch({
         type: 'SET_JD',
         payload: {
           ...(uploadedFile ?? localPreview),
           status: 'error',
+          errorMessage: message,
         },
       })
       dispatch({ type: 'SET_PROCESSING', payload: false })
@@ -264,7 +282,7 @@ export default function DocumentUpload() {
   const handleContinue = () => {
     if (!canProceedJD) return
     completeAndAdvance()
-    navigate('/weightage')
+    navigate(`/projects/${state.projectId}/weightage`)
   }
 
   const jdCount = state.jdNormalized && state.jdDocumentId ? 1 : 0

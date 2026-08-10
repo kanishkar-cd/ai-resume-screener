@@ -1,6 +1,6 @@
 /**
  * Backend-aligned API types for `/api/v1`.
- * UI mock types in `@/types` stay separate; these mirror FastAPI schemas.
+ * These interfaces mirror the FastAPI schemas.
  */
 
 // ─── Shared / enums ───────────────────────────────────────────
@@ -77,6 +77,15 @@ export interface ProjectCreate {
   metadata_json?: Record<string, unknown>
 }
 
+export interface ProjectUpdate {
+  title?: string
+  description?: string | null
+  target_role?: string
+  department?: string | null
+  status?: ProjectStatus
+  metadata_json?: Record<string, unknown>
+}
+
 export interface Project {
   id: string
   title: string
@@ -88,6 +97,8 @@ export interface Project {
   created_at: string
   updated_at: string
 }
+
+export type ProjectList = Paginated<Project>
 
 // ─── Documents ────────────────────────────────────────────────
 
@@ -110,10 +121,13 @@ export interface Document {
   file_hash: string
   processing_stage: ProcessingStage
   processing_status: ProcessingStatus
+  error_message?: string | null
   metadata_json: Record<string, unknown>
   created_at: string
   updated_at: string
 }
+
+export type DocumentList = Paginated<Document>
 
 export interface FailedUploadItem {
   original_filename: string

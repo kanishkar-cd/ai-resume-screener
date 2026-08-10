@@ -8,6 +8,9 @@ class ParseOutput:
     raw_text: str
     page_count: int | None
     parser_engine: ParserEngine
+    ocr_fallback_used: bool = False
+    ocr_engine: str | None = None
+    original_parser: str | None = None
 
 
 def text_metrics(raw_text: str) -> tuple[int, int]:

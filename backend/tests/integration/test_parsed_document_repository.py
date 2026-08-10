@@ -42,18 +42,17 @@ async def test_parsed_document_upsert_and_txt_pipeline(tmp_path) -> None:
         parsed = await parsed_documents.get_by_document_id(uploaded.document_id)
         parent = await documents.get_document(uploaded.document_id)
 
-        assert response.status.value == "COMPLETED"
+        assert response.processing_status.value == "PARSED"
         assert parsed is not None
-        assert "Senior Python Engineer" in parsed.normalized_text
+        assert "Python Engineer" in parsed.normalized_text
         assert parsed.parser_engine == "PLAIN_TEXT"
         assert parsed.word_count >= 4
         assert parent is not None
-        assert parent.processing_stage.value == "COMPLETED"
-        assert parent.processing_status.value == "COMPLETED"
+        assert parent.processing_status.value == "PARSED"
         assert parent.error_message is None
 
         original_id = parsed.id
-        updated = await parsed_documents.create_or_update(
+        updated = await parsed_documents.upsert(
             ParsedDocumentCreate(
                 document_id=uploaded.document_id,
                 raw_text="updated",
@@ -61,14 +60,11 @@ async def test_parsed_document_upsert_and_txt_pipeline(tmp_path) -> None:
                 page_count=1,
                 word_count=1,
                 character_count=7,
-                language="en",
                 parser_engine=ParserEngineEnum.PLAIN_TEXT,
                 parsing_duration_ms=1.0,
-                parsing_metadata={"updated": True},
             )
         )
         assert updated.id == original_id
-        assert updated.parsing_metadata == {"updated": True}
         assert await parsed_documents.delete_by_document_id(uploaded.document_id)
 
         await upload_service.delete_document(uploaded.document_id)

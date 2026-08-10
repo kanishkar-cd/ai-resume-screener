@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BookOpen, Bell, ChevronDown, Home } from 'lucide-react'
+import { BookOpen, Bell, ChevronDown, Home, Plus } from 'lucide-react'
 import { PIPELINE_STAGES } from '@/constants'
+import { usePipeline } from '@/store/pipelineStore'
 
 const ROUTE_LABEL: Record<string, string> = {
   '/': 'Document Upload',
@@ -14,6 +15,7 @@ const ROUTE_LABEL: Record<string, string> = {
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { startNewScreening } = usePipeline()
   const currentLabel = ROUTE_LABEL[location.pathname] ?? 'AI Screener'
   const totalSteps = PIPELINE_STAGES.length
 
@@ -46,6 +48,18 @@ export default function Header() {
 
       {/* ── Right Controls ── */}
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            startNewScreening()
+            navigate('/projects/new')
+          }}
+          className="btn-outline flex items-center gap-2 px-3 py-1.5 text-[12px]"
+        >
+          <Plus size={14} />
+          <span className="hidden sm:inline">Create Project</span>
+        </button>
+
         {/* Documentation */}
         <button className="flex items-center gap-2 text-[13px] text-slate-500 hover:text-sky-600 transition-colors font-medium px-3 py-1.5 rounded-lg hover:bg-sky-50">
           <BookOpen size={15} />

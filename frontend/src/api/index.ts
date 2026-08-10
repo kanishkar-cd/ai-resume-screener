@@ -10,6 +10,7 @@ import type {
   CandidateScore,
   Document,
   DocumentUpload,
+  DocumentList,
   ExtractedDocument,
   ExtractResult,
   NormalizeResult,
@@ -21,6 +22,8 @@ import type {
   Project,
   ProjectAnalytics,
   ProjectCreate,
+  ProjectList,
+  ProjectUpdate,
   ProjectDashboard,
   ProjectScoring,
   RankingComputation,
@@ -39,12 +42,27 @@ export const api = {
     return apiRequest<Project>('/projects', { method: 'POST', body: payload })
   },
 
+  listProjects(): Promise<ProjectList> {
+    return apiRequest<ProjectList>('/projects', {}, { page_size: 100 })
+  },
+
+  getProject(projectId: string): Promise<Project> {
+    return apiRequest<Project>(`/projects/${projectId}`)
+  },
+
+  updateProject(projectId: string, payload: ProjectUpdate): Promise<Project> {
+    return apiRequest<Project>(`/projects/${projectId}`, { method: 'PATCH', body: payload })
+  },
+
+  deleteProject(projectId: string): Promise<void> {
+    return apiRequest<void>(`/projects/${projectId}`, { method: 'DELETE' })
+  },
+
   // ── JD upload ─────────────────────────────────────────────
   uploadJobDescription(projectId: string, file: File): Promise<DocumentUpload> {
     const form = new FormData()
-    form.append('document_type', 'JOB_DESCRIPTION')
     form.append('file', file)
-    return apiRequest<DocumentUpload>(`/projects/${projectId}/documents/upload`, {
+    return apiRequest<DocumentUpload>(`/projects/${projectId}/job-description`, {
       method: 'POST',
       body: form,
       isMultipart: true,
@@ -66,6 +84,10 @@ export const api = {
       body: form,
       isMultipart: true,
     })
+  },
+
+  listProjectResumes(projectId: string): Promise<DocumentList> {
+    return apiRequest<DocumentList>(`/projects/${projectId}/resumes`, {}, { page_size: 100 })
   },
 
   /** GET /documents/{document_id} — used to poll processing_status after parse. */

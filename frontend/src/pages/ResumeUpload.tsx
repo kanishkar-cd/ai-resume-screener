@@ -34,11 +34,12 @@ const container = {
 
 const PARSE_POLL_INTERVAL_MS = 1000
 const PARSE_POLL_TIMEOUT_MS = 90_000
+const SUPPORTED_RESUME_EXTENSIONS = new Set(['pdf', 'docx', 'txt'])
 
 function fileTypeFromName(name: string): UploadedFile['type'] {
   const ext = name.split('.').pop()?.toLowerCase()
   if (ext === 'pdf') return 'pdf'
-  if (ext === 'docx' || ext === 'doc') return 'docx'
+  if (ext === 'docx') return 'docx'
   if (ext === 'txt') return 'txt'
   return 'unknown'
 }
@@ -64,6 +65,7 @@ export default function ResumeUpload() {
   const [isUploading, setIsUploading] = useState(false)
   const [isProcessingResumes, setIsProcessingResumes] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
   const processingRef = useRef<Set<string>>(new Set())
 
   const successfulCount = state.resumeDocumentIds.length
@@ -72,6 +74,31 @@ export default function ResumeUpload() {
   ).length
   const failedCount = state.upload.resumes.filter((r) => r.status === 'error').length
   const busy = isUploading || isProcessingResumes
+
+  const refreshResumes = useCallback(async () => {
+    if (!state.projectId) return
+    try {
+      const result = await api.listProjectResumes(state.projectId)
+      const resumes: UploadedFile[] = result.items.map((document) => ({
+        id: document.id,
+        name: document.original_filename,
+        size: document.file_size_bytes,
+        type: fileTypeFromName(document.original_filename),
+        status: document.processing_status === 'FAILED' ? 'error' : 'done',
+        statusLabel: document.processing_status,
+        errorMessage: document.error_message ?? undefined,
+        uploadedAt: new Date(document.created_at),
+      }))
+      dispatch({ type: 'SET_RESUMES', payload: resumes })
+      setListError(null)
+    } catch (err) {
+      setListError(`Resume listing failed: ${errorMessage(err, 'Unknown error')}`)
+    }
+  }, [dispatch, state.projectId])
+
+  useEffect(() => {
+    if (state.projectId) void refreshResumes()
+  }, [refreshResumes, state.projectId])
 
   const upsertProcessing = useCallback(
     (payload: ResumeProcessingState) => {
@@ -253,15 +280,34 @@ export default function ResumeUpload() {
   const handleResumeSelect = async (files: File[]) => {
     if (files.length === 0 || busy) return
 
+    const supported = files.filter((file) =>
+      SUPPORTED_RESUME_EXTENSIONS.has(file.name.split('.').pop()?.toLowerCase() ?? ''),
+    )
+    const unsupported = files.filter((file) => !supported.includes(file))
+    if (supported.length === 0) {
+      setUploadError(
+        files.length === 0
+          ? 'The selected folder is empty.'
+          : 'No supported resumes found. Select PDF, DOCX, or TXT files.',
+      )
+      return
+    }
+    if (unsupported.length > 0) {
+      setUploadError(
+        `${unsupported.length} unsupported file${unsupported.length === 1 ? '' : 's'} skipped. Only PDF, DOCX, and TXT are supported.`,
+      )
+    }
+
     const projectId = state.projectId
     if (!projectId) {
       setUploadError('No project found. Complete JD upload and weightage first.')
       return
     }
 
-    setUploadError(null)
+    if (unsupported.length === 0) setUploadError(null)
     setIsUploading(true)
 
+    files = supported
     const pending: UploadedFile[] = files.map((file, index) => ({
       id: `pending-resume-${Date.now()}-${index}`,
       name: file.name,
@@ -308,7 +354,8 @@ export default function ResumeUpload() {
       uploadedIds = successes.map((s) => s.id)
 
       if (batch.successful_count === 0 && batch.failed_count > 0) {
-        setUploadError('All resumes failed to upload. Check file format and size limits.')
+        const detail = batch.failed_uploads.map((failure) => failure.message).join('; ')
+        setUploadError(`Upload failed: ${detail || 'Check file format and size limits.'}`)
       }
     } catch (err) {
       for (const item of pending) {
@@ -344,6 +391,7 @@ export default function ResumeUpload() {
     if (uploadedIds.length > 0) {
       await processResumes(uploadedIds)
     }
+    await refreshResumes()
   }
 
   const handleRemoveResume = (id: string) =>
@@ -352,11 +400,11 @@ export default function ResumeUpload() {
   const handleContinue = () => {
     if (!canProceedResumes) return
     completeAndAdvance()
-    navigate('/ranking')
+    navigate(`/projects/${state.projectId}/rankings`)
   }
 
   const handleBack = () => {
-    navigate('/weightage')
+    navigate(`/projects/${state.projectId}/weightage`)
   }
 
   return (
@@ -441,7 +489,9 @@ export default function ResumeUpload() {
           subtitle="Upload candidate resumes or a folder of resumes"
           icon={<Folder size={28} />}
           color="red"
+          accept=".pdf,.docx,.txt"
           multiple={true}
+          directory={true}
           files={state.upload.resumes}
           onSelectFiles={handleResumeSelect}
           onRemove={handleRemoveResume}
@@ -459,6 +509,9 @@ export default function ResumeUpload() {
         )}
         {uploadError && (
           <p className="mt-2 text-[12px] text-red-500 text-center">{uploadError}</p>
+        )}
+        {listError && (
+          <p className="mt-2 text-[12px] text-red-500 text-center">{listError}</p>
         )}
       </motion.div>
 
