@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Play,
@@ -24,9 +24,14 @@ import {
 import AIPipelineRail from '@/components/ui/AIPipelineRail'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
-import { MOCK_CANDIDATES, AI_PIPELINE_STAGES } from '@/constants'
+import { AI_PIPELINE_STAGES } from '@/constants'
 import { useNavigate } from 'react-router-dom'
-import { api, ApiError, type ProjectScoring, type CandidateInsights } from '@/api'
+import {
+  api,
+  ApiError,
+  type CandidateInsights,
+  type CandidateRanking as ApiCandidateRanking,
+} from '@/api'
 
 // ─── Animation variants ───────────────────────────────────────
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -52,41 +57,6 @@ function recommendationToStatus(
   if (knockedOut || recommendation === 'REJECT') return 'rejected'
   if (recommendation === 'SHORTLIST') return 'screened'
   return 'pending'
-}
-
-/** Map POST /score payload into existing Candidate rows (provisional order by final_score). */
-function mapScoringToCandidates(
-  scoring: ProjectScoring,
-  resumes: { id: string; name: string }[],
-): Candidate[] {
-  const resumeName = (documentId: string) =>
-    resumes.find((r) => r.id === documentId)?.name.replace(/\.[^.]+$/, '') ||
-    'Candidate'
-
-  return [...scoring.scores]
-    .sort((a, b) => b.final_score - a.final_score)
-    .map((score, index) => ({
-      id: score.document_id,
-      name: resumeName(score.document_id),
-      email: '',
-      resumeFile: resumes.find((r) => r.id === score.document_id)?.name || '',
-      overallScore: Math.round(score.final_score),
-      rank: index + 1,
-      status: recommendationToStatus(score.recommendation, score.is_knocked_out),
-      extractedFields: [],
-      scores: (
-        Object.keys(score.component_scores) as Array<keyof typeof score.component_scores>
-      ).map((key) => ({
-        criterionId: key,
-        label: key.charAt(0).toUpperCase() + key.slice(1),
-        score: Math.round(score.component_scores[key].score),
-        weight: 0,
-        weightedScore: score.weighted_scores[key],
-      })),
-      keyStrengths: score.strengths,
-      keyWeaknesses: score.weaknesses,
-      scoredAt: new Date(score.created_at),
-    }))
 }
 
 function scoringPrerequisitesMet(state: ReturnType<typeof usePipeline>['state']): string | null {
@@ -322,13 +292,48 @@ export default function CandidateRanking() {
   const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
   const [sortBy, setSortBy] = useState<'rank' | 'score'>('rank')
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null)
+  const [rankingsLoading, setRankingsLoading] = useState(true)
 
   // Derive candidates — prefer scored results; avoid mock fallback after a real score run
-  const candidates: Candidate[] = state.scoringComplete
-    ? state.candidates
-    : state.candidates.length > 0
-      ? state.candidates
-      : (MOCK_CANDIDATES as Candidate[])
+  const candidates: Candidate[] = state.candidates
+
+  const mapRankings = useCallback((rankings: ApiCandidateRanking[]): Candidate[] =>
+    rankings.map((ranking) => ({
+      id: ranking.document_id,
+      documentId: ranking.document_id,
+      name: ranking.candidate_name || 'Candidate',
+      email: ranking.email || '',
+      resumeFile: state.upload.resumes.find((resume) => resume.id === ranking.document_id)?.name || ranking.document_id,
+      overallScore: Math.round(ranking.final_score),
+      rank: ranking.rank_position,
+      percentile: ranking.percentile,
+      confidence: ranking.confidence,
+      recommendation: ranking.recommendation,
+      isKnockedOut: ranking.is_knocked_out,
+      status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out),
+      extractedFields: [],
+      scores: [
+        { criterionId: 'skills', label: 'Skills', score: Math.round(ranking.skills_score), weight: 0, weightedScore: 0 },
+        { criterionId: 'experience', label: 'Experience', score: Math.round(ranking.experience_score), weight: 0, weightedScore: 0 },
+      ],
+      scoredAt: new Date(ranking.created_at),
+    })), [state.upload.resumes])
+
+  useEffect(() => {
+    if (!state.projectId) { setRankingsLoading(false); return }
+    let active = true
+    setRankingsLoading(true)
+    dispatch({ type: 'SET_RANKED_CANDIDATES', payload: [] })
+    dispatch({ type: 'SET_SCORING_ERROR', payload: null })
+    api.getRankings(state.projectId, { page_size: 100 })
+      .then((response) => { if (active) dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items) }) })
+      .catch((err) => {
+        if (!active) return
+        dispatch({ type: 'SET_SCORING_ERROR', payload: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Unable to load rankings.' })
+      })
+      .finally(() => { if (active) setRankingsLoading(false) })
+    return () => { active = false }
+  }, [dispatch, mapRankings, state.projectId])
 
   const filtered = candidates
     .filter((c) => {
@@ -342,9 +347,9 @@ export default function CandidateRanking() {
   const updateStatus = (id: string, status: ScreeningStatus) =>
     dispatch({ type: 'UPDATE_CANDIDATE_STATUS', payload: { id, status } })
 
-  // ─── Scoring (POST /projects/{id}/score) ─────────────────────
+  // ─── Scoring & Ranking (POST /score -> POST /rank -> GET /rankings) ───
   const runScoring = async () => {
-    if (state.isProcessing || state.scoringComplete) return
+    if (state.isProcessing) return
 
     const prerequisiteError = scoringPrerequisitesMet(state)
     if (prerequisiteError) {
@@ -358,8 +363,17 @@ export default function CandidateRanking() {
     dispatch({ type: 'SET_AI_PIPELINE_STEP', payload: 5 })
 
     try {
+      // Step 1: POST /api/v1/projects/{project_id}/score
       const scoring = await api.scoreProject(projectId)
-      const mapped = mapScoringToCandidates(scoring, state.upload.resumes)
+
+      // Step 2: POST /api/v1/projects/{project_id}/rank
+      await api.rankProject(projectId)
+
+      // Step 3: GET /api/v1/projects/{project_id}/rankings
+      const rankingsData = await api.getRankings(projectId, { page_size: 100 })
+
+      const mapped = mapRankings(rankingsData.items)
+
       dispatch({
         type: 'SET_SCORING_RESULT',
         payload: { scoring, candidates: mapped },
@@ -370,8 +384,10 @@ export default function CandidateRanking() {
           ? err.message
           : err instanceof Error
             ? err.message
-            : 'Scoring failed'
+            : 'Scoring/Ranking failed'
       dispatch({ type: 'SET_SCORING_ERROR', payload: message })
+    } finally {
+      dispatch({ type: 'SET_PROCESSING', payload: false })
     }
   }
 
@@ -387,7 +403,7 @@ export default function CandidateRanking() {
   const handleContinue = () => {
     if (!state.scoringComplete) return
     completeAndAdvance()
-    navigate('/dashboard')
+    navigate(`/projects/${state.projectId}/reports`)
   }
 
   return (
@@ -426,7 +442,7 @@ export default function CandidateRanking() {
             </div>
 
             {/* Run Scoring / Status CTA */}
-            {!state.scoringComplete && !state.isProcessing && (
+            {!state.isProcessing && (
               <motion.button
                 className="btn-primary px-5 py-3 flex-shrink-0"
                 onClick={runScoring}
@@ -434,7 +450,7 @@ export default function CandidateRanking() {
                 whileTap={{ scale: 0.98 }}
               >
                 <Play size={15} />
-                Run AI Pipeline
+                Run AI Scoring Engine
               </motion.button>
             )}
 
@@ -451,12 +467,6 @@ export default function CandidateRanking() {
               </div>
             )}
 
-            {state.scoringComplete && (
-              <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-3 flex-shrink-0">
-                <CheckCircle2 size={15} className="text-green-500" />
-                <span className="text-[12px] font-semibold text-green-700">Scoring complete</span>
-              </div>
-            )}
           </div>
           {state.scoringError && (
             <p className="mt-2 text-[12px] text-red-500">{state.scoringError}</p>
@@ -666,10 +676,10 @@ export default function CandidateRanking() {
               </tbody>
             </table>
 
-            {filtered.length === 0 && (
+            {!rankingsLoading && filtered.length === 0 && (
               <div className="py-12 text-center text-slate-400">
                 <Users size={32} className="mx-auto mb-3 opacity-30" />
-                <p className="text-[13px]">No candidates match your filter.</p>
+                <p className="text-[13px]">{search || filterStatus !== 'all' ? 'No candidates match your filter.' : 'No candidates have been ranked yet.'}</p>
               </div>
             )}
           </div>

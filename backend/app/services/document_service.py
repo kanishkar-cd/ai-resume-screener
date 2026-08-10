@@ -100,7 +100,7 @@ class DocumentService:
         )
 
         try:
-            if await self.repository.get_by_hash(file_hash) is not None:
+            if await self.repository.get_by_hash(project_id, file_hash, document_type) is not None:
                 self.storage.delete_file(file_path)
                 raise DuplicateDocumentException()
             document = await self.repository.create(
@@ -167,7 +167,9 @@ class DocumentService:
         )
         existing = None
         try:
-            duplicate = await self.repository.get_by_hash(file_hash)
+            duplicate = await self.repository.get_by_hash(
+                project_id, file_hash, DocumentType.JOB_DESCRIPTION
+            )
             if duplicate is not None:
                 self.storage.delete_file(file_path)
                 raise DuplicateDocumentException()

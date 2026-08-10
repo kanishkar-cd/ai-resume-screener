@@ -8,6 +8,7 @@ interface UploadCardProps {
   subtitle: string
   accept?: string
   multiple?: boolean
+  directory?: boolean
   icon?: ReactNode
   color?: 'blue' | 'red'
   files: UploadedFile[]
@@ -48,6 +49,7 @@ export default function UploadCard({
   subtitle,
   accept = '.pdf,.docx,.doc,.txt',
   multiple = false,
+  directory = false,
   icon,
   color = 'blue',
   files,
@@ -58,6 +60,7 @@ export default function UploadCard({
 }: UploadCardProps) {
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const filesInputRef = useRef<HTMLInputElement>(null)
 
   const isSky = color === 'blue'
   const accentBg = isSky ? 'bg-sky-50' : 'bg-red-50'
@@ -95,6 +98,10 @@ export default function UploadCard({
 
   const handleDragLeave = () => setIsDragging(false)
 
+  const openFilePicker = () => {
+    inputRef.current?.click()
+  }
+
   const hasFiles = files.length > 0
 
   return (
@@ -125,8 +132,9 @@ export default function UploadCard({
       {/* Upload Button */}
       <div className="flex justify-center mb-2">
         <motion.button
+          type="button"
           className={btnClass}
-          onClick={() => inputRef.current?.click()}
+          onClick={openFilePicker}
           disabled={disabled}
           whileHover={disabled ? undefined : { scale: 1.03 }}
           whileTap={disabled ? undefined : { scale: 0.97 }}
@@ -134,6 +142,19 @@ export default function UploadCard({
           <Upload size={14} />
           {multiple ? 'Choose Folder' : 'Choose File'}
         </motion.button>
+        {directory && (
+          <motion.button
+            type="button"
+            className={`${btnClass} ml-2`}
+            onClick={() => filesInputRef.current?.click()}
+            disabled={disabled}
+            whileHover={disabled ? undefined : { scale: 1.03 }}
+            whileTap={disabled ? undefined : { scale: 0.97 }}
+          >
+            <Upload size={14} />
+            Choose Files
+          </motion.button>
+        )}
       </div>
 
       <p className="text-[11px] text-slate-400 text-center mb-4">
@@ -151,13 +172,28 @@ export default function UploadCard({
         type="file"
         accept={accept}
         multiple={multiple}
-        className="hidden"
+        {...(directory ? { webkitdirectory: '', directory: '' } : {})}
+        className="sr-only"
         disabled={disabled}
         onChange={(e) => {
           processFiles(e.target.files)
           e.target.value = ''
         }}
       />
+      {directory && (
+        <input
+          ref={filesInputRef}
+          type="file"
+          accept={accept}
+          multiple
+          className="sr-only"
+          disabled={disabled}
+          onChange={(e) => {
+            processFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+      )}
 
       {/* Uploaded files list */}
       <AnimatePresence>

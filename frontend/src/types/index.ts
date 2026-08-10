@@ -118,6 +118,11 @@ export interface Candidate {
   resumeFile: string
   overallScore: number
   rank: number
+  percentile?: number
+  confidence?: number
+  recommendation?: string
+  isKnockedOut?: boolean
+  documentId?: string
   status: ScreeningStatus
   extractedFields: ExtractedField[]
   scores: CandidateScore[]
@@ -177,6 +182,16 @@ export interface PipelineState {
   completedSteps: number[]
   /** Backend project UUID from POST /projects (JD upload flow). */
   projectId: string | null
+  selectedProject: {
+    id: string
+    title: string
+    target_role: string
+    department: string | null
+    description: string | null
+    status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+    created_at: string
+    updated_at: string
+  } | null
   /** Backend JD document UUID from POST /projects/{id}/job-description. */
   jdDocumentId: string | null
   /** Latest backend processing_status for the JD document. */

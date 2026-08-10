@@ -94,6 +94,11 @@ class ParsingService:
         try:
             parsed = parse_document_file(path, document.mime_type)
             duration_ms = (perf_counter() - started_at) * 1000
+            if not parsed.raw_text or not parsed.raw_text.strip():
+                raise DocumentParseFailedException(
+                    details={"reason": "Document parsing produced empty text."}
+                )
+
             word_count, character_count = text_metrics(parsed.raw_text)
             await self.parsed_repository.upsert(
                 ParsedDocumentCreate(
@@ -115,6 +120,9 @@ class ParsingService:
                     **metadata,
                     "parse_error": None,
                     "parser_engine": parsed.parser_engine.value,
+                    "original_parser": parsed.original_parser or parsed.parser_engine.value,
+                    "ocr_fallback_used": parsed.ocr_fallback_used,
+                    "ocr_engine": parsed.ocr_engine,
                 },
                 commit=False,
             )

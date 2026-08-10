@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react'
+import React, { createContext, useContext, useEffect, useReducer, ReactNode } from 'react'
 import {
   PipelineState,
   UploadedFile,
@@ -8,13 +8,17 @@ import {
   JdProcessingStage,
   ResumeProcessingState,
 } from '@/types'
-import { DEFAULT_WEIGHTS, MOCK_CANDIDATES, NAV_STAGES } from '@/constants'
+import { DEFAULT_WEIGHTS, NAV_STAGES } from '@/constants'
 
 // ─── Initial State ────────────────────────────────────────────
-const initialState: PipelineState = {
+const PIPELINE_SESSION_STORAGE_KEY = 'ai-resume-screener.pipeline-session'
+const LEGACY_PROJECT_STORAGE_KEY = 'ai-resume-screener.active-project-id'
+
+const emptyState: PipelineState = {
   currentStep: 1,
   completedSteps: [],
   projectId: null,
+  selectedProject: null,
   jdDocumentId: null,
   jdProcessingStatus: null,
   jdProcessingStage: null,
@@ -34,11 +38,45 @@ const initialState: PipelineState = {
   aiPipelineComplete: false,
 }
 
+function restorePipelineState(): PipelineState {
+  if (typeof window === 'undefined') return emptyState
+  const raw = window.sessionStorage.getItem(PIPELINE_SESSION_STORAGE_KEY)
+  if (!raw) return emptyState
+  try {
+    const restored = JSON.parse(raw) as PipelineState
+    return {
+      ...emptyState,
+      ...restored,
+      isProcessing: false,
+      upload: {
+        jobDescription: restored.upload?.jobDescription
+          ? {
+              ...restored.upload.jobDescription,
+              uploadedAt: restored.upload.jobDescription.uploadedAt
+                ? new Date(restored.upload.jobDescription.uploadedAt)
+                : undefined,
+            }
+          : null,
+        resumes: (restored.upload?.resumes ?? []).map((resume) => ({
+          ...resume,
+          uploadedAt: resume.uploadedAt ? new Date(resume.uploadedAt) : undefined,
+        })),
+      },
+      scoringRunAt: restored.scoringRunAt ? new Date(restored.scoringRunAt) : undefined,
+    }
+  } catch {
+    window.sessionStorage.removeItem(PIPELINE_SESSION_STORAGE_KEY)
+    return emptyState
+  }
+}
+
 // ─── Actions ──────────────────────────────────────────────────
 type Action =
   | { type: 'GO_TO_STEP'; payload: number }
+  | { type: 'RESET_PIPELINE' }
   | { type: 'COMPLETE_STEP'; payload: number }
   | { type: 'SET_PROJECT_ID'; payload: string }
+  | { type: 'SELECT_PROJECT'; payload: NonNullable<PipelineState['selectedProject']> }
   | { type: 'SET_JD_DOCUMENT_ID'; payload: string | null }
   | {
       type: 'SET_JD_PROCESSING'
@@ -50,6 +88,7 @@ type Action =
     }
   | { type: 'SET_JD'; payload: UploadedFile | null }
   | { type: 'ADD_RESUMES'; payload: UploadedFile[] }
+  | { type: 'SET_RESUMES'; payload: UploadedFile[] }
   | { type: 'REMOVE_RESUME'; payload: string }
   | {
       type: 'UPDATE_RESUME'
@@ -73,6 +112,7 @@ type Action =
       }
     }
   | { type: 'SET_SCORING_ERROR'; payload: string | null }
+  | { type: 'SET_RANKED_CANDIDATES'; payload: Candidate[] }
   | { type: 'SET_PROCESSING'; payload: boolean }
   | { type: 'SET_AI_PIPELINE_STEP'; payload: number }
   | { type: 'COMPLETE_AI_PIPELINE' }
@@ -81,6 +121,9 @@ type Action =
 
 function reducer(state: PipelineState, action: Action): PipelineState {
   switch (action.type) {
+    case 'RESET_PIPELINE':
+      return { ...emptyState, weights: DEFAULT_WEIGHTS.map((weight) => ({ ...weight })) }
+
     case 'GO_TO_STEP':
       return { ...state, currentStep: action.payload }
 
@@ -94,6 +137,17 @@ function reducer(state: PipelineState, action: Action): PipelineState {
 
     case 'SET_PROJECT_ID':
       return { ...state, projectId: action.payload }
+
+    case 'SELECT_PROJECT':
+      if (state.projectId === action.payload.id) {
+        return { ...state, projectId: action.payload.id, selectedProject: action.payload }
+      }
+      return {
+        ...emptyState,
+        projectId: action.payload.id,
+        selectedProject: action.payload,
+        weights: DEFAULT_WEIGHTS.map((weight) => ({ ...weight })),
+      }
 
     case 'SET_JD_DOCUMENT_ID':
       return { ...state, jdDocumentId: action.payload }
@@ -156,6 +210,29 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           ...state.resumeDocumentIds,
           ...successfulIds.filter((id) => !state.resumeDocumentIds.includes(id)),
         ],
+        resumeProcessing: nextProcessing,
+      }
+    }
+
+    case 'SET_RESUMES': {
+      const ids = action.payload.map((resume) => resume.id)
+      const nextProcessing = { ...state.resumeProcessing }
+      for (const resume of action.payload) {
+        if (!nextProcessing[resume.id]) {
+          nextProcessing[resume.id] = {
+            documentId: resume.id,
+            phase: resume.status === 'error' ? 'failed' : 'uploaded',
+            status: resume.status === 'error' ? 'FAILED' : 'UPLOADED',
+            stage: resume.status === 'error' ? 'FAILED' : 'INGESTION',
+            normalized: false,
+            errorMessage: resume.errorMessage,
+          }
+        }
+      }
+      return {
+        ...state,
+        upload: { ...state.upload, resumes: action.payload },
+        resumeDocumentIds: ids,
         resumeProcessing: nextProcessing,
       }
     }
@@ -249,6 +326,9 @@ function reducer(state: PipelineState, action: Action): PipelineState {
     case 'SET_PROCESSING':
       return { ...state, isProcessing: action.payload }
 
+    case 'SET_RANKED_CANDIDATES':
+      return { ...state, candidates: action.payload, scoringComplete: action.payload.length > 0, scoringError: null, isProcessing: false }
+
     case 'SET_AI_PIPELINE_STEP':
       return { ...state, aiPipelineStep: action.payload, isProcessing: true }
 
@@ -258,14 +338,12 @@ function reducer(state: PipelineState, action: Action): PipelineState {
         aiPipelineStep: 7,
         aiPipelineComplete: true,
         isProcessing: false,
-        candidates: MOCK_CANDIDATES as Candidate[],
         scoringRunAt: new Date(),
       }
 
     case 'RUN_SCORING':
       return {
         ...state,
-        candidates: MOCK_CANDIDATES as Candidate[],
         scoringRunAt: new Date(),
         isProcessing: false,
       }
@@ -289,6 +367,7 @@ interface PipelineContextValue {
   dispatch: React.Dispatch<Action>
   goToStep: (step: number) => void
   completeAndAdvance: () => void
+  startNewScreening: () => void
   totalFiles: number
   canProceed: boolean
   canProceedJD: boolean
@@ -298,13 +377,24 @@ interface PipelineContextValue {
 const PipelineContext = createContext<PipelineContextValue | null>(null)
 
 export function PipelineProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, undefined, restorePipelineState)
+
+  useEffect(() => {
+    window.sessionStorage.removeItem(LEGACY_PROJECT_STORAGE_KEY)
+    window.sessionStorage.setItem(PIPELINE_SESSION_STORAGE_KEY, JSON.stringify(state))
+  }, [state])
 
   const goToStep = (step: number) => dispatch({ type: 'GO_TO_STEP', payload: step })
 
   const completeAndAdvance = () => {
     dispatch({ type: 'COMPLETE_STEP', payload: state.currentStep })
     dispatch({ type: 'GO_TO_STEP', payload: Math.min(state.currentStep + 1, NAV_STAGES.length) })
+  }
+
+  const startNewScreening = () => {
+    window.sessionStorage.removeItem(PIPELINE_SESSION_STORAGE_KEY)
+    window.sessionStorage.removeItem(LEGACY_PROJECT_STORAGE_KEY)
+    dispatch({ type: 'RESET_PIPELINE' })
   }
 
   const totalFiles =
@@ -333,6 +423,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         dispatch,
         goToStep,
         completeAndAdvance,
+        startNewScreening,
         totalFiles,
         canProceed,
         canProceedJD,

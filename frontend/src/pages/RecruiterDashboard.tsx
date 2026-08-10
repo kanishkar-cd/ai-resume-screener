@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
-import { MOCK_CANDIDATES } from '@/constants'
 import { api, ProjectDashboard, ProjectAnalytics, CandidateRanking } from '@/api'
 
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -86,14 +85,12 @@ export default function RecruiterDashboard() {
     return () => { active = false }
   }, [state.projectId, state.scoringComplete])
 
-  // Derive candidates: prefer pipeline store state, then fetched API candidates, then mock candidates only if no project active
+  // Project-scoped backend/store results only.
   const candidates: Candidate[] = state.candidates.length > 0
     ? state.candidates
     : fetchedCandidates.length > 0
       ? fetchedCandidates
-      : state.projectId
-        ? []
-        : (MOCK_CANDIDATES as Candidate[])
+      : []
 
   const filtered = candidates
     .filter((c) => {

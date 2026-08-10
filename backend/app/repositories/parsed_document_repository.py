@@ -58,3 +58,9 @@ class ParsedDocumentRepository:
     async def create(self, payload: ParsedDocumentCreate) -> ParsedDocumentModel:
         """Backward-compatible create that upserts by document_id."""
         return await self.upsert(payload)
+
+    async def create_or_update(
+        self, payload: ParsedDocumentCreate, *, commit: bool = True
+    ) -> ParsedDocumentModel:
+        """Backward-compatible alias for upsert."""
+        return await self.upsert(payload, commit=commit)

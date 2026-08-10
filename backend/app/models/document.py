@@ -61,6 +61,14 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
                 "document_type = 'JOB_DESCRIPTION' AND deleted_at IS NULL"
             ),
         ),
+        Index(
+            "uq_project_document_file_hash",
+            "project_id",
+            "file_hash",
+            "document_type",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
     project_id: Mapped[UUID] = mapped_column(
