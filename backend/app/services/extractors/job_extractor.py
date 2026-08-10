@@ -24,12 +24,58 @@ class JobDescriptionExtractor:
     def extract(self, text: str) -> dict[str, Any]:
         sections = segment_sections(text)
         skills = match_terms(text, SKILLS)
-        responsibilities = content_lines(sections.get("responsibilities", ""))
-        education = [line for line in content_lines(sections.get("education", "") or sections.get("skills", "")) if match_terms(line, DEGREES)]
+        
+        # Determine job title if present in header/first line or DESIGNATIONS
+        job_title = None
+        header_text = sections.get("header", "")
+        for line in content_lines(header_text)[:3]:
+            matched_desig = match_terms(line, DESIGNATIONS)
+            if matched_desig:
+                job_title = matched_desig[0]
+                break
+
+        # Extracted responsibilities: get responsibilities section or find responsibility prose
+        resp_block = sections.get("responsibilities", "")
+        responsibilities = content_lines(resp_block)
+        if not responsibilities:
+            # Look in header or summary sections for sentences/lines containing action verbs or responsibility indicators
+            for sec_key in ("header", "summary"):
+                sec_text = sections.get(sec_key, "")
+                lines = content_lines(sec_text)
+                for line in lines:
+                    # Skip lines that are just job title or contact
+                    if match_terms(line, DESIGNATIONS) and len(line.split()) <= 4:
+                        continue
+                    if re.search(r"\b(?:responsible|responsibilities|design|develop|build|maintain|collaborate|lead|manage|create|implement|test)\b", line, re.I):
+                        responsibilities.append(line)
+
+        # Education: extract only the degree/qualification names rather than whole sentence
+        matched_degrees: list[str] = []
+        for sec_name in ("education", "requirements", "skills", "header", "summary"):
+            block = sections.get(sec_name, "")
+            for line in content_lines(block):
+                found = match_terms(line, DEGREES)
+                for degree in found:
+                    if degree not in matched_degrees:
+                        matched_degrees.append(degree)
+
+        if not matched_degrees:
+            for line in content_lines(text):
+                found = match_terms(line, DEGREES)
+                for degree in found:
+                    if degree not in matched_degrees:
+                        matched_degrees.append(degree)
+
+        education = matched_degrees
+
         experience = list(dict.fromkeys(match.group(0) for match in EXPERIENCE_PATTERN.finditer(text)))
         certifications = [line for line in content_lines(sections.get("certifications", "") or text) if CERTIFICATION_PATTERN.search(line)]
         domain = self._domain(text)
-        keywords = list(dict.fromkeys([*skills, *match_terms(text, DESIGNATIONS)]))
+
+        # Build keywords list: skills + title/designations + terms from preferred/requirements sections
+        title_terms = [job_title] if job_title else match_terms(text, DESIGNATIONS)
+        keywords = list(dict.fromkeys([*skills, *title_terms]))
+
         values = {
             "domain": domain, "skills": skills, "responsibilities": responsibilities,
             "education": education, "experience": experience,

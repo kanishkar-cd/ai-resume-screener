@@ -134,3 +134,65 @@ Optimized state management and page rendering speed.
     assert "React" in projects[2]["technologies"]
     assert "Frontend E-commerce Platform" in projects[2]["description"]
 
+
+def test_uploaded_jd_extraction() -> None:
+    jd_text = """Software Engineer
+
+JOB RESPONSIBILITIES
+Design, develop, and test software components for embedded and web applications.
+Collaborate with cross-functional teams to integrate software with hardware systems.
+Maintain code quality, documentation, and perform system troubleshooting.
+
+BASIC QUALIFICATIONS
+Bachelor of Engineering in Computer Science, Electrical, or related field.
+Proficiency in C++, JavaScript, HTML, CSS, and SQL.
+Understanding of software development life cycle.
+
+PREFERRED QUALIFICATIONS / KEYWORDS
+Experience with IoT, PLC, PLC Programming, and Embedded Systems.
+Strong problem-solving and debugging skills.
+"""
+    result = JobDescriptionExtractor().extract(jd_text)
+
+    # Job title / domain
+    assert result["domain"] == "Software Engineering"
+
+    # Skills extraction
+    expected_skills = {"SQL", "HTML", "JavaScript", "C++", "CSS", "Embedded Systems", "PLC Programming", "PLC", "IoT"}
+    extracted_skills_set = set(result["skills"])
+    assert expected_skills.issubset(extracted_skills_set), f"Missing skills. Got: {extracted_skills_set}"
+
+    # Education extraction (returns clean degree string)
+    assert result["education"] == ["Bachelor of Engineering"]
+
+    # Responsibilities extraction (full responsibilities paragraph lines)
+    assert len(result["responsibilities"]) == 3
+    assert "Design, develop, and test software components" in result["responsibilities"][0]
+    assert "Collaborate with cross-functional teams" in result["responsibilities"][1]
+    assert "Maintain code quality" in result["responsibilities"][2]
+
+    # Preferred / Keywords
+    keyword_set = set(result["keywords"])
+    for kw in ("IoT", "PLC", "Embedded Systems", "JavaScript", "HTML", "CSS", "C++", "SQL", "Software Engineer"):
+        assert kw in keyword_set, f"Missing keyword {kw}. Got: {keyword_set}"
+
+
+def test_doc_248ef7dc_jd_prose_responsibility() -> None:
+    jd_text = """Software Engineer
+
+Responsibilities include developing software applications, working with embedded systems, building web interfaces, and contributing to IoT-based projects.
+
+BASIC QUALIFICATIONS
+Bachelor of Engineering in Computer Science, Electrical, or related field.
+Proficiency in C++, JavaScript, HTML, CSS, and SQL.
+"""
+    result = JobDescriptionExtractor().extract(jd_text)
+    assert result["domain"] == "Software Engineering"
+    assert result["education"] == ["Bachelor of Engineering"]
+    assert len(result["responsibilities"]) == 1
+    expected_resp = "Responsibilities include developing software applications, working with embedded systems, building web interfaces, and contributing to IoT-based projects."
+    assert result["responsibilities"][0] == expected_resp
+
+
+
+
