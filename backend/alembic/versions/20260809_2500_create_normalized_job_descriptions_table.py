@@ -18,6 +18,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("normalized_job_descriptions"):
+        return
     op.create_table(
         "normalized_job_descriptions",
         sa.Column(

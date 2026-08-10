@@ -177,7 +177,7 @@ export default function DocumentUpload() {
       setFlowPhase('ready')
     } catch (err) {
       setFlowPhase('error')
-      setFlowError(onmessage(err, 'JD processing failed'))
+      setFlowError(errorMessage(err, 'JD processing failed'))
       updateJdProcessing({ status: 'FAILED', stage: 'FAILED' })
     } finally {
       dispatch({ type: 'SET_PROCESSING', payload: false })

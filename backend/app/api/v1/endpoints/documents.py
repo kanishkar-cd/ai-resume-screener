@@ -56,7 +56,7 @@ DocumentServiceDependency = Annotated[
 
 @router.post(
     "/upload",
-    include_in_schema=False,
+    include_in_schema=True,
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload project document",
