@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 import structlog
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import text
