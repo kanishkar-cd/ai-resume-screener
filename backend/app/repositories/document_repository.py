@@ -10,15 +10,11 @@ from app.models.document import (
     ProcessingStageEnum,
     ProcessingStatusEnum,
 )
-from app.models.extracted_info import (
-    ExtractedJobDescriptionModel,
-    ExtractedResumeModel,
-)
+from app.models.extracted_info import ExtractedResumeModel
+from app.models.extracted_job_description import ExtractedJDModel
 from app.models.insights import CandidateInsightModel
-from app.models.normalized_info import (
-    NormalizedJobDescriptionModel,
-    NormalizedResumeModel,
-)
+from app.models.normalized_info import NormalizedResumeModel
+from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
 from app.models.ranking import CandidateRankingModel
 from app.models.scoring import CandidateScoreModel
@@ -253,17 +249,17 @@ class DocumentRepository:
             delete(ExtractedResumeModel).where(ExtractedResumeModel.document_id == document_id)
         )
 
-        extracted_jd_sub = select(ExtractedJobDescriptionModel.id).where(
-            ExtractedJobDescriptionModel.document_id == document_id
+        extracted_jd_sub = select(ExtractedJDModel.id).where(
+            ExtractedJDModel.document_id == document_id
         )
         await self.session.execute(
-            delete(NormalizedJobDescriptionModel).where(
-                NormalizedJobDescriptionModel.extracted_job_description_id.in_(extracted_jd_sub)
+            delete(NormalizedJDModel).where(
+                NormalizedJDModel.extracted_job_description_id.in_(extracted_jd_sub)
             )
         )
         await self.session.execute(
-            delete(ExtractedJobDescriptionModel).where(
-                ExtractedJobDescriptionModel.document_id == document_id
+            delete(ExtractedJDModel).where(
+                ExtractedJDModel.document_id == document_id
             )
         )
 

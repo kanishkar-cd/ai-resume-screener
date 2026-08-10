@@ -13,6 +13,9 @@ class ParserEngine(str, Enum):
     PLAIN_TEXT = "PLAIN_TEXT"
 
 
+ParserEngineEnum = ParserEngine
+
+
 class ParsedDocumentCreate(BaseModel):
     document_id: UUID
     raw_text: str
@@ -43,6 +46,9 @@ class DocumentParseRead(BaseModel):
 
 class DocumentParseResponse(BaseModel):
     data: DocumentParseRead
+
+
+ParseDocumentResponse = DocumentParseResponse
 
 
 class ParsedDocumentRead(BaseModel):

@@ -11,9 +11,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from app.models.normalized_info import NormalizedJobDescriptionModel, NormalizedResumeModel
+from app.models.normalized_info import NormalizedResumeModel
 
-_NORMALIZED_MODELS = (NormalizedResumeModel, NormalizedJobDescriptionModel)
+_NORMALIZED_MODELS = (NormalizedResumeModel,)
 revision: str = "20260806_1700"
 down_revision: str | None = "20260806_1600"
 branch_labels: str | Sequence[str] | None = None

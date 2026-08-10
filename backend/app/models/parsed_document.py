@@ -1,10 +1,14 @@
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.document import DocumentModel
 
 
 class ParsedDocumentModel(UUIDMixin, TimestampMixin, Base):
@@ -27,3 +31,8 @@ class ParsedDocumentModel(UUIDMixin, TimestampMixin, Base):
     character_count: Mapped[int] = mapped_column(Integer, nullable=False)
     parser_engine: Mapped[str] = mapped_column(String(32), nullable=False)
     parsing_duration_ms: Mapped[float] = mapped_column(Float, nullable=False)
+
+    document: Mapped["DocumentModel"] = relationship(
+        back_populates="parsed_document"
+    )
+

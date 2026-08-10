@@ -4,10 +4,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.extracted_info import (
-    ExtractedJobDescriptionModel,
-    ExtractedResumeModel,
-)
+from app.models.extracted_info import ExtractedResumeModel
+from app.models.extracted_job_description import ExtractedJDModel
 from app.schemas.extracted_info import (
     ExtractedJobDescriptionCreate,
     ExtractedResumeCreate,
@@ -34,12 +32,12 @@ class ExtractionRepository:
 
     async def create_or_update_job_description(
         self, data: ExtractedJobDescriptionCreate | dict[str, Any]
-    ) -> ExtractedJobDescriptionModel:
+    ) -> ExtractedJDModel:
         payload = ExtractedJobDescriptionCreate.model_validate(data).model_dump(mode="json")
         document_id = UUID(payload["document_id"])
         payload["document_id"] = document_id
         model = await self.get_job_description_by_document_id(document_id)
-        model = self._apply(model, ExtractedJobDescriptionModel, payload)
+        model = self._apply(model, ExtractedJDModel, payload)
         await self.session.commit()
         await self.session.refresh(model)
         return model
@@ -55,10 +53,10 @@ class ExtractionRepository:
 
     async def get_job_description_by_document_id(
         self, document_id: UUID
-    ) -> ExtractedJobDescriptionModel | None:
+    ) -> ExtractedJDModel | None:
         return await self.session.scalar(
-            select(ExtractedJobDescriptionModel).where(
-                ExtractedJobDescriptionModel.document_id == document_id
+            select(ExtractedJDModel).where(
+                ExtractedJDModel.document_id == document_id
             )
         )
 

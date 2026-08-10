@@ -1,12 +1,15 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.project import ProjectModel
 
 
 class WeightConfigModel(UUIDMixin, TimestampMixin, Base):
@@ -53,3 +56,10 @@ class WeightConfigModel(UUIDMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
     )
+    project: Mapped["ProjectModel"] = relationship(
+        back_populates="weight_config"
+    )
+
+
+ProjectWeightConfigModel = WeightConfigModel
+

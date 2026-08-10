@@ -1,12 +1,16 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.document import DocumentModel
+    from app.models.normalized_job_description import NormalizedJDModel
 
 
 class ExtractedJDModel(UUIDMixin, TimestampMixin, Base):
@@ -47,3 +51,14 @@ class ExtractedJDModel(UUIDMixin, TimestampMixin, Base):
     raw_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+    document: Mapped["DocumentModel"] = relationship(
+        back_populates="extracted_job_description"
+    )
+    normalized_job_description: Mapped[
+        "NormalizedJDModel | None"
+    ] = relationship(
+        back_populates="extracted_job_description",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+

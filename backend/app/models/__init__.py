@@ -4,7 +4,9 @@ from app.models.document import (
     ProcessingStageEnum,
     ProcessingStatusEnum,
 )
+from app.models.extracted_info import ExtractedResumeModel
 from app.models.extracted_job_description import ExtractedJDModel
+from app.models.normalized_info import NormalizedResumeModel
 from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
 from app.models.project import ProjectModel, ProjectStatusEnum
@@ -14,7 +16,9 @@ __all__ = [
     "DocumentModel",
     "DocumentTypeEnum",
     "ExtractedJDModel",
+    "ExtractedResumeModel",
     "NormalizedJDModel",
+    "NormalizedResumeModel",
     "ParsedDocumentModel",
     "ProcessingStageEnum",
     "ProcessingStatusEnum",

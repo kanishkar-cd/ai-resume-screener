@@ -5,7 +5,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.models.normalized_info import NormalizedJobDescriptionModel, NormalizedResumeModel
+from app.models.normalized_info import NormalizedResumeModel
+from app.models.normalized_job_description import NormalizedJDModel
 from app.schemas.normalized_info import NormalizedJobDescriptionCreate, NormalizedResumeCreate
 
 
@@ -29,12 +30,12 @@ class NormalizationRepository:
         await self.session.refresh(model)
         return model
 
-    async def create_or_update_job_description(self, data: NormalizedJobDescriptionCreate | dict[str, Any]) -> NormalizedJobDescriptionModel:
+    async def create_or_update_job_description(self, data: NormalizedJobDescriptionCreate | dict[str, Any]) -> NormalizedJDModel:
         payload = NormalizedJobDescriptionCreate.model_validate(data).model_dump(mode="json")
         payload["document_id"] = UUID(payload["document_id"])
         payload["extracted_job_description_id"] = UUID(payload["extracted_job_description_id"])
         model = await self.get_job_description_by_document_id(payload["document_id"])
-        model = self._apply(model, NormalizedJobDescriptionModel, payload)
+        model = self._apply(model, NormalizedJDModel, payload)
         try:
             await self.session.commit()
         except SQLAlchemyError:
@@ -46,8 +47,8 @@ class NormalizationRepository:
     async def get_resume_by_document_id(self, document_id: UUID) -> NormalizedResumeModel | None:
         return await self.session.scalar(select(NormalizedResumeModel).where(NormalizedResumeModel.document_id == document_id))
 
-    async def get_job_description_by_document_id(self, document_id: UUID) -> NormalizedJobDescriptionModel | None:
-        return await self.session.scalar(select(NormalizedJobDescriptionModel).where(NormalizedJobDescriptionModel.document_id == document_id))
+    async def get_job_description_by_document_id(self, document_id: UUID) -> NormalizedJDModel | None:
+        return await self.session.scalar(select(NormalizedJDModel).where(NormalizedJDModel.document_id == document_id))
 
     async def delete_resume_by_document_id(self, document_id: UUID) -> bool:
         result = await self.session.execute(delete(NormalizedResumeModel).where(NormalizedResumeModel.document_id == document_id))
@@ -55,7 +56,7 @@ class NormalizationRepository:
         return bool(result.rowcount)
 
     async def delete_job_description_by_document_id(self, document_id: UUID) -> bool:
-        result = await self.session.execute(delete(NormalizedJobDescriptionModel).where(NormalizedJobDescriptionModel.document_id == document_id))
+        result = await self.session.execute(delete(NormalizedJDModel).where(NormalizedJDModel.document_id == document_id))
         await self.session.commit()
         return bool(result.rowcount)
 

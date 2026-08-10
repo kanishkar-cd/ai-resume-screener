@@ -23,8 +23,50 @@ class WeightConfigNotFoundException(AppException):
     default_message = "No weight configuration found for this project."
 
 
+class InvalidWeightTotalException(ValidationException):
+    default_message = "Total weights must equal 100%."
+
+
+class DuplicateMandatorySkillException(ValidationException):
+    default_message = "Mandatory skills cannot contain duplicate entries."
+
+
+class InvalidPreferredSkillException(ValidationException):
+    default_message = "Preferred skills cannot contain duplicates or overlap with mandatory skills."
+
+
 class WeightConfigService:
     """Service handling project weight configuration logic."""
+
+    @staticmethod
+    def _validate(payload: WeightConfigCreate | WeightConfigUpdate) -> WeightConfigCreate | WeightConfigUpdate:
+        if payload.weights is not None:
+            w_dict = payload.weights.model_dump()
+            total = sum(w_dict.values())
+            if abs(total - 100) > 1e-6:
+                raise InvalidWeightTotalException()
+
+        mandatory = getattr(payload, "mandatory_skills", None)
+        if mandatory is not None:
+            seen_m = set()
+            for s in mandatory:
+                s_clean = s.strip().lower()
+                if s_clean in seen_m:
+                    raise DuplicateMandatorySkillException()
+                seen_m.add(s_clean)
+        else:
+            seen_m = set()
+
+        preferred = getattr(payload, "preferred_skills", None)
+        if preferred is not None:
+            seen_p = set()
+            for s in preferred:
+                s_clean = s.strip().lower()
+                if s_clean in seen_m or s_clean in seen_p:
+                    raise InvalidPreferredSkillException()
+                seen_p.add(s_clean)
+
+        return payload
 
     def __init__(
         self,
@@ -60,6 +102,8 @@ class WeightConfigService:
             version=config.version,
         )
         return WeightConfigRead.model_validate(config)
+
+    create_weight_config = create_or_update_weight_config
 
     async def get_weight_config(self, project_id: UUID) -> WeightConfigRead:
         await self._verify_project(project_id)

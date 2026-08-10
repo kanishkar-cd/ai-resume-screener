@@ -11,9 +11,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from app.models.extracted_info import ExtractedJobDescriptionModel, ExtractedResumeModel
+from app.models.extracted_info import ExtractedResumeModel
 
-_EXTRACTED_MODELS = (ExtractedResumeModel, ExtractedJobDescriptionModel)
+_EXTRACTED_MODELS = (ExtractedResumeModel,)
 
 revision: str = "20260806_1600"
 down_revision: str | None = "20260806_1500"

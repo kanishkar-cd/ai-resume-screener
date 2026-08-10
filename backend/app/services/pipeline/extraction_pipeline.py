@@ -27,7 +27,7 @@ LANGUAGES = (
 DESIGNATIONS = tuple(
     sorted(
         (
-            "Senior Software Engineer", "Senior Backend Engineer", "Senior Frontend Engineer",
+            "Senior Systems Architect", "Systems Architect", "Senior Software Engineer", "Senior Backend Engineer", "Senior Frontend Engineer",
             "Senior Full Stack Engineer", "Senior Data Engineer", "Senior DevOps Engineer",
             "Database Management Intern", "Software Engineer Intern", "Database Intern",
             "Software Engineer", "Backend Engineer", "Frontend Engineer", "Full Stack Engineer",
@@ -41,6 +41,7 @@ DESIGNATIONS = tuple(
         reverse=True,
     )
 )
+
 
 DEGREES = tuple(
     sorted(
@@ -71,7 +72,8 @@ SECTION_ALIASES = {
         "intership", "interships",
     },
     "education": {"education", "academic background", "academic qualifications", "qualifications", "education & qualifications"},
-    "projects": {"projects", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
+    "projects": {"projects", "project experience", "project details", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
+
     "certifications": {
         "certifications", "certificates", "licenses", "certifications & licenses",
         "licenses & certifications", "trainings", "training & certifications",
@@ -175,10 +177,13 @@ def match_terms(text: str, terms: Iterable[str]) -> list[str]:
     matches: list[str] = []
     for term in terms:
         escaped = re.escape(term)
-        pattern = rf"(?<![\w#+.]){escaped}(?![\w#+.])"
+        # Avoid partial word matches (e.g. 'Go' in 'Google') while cleanly matching terms with dots/hyphens
+        pattern = rf"(?<![\w#+]){escaped}(?![\w#+])"
         if re.search(pattern, cleaned_text, re.IGNORECASE):
             matches.append(term)
     return matches
+
+
 
 
 def content_lines(text: str) -> list[str]:

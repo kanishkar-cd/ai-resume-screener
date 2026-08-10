@@ -95,3 +95,42 @@ Bachelor of Science required
     assert "Python" in result["skills"]
     assert result["experience"] == ["5+ years of experience"]
     assert result["responsibilities"] == ["Build FastAPI services"]
+
+
+def test_ocr_resume_projects_extraction_without_prefix() -> None:
+    raw_ocr_resume = """HARSHINI R
+Software Engineer
+
+TECHNICAL SKILLS
+Python, JavaScript, React, Node.js, HTML, CSS, C++
+
+PROJECT EXPERIENCE
+Software Development Training Website
+Developed a full-stack interactive website using HTML, CSS, JavaScript, and React.
+Implemented responsive user interfaces and modular backend components.
+
+PLC based Smart Parking System with IoT
+Engineered an automated parking management system using PLC controllers and IoT sensors.
+Integrated real-time slot tracking and monitoring.
+
+Frontend E-commerce Platform
+Built a modern online shopping UI with React, Redux, and Tailwind.
+Optimized state management and page rendering speed.
+"""
+    result = ResumeExtractor().extract(raw_ocr_resume)
+    projects = result["projects"]
+    assert len(projects) == 3
+
+    assert projects[0]["name"] == "Software Development Training Website"
+    assert "React" in projects[0]["technologies"]
+    assert "Software Development Training Website" in projects[0]["description"]
+    assert "PLC" not in projects[0]["description"]
+
+    assert projects[1]["name"] == "PLC based Smart Parking System with IoT"
+    assert "PLC based Smart Parking System with IoT" in projects[1]["description"]
+    assert "E-commerce" not in projects[1]["description"]
+
+    assert projects[2]["name"] == "Frontend E-commerce Platform"
+    assert "React" in projects[2]["technologies"]
+    assert "Frontend E-commerce Platform" in projects[2]["description"]
+

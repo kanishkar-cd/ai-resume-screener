@@ -11,15 +11,11 @@ from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.extracted_info import (
-        ExtractedJobDescriptionModel,
-        ExtractedResumeModel,
-    )
+    from app.models.extracted_info import ExtractedResumeModel
+    from app.models.extracted_job_description import ExtractedJDModel
+    from app.models.normalized_info import NormalizedResumeModel
+    from app.models.normalized_job_description import NormalizedJDModel
     from app.models.parsed_document import ParsedDocumentModel
-    from app.models.normalized_info import (
-        NormalizedJobDescriptionModel,
-        NormalizedResumeModel,
-    )
     from app.models.ranking import CandidateRankingModel
 
 
@@ -109,7 +105,7 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )
     extracted_job_description: Mapped[
-        "ExtractedJobDescriptionModel | None"
+        "ExtractedJDModel | None"
     ] = relationship(
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )
@@ -117,7 +113,7 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )
     normalized_job_description: Mapped[
-        "NormalizedJobDescriptionModel | None"
+        "NormalizedJDModel | None"
     ] = relationship(
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )
