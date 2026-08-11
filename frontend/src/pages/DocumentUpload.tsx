@@ -13,7 +13,7 @@ import { usePipeline } from '@/store/pipelineStore'
 import { UploadedFile, JdProcessingStage, JdProcessingStatus } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '@/api'
-import type { ExtractedJobDescription, NormalizedJobDescription, ParsedDocument } from '@/api'
+import type { Document as ApiDocument, ExtractedJobDescription, NormalizedJobDescription, ParsedDocument } from '@/api'
 import { JobProfile } from '@/components/ui/DocumentProfiles'
 
 const fadeUp = {
@@ -85,7 +85,7 @@ export default function DocumentUpload() {
   const [flowPhase, setFlowPhase] = useState<
     'idle' | 'uploading' | 'parsing' | 'extracting' | 'normalizing' | 'ready' | 'error'
   >('idle')
-  const [profile, setProfile] = useState<{ normalized: NormalizedJobDescription; extracted: ExtractedJobDescription | null; parsed: ParsedDocument | null } | null>(null)
+  const [profile, setProfile] = useState<{ normalized: NormalizedJobDescription; extracted: ExtractedJobDescription | null; parsed: ParsedDocument | null; document: ApiDocument } | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
   const lookedUpProjectRef = useRef<string | null>(null)
 
@@ -136,9 +136,10 @@ export default function DocumentUpload() {
       api.getNormalizedDocument(state.jdDocumentId),
       api.getExtractedDocument(state.jdDocumentId).catch(() => null),
       api.getParsedDocument(state.jdDocumentId).catch(() => null),
-    ]).then(([normalized, extracted, parsed]) => {
+      api.getDocument(state.jdDocumentId),
+    ]).then(([normalized, extracted, parsed, document]) => {
       if (!active || !('degree_requirements' in normalized)) return
-      setProfile({ normalized, extracted: extracted && 'responsibilities' in extracted ? extracted : null, parsed })
+      setProfile({ normalized, extracted: extracted && 'responsibilities' in extracted ? extracted : null, parsed, document })
       setProfileError(null)
     }).catch((err) => {
       if (active) setProfileError(errorMessage(err, 'Unable to load normalized job profile'))

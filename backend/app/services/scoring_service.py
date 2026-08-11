@@ -71,12 +71,41 @@ class ScoringEngineFacade:
         self.components = ComponentScoringService()
 
     async def score_project(self, project_id: UUID) -> ProjectScoringRead:
+        logger.info("[SCORE] scoring started", project_id=str(project_id))
         config, job = await self._load_project_context(project_id)
         try:
             resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to retrieve project resumes.") from exc
-        results = [await self._score(document, config, job) for document in resumes]
+
+        doc_ids = [doc.id for doc in resumes]
+        logger.info(
+            "[SCORE] candidate batch loaded",
+            project_id=str(project_id),
+            candidate_count=len(resumes),
+        )
+        try:
+            norm_models = await self.normalizations.get_resumes_by_document_ids(doc_ids)
+            ext_models = await self.extractions.get_resumes_by_document_ids(doc_ids)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve preloaded candidate records.") from exc
+
+        norm_map = {n.document_id: n for n in norm_models}
+        ext_map = {e.document_id: e for e in ext_models}
+
+        results = [
+            await self._score(
+                document, config, job,
+                resume=norm_map.get(document.id),
+                extracted=ext_map.get(document.id),
+            )
+            for document in resumes
+        ]
+        logger.info(
+            "[SCORE] scoring completed",
+            project_id=str(project_id),
+            candidate_count=len(results),
+        )
         return ProjectScoringRead(project_id=project_id, total_evaluated=len(results), scores=results)
 
     async def score_document(self, project_id: UUID, document_id: UUID) -> CandidateScoreRead:
@@ -114,10 +143,15 @@ class ScoringEngineFacade:
         if job is None: raise JobDescriptionMissingException()
         return config, job
 
-    async def _score(self, document: DocumentModel, config: Any, job: Any) -> CandidateScoreRead:
+    async def _score(
+        self, document: DocumentModel, config: Any, job: Any,
+        resume: Any = None, extracted: Any = None,
+    ) -> CandidateScoreRead:
         try:
-            resume = await self.normalizations.get_resume_by_document_id(document.id)
-            extracted = await self.extractions.get_resume_by_document_id(document.id)
+            if resume is None:
+                resume = await self.normalizations.get_resume_by_document_id(document.id)
+            if extracted is None:
+                extracted = await self.extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
             components = self.components.score(resume, job, config, extracted.projects)
             applicable_categories = WeightCalculationService.applicable_categories(job, config)
@@ -130,6 +164,13 @@ class ScoringEngineFacade:
             final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total)
             confidence = ConfidenceService.calculate(extracted)
             recommendation = RecommendationService.recommend(final_score, float(config.passing_score), knocked_out)
+            component_values = {
+                name: getattr(components, name).score
+                for name in (
+                    "skills", "experience", "projects", "education",
+                    "certifications", "languages",
+                )
+            }
             # Extract top-level summary fields directly from existing component scores
             matched_skills = list(components.skills.matched_items)
             missing_skills = list(components.skills.missing_items)
@@ -140,10 +181,13 @@ class ScoringEngineFacade:
             for comp_name in ("skills", "experience", "projects", "education", "certifications"):
                 comp_detail = getattr(components, comp_name, None)
                 if comp_detail:
-                    if comp_detail.score >= 80.0 and comp_detail.explanation:
-                        strengths.append(f"{comp_name.title()}: {comp_detail.explanation}")
-                    elif comp_detail.score < 60.0 and comp_detail.explanation:
-                        weaknesses.append(f"{comp_name.title()}: {comp_detail.explanation}")
+                    exp_lower = str(comp_detail.explanation or "").casefold()
+                    is_na = "(n/a)" in exp_lower or (comp_name == "experience" and "against 0 required months" in exp_lower)
+                    if not is_na:
+                        if comp_detail.score >= 80.0 and comp_detail.explanation:
+                            strengths.append(f"{comp_name.title()}: {comp_detail.explanation}")
+                        elif comp_detail.score < 60.0 and comp_detail.explanation:
+                            weaknesses.append(f"{comp_name.title()}: {comp_detail.explanation}")
 
             if penalties:
                 for p in penalties:
@@ -168,6 +212,15 @@ class ScoringEngineFacade:
                 strengths=strengths,
                 weaknesses=weaknesses,
             ))
+            logger.info(
+                "[SCORE] candidate scored",
+                project_id=str(document.project_id),
+                document_id=str(document.id),
+                final_score=final_score,
+                component_scores=component_values,
+                recommendation=recommendation.value,
+                is_knocked_out=knocked_out,
+            )
         except AppException: raise
         except Exception as exc:
             logger.exception("candidate_scoring_failed", document_id=str(document.id))

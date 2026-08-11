@@ -39,7 +39,6 @@ class Settings(BaseSettings):
             "http://127.0.0.1:5173",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
-            "*",
         ]
     )
 
@@ -78,6 +77,13 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
+
+    AFFINDA_API_KEY: str | None = None
+    AFFINDA_API_BASE_URL: str = "https://api.affinda.com"
+    AFFINDA_WORKSPACE_ID: str | None = None
+    AFFINDA_RESUME_DOCUMENT_TYPE_ID: str | None = None
+    AFFINDA_JD_DOCUMENT_TYPE_ID: str | None = None
+    AFFINDA_TIMEOUT_SECONDS: float = 240.0
 
     @field_validator("OCR_LANGUAGES", mode="before")
     @classmethod

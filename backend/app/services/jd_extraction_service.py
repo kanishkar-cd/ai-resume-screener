@@ -369,11 +369,17 @@ class JDExtractionService:
         parsed_repository: ParsedDocumentRepository,
         extracted_repository: ExtractedJDRepository,
         ai_extractor: AIJDExtractor | None = None,
+        affinda_service=None,
+        storage=None,
     ) -> None:
         self.document_repository = document_repository
         self.parsed_repository = parsed_repository
         self.extracted_repository = extracted_repository
         self.ai_extractor = ai_extractor or AIJDExtractor()
+        from app.services.affinda_service import AffindaService
+        from app.services.storage_service import StorageService
+        self.affinda_service = affinda_service or AffindaService()
+        self.storage = storage or StorageService()
 
     async def extract_document(self, document_id: UUID) -> JDExtractResult:
         started_at = perf_counter()
@@ -420,6 +426,10 @@ class JDExtractionService:
             document=document,
             refresh=False,
         )
+
+        affinda_result = await self._try_affinda(document, metadata)
+        if affinda_result is not None:
+            return affinda_result
 
         try:
             sections = _split_sections(raw_text)
@@ -554,6 +564,53 @@ class JDExtractionService:
             processing_status=ProcessingStatus.COMPLETED,
             message=f"Extracted {len(skills)} skills, {len(responsibilities)} responsibilities, domain={domain!r}.",
         )
+
+    async def _try_affinda(self, document, metadata: dict) -> JDExtractResult | None:
+        if not self.affinda_service.configured:
+            return None
+        try:
+            from app.services.affinda_mapper import map_affinda_jd
+            from app.services.affinda_service import AffindaError
+
+            response = (document.metadata_json or {}).get("affinda_payload")
+            if not isinstance(response, dict):
+                path = self.storage.resolve_file(document.file_path)
+                if path is None:
+                    raise AffindaError("Stored document is unavailable.")
+                response = await self.affinda_service.parse_job_description(
+                    path, document.original_filename, document.mime_type
+                )
+            provider_meta = response.get("meta") or {}
+            mapped = map_affinda_jd(
+                response["data"], provider_meta.get("identifier")
+            )
+            await self.extracted_repository.upsert(
+                ExtractedJDCreate(document_id=document.id, **mapped),
+                commit=False,
+                refresh=False,
+            )
+            await self._set_status(
+                document.id,
+                ProcessingStatus.COMPLETED,
+                {**metadata, "extraction_error": None, "extraction_provider": "affinda"},
+                refresh=False,
+                document=document,
+            )
+            logger.info("affinda_jd_succeeded", document_id=str(document.id))
+            return JDExtractResult(
+                document_id=document.id,
+                document_type=DocumentType.JOB_DESCRIPTION,
+                processing_stage=ProcessingStage.EXTRACTION,
+                processing_status=ProcessingStatus.COMPLETED,
+                message="Job Description processed successfully.",
+            )
+        except Exception as exc:
+            logger.warning(
+                "affinda_jd_fallback",
+                document_id=str(document.id),
+                error_type=type(exc).__name__,
+            )
+            return None
 
     async def get_extracted_document(self, document_id: UUID) -> ExtractedJDRead:
         await self._load_document(document_id)

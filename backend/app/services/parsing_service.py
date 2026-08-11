@@ -26,6 +26,9 @@ from app.services.document_service import (
 from app.services.parsers import parse_document_file
 from app.services.parsers.base import text_metrics
 from app.services.storage_service import StorageService
+from app.models.document import DocumentTypeEnum
+from app.services.affinda_service import AffindaService
+from app.services.parsers.base import ParseOutput
 
 logger = structlog.get_logger(__name__)
 
@@ -61,13 +64,27 @@ class ParsingService:
         document_repository: DocumentRepository,
         parsed_repository: ParsedDocumentRepository,
         storage: StorageService,
+        affinda_service: AffindaService | None = None,
     ) -> None:
         self.document_repository = document_repository
         self.parsed_repository = parsed_repository
         self.storage = storage
+        self.affinda_service = affinda_service or AffindaService()
 
     async def parse_document(self, document_id: UUID) -> DocumentParseRead:
         document = await self._load_document(document_id)
+        logger.info(
+            "[DOCUMENT] processing started",
+            document_id=str(document.id),
+            filename=document.original_filename,
+            document_type=document.document_type.value,
+        )
+        logger.info(
+            "[AFFINDA] configuration checked",
+            document_id=str(document.id),
+            configured=self.affinda_service.configured,
+            document_type=document.document_type.value,
+        )
         current_status = ProcessingStatus(document.processing_status.value)
         if current_status == ProcessingStatus.PARSING_PENDING:
             raise DocumentNotParseableException(
@@ -95,7 +112,35 @@ class ParsingService:
 
         started_at = perf_counter()
         try:
-            parsed = await to_thread(parse_document_file, path, document.mime_type)
+            affinda_payload = await self._try_affinda(document, path)
+            if affinda_payload is not None:
+                raw_text = affinda_payload["data"].get("rawText")
+                if not isinstance(raw_text, str) or not raw_text.strip():
+                    logger.warning(
+                        "affinda_raw_text_missing_fallback",
+                        document_id=str(document.id),
+                    )
+                    affinda_payload = None
+                else:
+                    parsed = ParseOutput(
+                        raw_text=raw_text,
+                        page_count=None,
+                        parser_engine=ParserEngine.PLAIN_TEXT,
+                        original_parser="AFFINDA",
+                    )
+            if affinda_payload is None:
+                logger.info(
+                    "[FALLBACK] local parser started",
+                    document_id=str(document.id),
+                    reason="affinda_unavailable_or_unsuccessful",
+                )
+                parsed = await to_thread(parse_document_file, path, document.mime_type)
+                logger.info(
+                    "[FALLBACK] local parser completed",
+                    document_id=str(document.id),
+                    parser_engine=parsed.parser_engine.value,
+                    provider_selected="local",
+                )
             duration_ms = (perf_counter() - started_at) * 1000
             if not parsed.raw_text or not parsed.raw_text.strip():
                 raise DocumentParseFailedException(
@@ -127,6 +172,10 @@ class ParsingService:
                     "original_parser": parsed.original_parser or parsed.parser_engine.value,
                     "ocr_fallback_used": parsed.ocr_fallback_used,
                     "ocr_engine": parsed.ocr_engine,
+                    "document_intelligence_provider": "affinda" if affinda_payload else "local",
+                    "affinda_payload": self._persistable_affinda_payload(
+                        affinda_payload
+                    ),
                 },
                 refresh=False,
                 document=document,
@@ -156,6 +205,7 @@ class ParsingService:
             document_id=str(document_id),
             parser_engine=parsed.parser_engine.value,
             duration_ms=round(duration_ms, 3),
+            provider_selected="affinda" if affinda_payload else "local",
         )
         return DocumentParseRead(
             document_id=document_id,
@@ -163,6 +213,52 @@ class ParsingService:
             processing_stage=ProcessingStage(updated.processing_stage.value),
             message="Document parsed successfully.",
         )
+
+    async def _try_affinda(self, document, path):
+        if not self.affinda_service.configured:
+            logger.info(
+                "[FALLBACK] Affinda skipped",
+                document_id=str(document.id),
+                configured=False,
+                provider_selected="local",
+            )
+            return None
+        try:
+            if document.document_type == DocumentTypeEnum.RESUME:
+                response = await self.affinda_service.parse_resume(
+                    path, document.original_filename, document.mime_type
+                )
+            elif document.document_type == DocumentTypeEnum.JOB_DESCRIPTION:
+                response = await self.affinda_service.parse_job_description(
+                    path, document.original_filename, document.mime_type
+                )
+            else:
+                return None
+            return {
+                "data": response["data"],
+                "meta": {"identifier": (response.get("meta") or {}).get("identifier")},
+            }
+        except Exception as exc:
+            logger.warning(
+                "[FALLBACK] Affinda failed; local parser selected",
+                document_id=str(document.id),
+                error_type=type(exc).__name__,
+                sanitized_message=str(exc),
+                provider_selected="local",
+            )
+        return None
+
+    @staticmethod
+    def _persistable_affinda_payload(payload):
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return None
+        return {
+            "data": {key: value for key, value in data.items() if key != "rawText"},
+            "meta": payload.get("meta") or {},
+        }
 
     async def get_parsed_document(self, document_id: UUID) -> ParsedDocumentRead:
         await self._load_document(document_id)

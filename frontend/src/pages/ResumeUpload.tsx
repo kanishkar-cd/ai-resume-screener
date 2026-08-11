@@ -19,7 +19,7 @@ import {
 } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '@/api'
-import type { ExtractedResume, NormalizedResume } from '@/api'
+import type { Document as ApiDocument, ExtractedResume, NormalizedResume } from '@/api'
 import { CandidateProfile } from '@/components/ui/DocumentProfiles'
 
 const fadeUp = {
@@ -69,7 +69,7 @@ export default function ResumeUpload() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const processingRef = useRef<Set<string>>(new Set())
-  const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; error?: string; loading?: boolean }>>({})
+  const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; document?: ApiDocument; error?: string; loading?: boolean }>>({})
 
   const successfulCount = state.resumeDocumentIds.length
   const normalizedCount = state.resumeDocumentIds.filter(
@@ -114,8 +114,8 @@ export default function ResumeUpload() {
     })
     Promise.all(normalizedIds.map(async (id) => {
       try {
-        const [normalized, extracted] = await Promise.all([api.getNormalizedDocument(id), api.getExtractedDocument(id).catch(() => null)])
-        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null }] as const
+        const [normalized, extracted, document] = await Promise.all([api.getNormalizedDocument(id), api.getExtractedDocument(id).catch(() => null), api.getDocument(id)])
+        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null, document }] as const
         return [id, { error: 'Normalized resume data was not returned.' }] as const
       } catch (err) {
         return [id, { error: errorMessage(err, 'Unable to load normalized candidate profile') }] as const
@@ -549,7 +549,7 @@ export default function ResumeUpload() {
             {processing?.errorMessage && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">Normalization failed: {processing.errorMessage}</p>}
             {processing?.normalized && profile?.loading && <div className="card p-6 text-[12px] text-slate-500">Loading final candidate profile…</div>}
             {processing?.normalized && profile?.error && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{profile.error}</p>}
-            {profile?.normalized && <CandidateProfile normalized={profile.normalized} extracted={profile.extracted}/>}
+            {profile?.normalized && <CandidateProfile normalized={profile.normalized} extracted={profile.extracted} document={profile.document}/>}
             {!processing?.normalized && processing?.phase !== 'failed' && <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-500">Normalization pending</div>}
           </article>
         })}

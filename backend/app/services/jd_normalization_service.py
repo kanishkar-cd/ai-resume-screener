@@ -187,6 +187,11 @@ class JDNormalizationService:
     async def normalize_document(self, document_id: UUID) -> JDNormalizeResult:
         started_at = perf_counter()
         document = await self._load_document(document_id)
+        logger.info(
+            "[NORMALIZE] normalization started",
+            document_id=str(document_id),
+            document_type="JOB_DESCRIPTION",
+        )
 
         # Load extracted data
         try:
@@ -310,9 +315,12 @@ class JDNormalizationService:
         )
 
         logger.info(
-            "jd_normalized_successfully",
+            "[NORMALIZE] normalization completed",
             document_id=str(document_id),
+            document_type="JOB_DESCRIPTION",
             canonical_skills=len(canonical_skills),
+            responsibilities_count=len(responsibilities),
+            certifications_count=len(certifications),
             degrees=len(degree_requirements),
             experience_reqs=len(experience_requirements),
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
