@@ -9,10 +9,15 @@ desktop.ini
 *.swp
 *.swo
 
-# Environment & Secrets
+# Environment / secrets
 .env
-.env.local
 *.env
+!.env.example
+backend/.env
+.env
+.env.example
+backend/.env
+backend/.env.example
 
 # Python & Backend
 __pycache__/
