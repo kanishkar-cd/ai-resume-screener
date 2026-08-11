@@ -12,6 +12,7 @@ import Projects from '@/pages/Projects'
 import CreateProject from '@/pages/CreateProject'
 import ProjectOverview from '@/pages/ProjectOverview'
 import Processing from '@/pages/Processing'
+import Reports from '@/pages/Reports'
 import ProjectRoute from '@/components/layout/ProjectRoute'
 
 function AppRoutes() {
@@ -24,13 +25,14 @@ function AppRoutes() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/new" element={<CreateProject />} />
         <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
+        <Route path="/projects/:projectId/overview" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
         <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
         <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
         <Route path="/projects/:projectId/weightage" element={<ProjectRoute><WeightageSetting /></ProjectRoute>} />
         <Route path="/projects/:projectId/processing" element={<ProjectRoute><Processing /></ProjectRoute>} />
         <Route path="/projects/:projectId/candidates" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
         <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
-        <Route path="/projects/:projectId/reports" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
+        <Route path="/projects/:projectId/reports" element={<ProjectRoute><Reports /></ProjectRoute>} />
         <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

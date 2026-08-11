@@ -127,7 +127,8 @@ class RankingRepository:
             "email": extracted.email if extracted else None, "rank_position": ranking.rank_position,
             "percentile": float(ranking.percentile), "final_score": float(ranking.final_score),
             "recommendation": ranking.recommendation.value, "confidence": float(ranking.confidence),
-            "is_knocked_out": score.is_knocked_out, "skills_score": float(score.skills_score),
+            "is_knocked_out": score.is_knocked_out, "knockout_reason": score.knockout_reason,
+            "skills_score": float(score.skills_score),
             "experience_score": float(score.experience_score), "previous_rank": ranking.previous_rank,
             "rank_change": ranking.rank_change, "created_at": ranking.created_at,
         }

@@ -19,6 +19,8 @@ import {
 } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '@/api'
+import type { ExtractedResume, NormalizedResume } from '@/api'
+import { CandidateProfile } from '@/components/ui/DocumentProfiles'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -67,6 +69,7 @@ export default function ResumeUpload() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const processingRef = useRef<Set<string>>(new Set())
+  const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; error?: string; loading?: boolean }>>({})
 
   const successfulCount = state.resumeDocumentIds.length
   const normalizedCount = state.resumeDocumentIds.filter(
@@ -99,6 +102,27 @@ export default function ResumeUpload() {
   useEffect(() => {
     if (state.projectId) void refreshResumes()
   }, [refreshResumes, state.projectId])
+
+  useEffect(() => {
+    const normalizedIds = state.resumeDocumentIds.filter((id) => state.resumeProcessing[id]?.normalized)
+    if (!normalizedIds.length) return
+    let active = true
+    setProfiles((current) => {
+      const next = { ...current }
+      normalizedIds.forEach((id) => { next[id] = { ...next[id], loading: true, error: undefined } })
+      return next
+    })
+    Promise.all(normalizedIds.map(async (id) => {
+      try {
+        const [normalized, extracted] = await Promise.all([api.getNormalizedDocument(id), api.getExtractedDocument(id).catch(() => null)])
+        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null }] as const
+        return [id, { error: 'Normalized resume data was not returned.' }] as const
+      } catch (err) {
+        return [id, { error: errorMessage(err, 'Unable to load normalized candidate profile') }] as const
+      }
+    })).then((entries) => { if (active) setProfiles((current) => ({ ...current, ...Object.fromEntries(entries) })) })
+    return () => { active = false }
+  }, [normalizedCount, state.resumeDocumentIds, state.resumeProcessing])
 
   const upsertProcessing = useCallback(
     (payload: ResumeProcessingState) => {
@@ -417,10 +441,9 @@ export default function ResumeUpload() {
       {/* Page Header */}
       <motion.div variants={fadeUp} className="mb-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-slate-800 mb-1">Resume Upload</h1>
+          <h1 className="text-[30px] font-bold tracking-tight text-slate-900 mb-2">Candidate Resumes</h1>
           <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-            Upload candidate <strong className="text-slate-600">resumes or resume folders</strong>.
-            All documents are automatically extracted, standardized, and scored against your weighted criteria.
+            Upload and process resumes for this project. Each candidate remains isolated to the active project.
           </p>
         </div>
       </motion.div>
@@ -514,6 +537,23 @@ export default function ResumeUpload() {
           <p className="mt-2 text-[12px] text-red-500 text-center">{listError}</p>
         )}
       </motion.div>
+
+      {state.resumeDocumentIds.length > 0 && <motion.section variants={fadeUp} className="mb-5 space-y-4">
+        <div><h2 className="text-[18px] font-bold text-slate-900">Processed candidate profiles</h2><p className="mt-1 text-[12px] text-slate-500">Each profile is loaded from its document’s backend extraction and normalization records.</p></div>
+        {state.resumeDocumentIds.map((id) => {
+          const file = state.upload.resumes.find((resume) => resume.id === id)
+          const processing = state.resumeProcessing[id]
+          const profile = profiles[id]
+          return <article key={id} className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><div><p className="text-[12px] font-semibold text-slate-800">{file?.name || 'Resume'}</p><p className="mt-1 text-[10px] text-slate-400">Uploaded → Parsed → Extracted → Normalized → Ready</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${processing?.phase === 'failed' ? 'bg-red-50 text-red-700' : processing?.normalized ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{processing?.phase === 'failed' ? 'Normalization failed' : processing?.normalized ? 'Ready' : processing?.phase || 'Uploaded'}</span></div>
+            {processing?.errorMessage && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">Normalization failed: {processing.errorMessage}</p>}
+            {processing?.normalized && profile?.loading && <div className="card p-6 text-[12px] text-slate-500">Loading final candidate profile…</div>}
+            {processing?.normalized && profile?.error && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{profile.error}</p>}
+            {profile?.normalized && <CandidateProfile normalized={profile.normalized} extracted={profile.extracted}/>}
+            {!processing?.normalized && processing?.phase !== 'failed' && <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-500">Normalization pending</div>}
+          </article>
+        })}
+      </motion.section>}
 
       {/* Bottom Summary Strip & Action Footer */}
       <motion.div variants={fadeUp} className="card glow-border-sky p-0 overflow-hidden mb-5">

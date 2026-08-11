@@ -11,9 +11,13 @@ class ExtractedJDCreate(BaseModel):
     """Internal DTO for persisting a JD extraction result."""
     document_id: UUID
     domain: str | None = None
+    job_title: str | None = None
     skills: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
     education: list[str] = Field(default_factory=list)
+    education_disciplines: list[str] = Field(default_factory=list)
     experience: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
@@ -26,9 +30,13 @@ class ExtractedJDRead(BaseModel):
     id: UUID
     document_id: UUID
     domain: str | None
+    job_title: str | None = None
     skills: list[str]
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str]
     education: list[str]
+    education_disciplines: list[str] = Field(default_factory=list)
     experience: list[str]
     certifications: list[str]
     keywords: list[str]

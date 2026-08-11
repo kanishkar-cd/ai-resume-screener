@@ -120,11 +120,14 @@ class ScoringEngineFacade:
             extracted = await self.extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
             components = self.components.score(resume, job, config, extracted.projects)
-            weighted, raw_total, weighted_total = WeightCalculationService.calculate(components, config)
+            applicable_categories = WeightCalculationService.applicable_categories(job, config)
+            weighted, raw_total, weighted_total = WeightCalculationService.calculate(
+                components, config, applicable_categories
+            )
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config)
             penalty_total, penalties = PenaltyService.calculate(components, config)
             bonus_total, bonuses = BonusService.calculate(resume, job, config, components)
-            final_score = 0.0 if knocked_out else round(max(0, min(100, weighted_total - penalty_total + bonus_total)), 2)
+            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total)
             confidence = ConfidenceService.calculate(extracted)
             recommendation = RecommendationService.recommend(final_score, float(config.passing_score), knocked_out)
             # Extract top-level summary fields directly from existing component scores

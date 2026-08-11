@@ -22,15 +22,21 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import AIPipelineRail from '@/components/ui/AIPipelineRail'
+import { StatusBadge } from '@/components/ui/SaaS'
+import { CandidateProfile } from '@/components/ui/DocumentProfiles'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
 import { AI_PIPELINE_STAGES } from '@/constants'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   api,
   ApiError,
   type CandidateInsights,
   type CandidateRanking as ApiCandidateRanking,
+  type CandidateScore as ApiCandidateScore,
+  type WeightConfig,
+  type ExtractedResume,
+  type NormalizedResume,
 } from '@/api'
 
 // ─── Animation variants ───────────────────────────────────────
@@ -59,6 +65,12 @@ function recommendationToStatus(
   return 'pending'
 }
 
+function recommendationLabel(candidate: Candidate): string {
+  if (candidate.isKnockedOut) return 'Rejected · Knockout'
+  if (candidate.recommendation === 'REJECT') return 'Rejected · Below recommendation threshold'
+  return candidate.recommendation || STATUS_STYLES[candidate.status].label
+}
+
 function scoringPrerequisitesMet(state: ReturnType<typeof usePipeline>['state']): string | null {
   if (!state.projectId) return 'No project found. Complete JD upload first.'
   if (!state.jdNormalized) return 'Job description must be normalized before scoring.'
@@ -80,6 +92,9 @@ interface ExplanationDrawerProps {
 function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
   const [insights, setInsights] = useState<CandidateInsights | null>(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
+  const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null } | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [loadingProfile, setLoadingProfile] = useState(false)
 
   React.useEffect(() => {
     if (!candidate?.id) {
@@ -99,6 +114,26 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
         if (isMounted) setLoadingInsights(false)
       })
     return () => { isMounted = false }
+  }, [candidate?.id])
+
+  React.useEffect(() => {
+    if (!candidate?.id) {
+      setResumeProfile(null)
+      setProfileError(null)
+      return
+    }
+    let active = true
+    setLoadingProfile(true)
+    Promise.all([api.getNormalizedDocument(candidate.id), api.getExtractedDocument(candidate.id).catch(() => null)])
+      .then(([normalized, extracted]) => {
+        if (!active) return
+        if (!('job_titles' in normalized)) throw new Error('Normalized resume data was not returned.')
+        setResumeProfile({ normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null })
+        setProfileError(null)
+      })
+      .catch((err) => { if (active) setProfileError(err instanceof Error ? err.message : 'Unable to load normalized resume data.') })
+      .finally(() => { if (active) setLoadingProfile(false) })
+    return () => { active = false }
   }, [candidate?.id])
 
   const aiSummaryText = insights?.summary || candidate?.aiExplanation || 'AI explanation not yet generated. Please run the AI pipeline first.'
@@ -154,6 +189,43 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+              {loadingProfile && <div className="rounded-xl border border-slate-200 p-4 text-[12px] text-slate-500">Loading final resume profile…</div>}
+              {profileError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-800">Normalization pending: {profileError}</div>}
+              {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted}/>}
+
+              {candidate.isKnockedOut && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-red-700">Rejected</p>
+                  <p className="mt-1 text-[13px] font-semibold text-slate-800">Mandatory requirement not met</p>
+                  <p className="mt-2 text-[12px] text-red-700">
+                    {candidate.knockoutReason || insights?.recommendation_reason || 'A configured knockout rule was triggered.'}
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-red-200 pt-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Merit Score</p>
+                      <p className="mt-1 text-[15px] font-bold text-slate-800">{candidate.overallScore} / 100</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Knockout Status</p>
+                      <p className="mt-1 text-[15px] font-bold text-red-700">Rejected</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!candidate.isKnockedOut && candidate.recommendation === 'REJECT' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Rejected</p>
+                  <p className="mt-1 text-[13px] font-semibold text-slate-800">Below recommendation threshold</p>
+                  <p className="mt-2 text-[12px] text-amber-800">
+                    {insights?.recommendation_reason || 'The retained merit score is below the configured acceptance threshold.'}
+                  </p>
+                  <p className="mt-3 border-t border-amber-200 pt-3 text-[12px] text-slate-600">
+                    Merit Score <span className="font-bold text-slate-800">{candidate.overallScore} / 100</span>
+                  </p>
+                </div>
+              )}
+
               {/* Rank badge */}
               <div className="flex items-center gap-3">
                 <span className="text-[20px]">
@@ -174,7 +246,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles size={14} className="text-sky-500" />
                   <p className="text-[11px] font-bold text-sky-600 uppercase tracking-widest">
-                    AI Explanation {loadingInsights ? '(Loading...)' : ''}
+                    Screening Explanation {loadingInsights ? '(Loading...)' : ''}
                   </p>
                 </div>
                 <p className="text-[13px] text-slate-600 leading-relaxed">
@@ -250,15 +322,20 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[12px] text-slate-600 font-medium">{s.label}</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-slate-400">Weight {s.weight}%</span>
-                          <span className="text-[13px] font-bold text-sky-600">{s.score}</span>
+                          <span className="text-[11px] text-slate-400">Configured weight {s.weight}%</span>
+                          <span className="text-[13px] font-bold text-sky-600">{s.isApplicable === false ? 'N/A' : `${s.score}%`}</span>
                         </div>
                       </div>
+                      <p className="mb-1.5 text-[11px] text-slate-400">
+                        {s.isApplicable === false
+                          ? `No JD requirement · ${s.weight}% configured weight redistributed`
+                          : `Effective contribution: ${s.weightedScore.toFixed(2)} pts`}
+                      </p>
                       <div className="progress-track">
                         <motion.div
                           className="progress-fill"
                           initial={{ width: 0 }}
-                          animate={{ width: `${s.score}%` }}
+                          animate={{ width: `${s.isApplicable === false ? 0 : s.score}%` }}
                           transition={{ duration: 0.6, delay: 0.2 }}
                         />
                       </div>
@@ -269,7 +346,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
 
               {/* Total score */}
               <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 flex items-center justify-between">
-                <p className="text-[13px] font-semibold text-slate-600">Overall Score</p>
+                <p className="text-[13px] font-semibold text-slate-600">{candidate.isKnockedOut ? 'Merit Score' : 'Overall Score'}</p>
                 <p className={`text-[28px] font-bold ${getScoreClass(candidate.overallScore).replace('score-', 'text-').replace('high', 'green-600').replace('med', 'amber-500').replace('low', 'red-500')}`}>
                   {candidate.overallScore}
                   <span className="text-[14px] font-normal text-slate-400 ml-1">/ 100</span>
@@ -287,37 +364,73 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
 export default function CandidateRanking() {
   const { state, dispatch, completeAndAdvance } = usePipeline()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
   const [sortBy, setSortBy] = useState<'rank' | 'score'>('rank')
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null)
   const [rankingsLoading, setRankingsLoading] = useState(true)
+  const [requestedDocumentId] = useState(() => (location.state as { selectedDocumentId?: string } | null)?.selectedDocumentId)
 
-  // Derive candidates — prefer scored results; avoid mock fallback after a real score run
+  // Rankings are populated exclusively from the active project's backend response.
   const candidates: Candidate[] = state.candidates
 
-  const mapRankings = useCallback((rankings: ApiCandidateRanking[]): Candidate[] =>
-    rankings.map((ranking) => ({
+  useEffect(() => {
+    if (!requestedDocumentId || selectedCandidate) return
+    const requested = candidates.find((candidate) => candidate.documentId === requestedDocumentId)
+    if (requested) setSelectedCandidate(requested)
+  }, [candidates, requestedDocumentId, selectedCandidate])
+
+  const mapRankings = useCallback((rankings: ApiCandidateRanking[], scores: ApiCandidateScore[], config: WeightConfig): Candidate[] => {
+    const scoresByDocument = new Map(scores.map((score) => [score.document_id, score]))
+    const components = [
+      ['skills', 'Skills'], ['experience', 'Experience'], ['projects', 'Projects'],
+      ['education', 'Education'], ['certifications', 'Certifications'], ['languages', 'Languages'],
+    ] as const
+    return rankings.map((ranking) => {
+      const persistedScore = scoresByDocument.get(ranking.document_id)
+      if (!persistedScore) {
+        throw new Error(`Persisted score data is unavailable for document ${ranking.document_id}.`)
+      }
+      return ({
       id: ranking.document_id,
       documentId: ranking.document_id,
       name: ranking.candidate_name || 'Candidate',
       email: ranking.email || '',
       resumeFile: state.upload.resumes.find((resume) => resume.id === ranking.document_id)?.name || ranking.document_id,
-      overallScore: Math.round(ranking.final_score),
+      overallScore: ranking.final_score,
       rank: ranking.rank_position,
       percentile: ranking.percentile,
       confidence: ranking.confidence,
       recommendation: ranking.recommendation,
       isKnockedOut: ranking.is_knocked_out,
+      knockoutReason: ranking.knockout_reason,
+      rejectionReason: ranking.is_knocked_out
+        ? 'knockout'
+        : ranking.recommendation === 'REJECT'
+          ? 'below_recommendation_threshold'
+          : undefined,
       status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out),
       extractedFields: [],
-      scores: [
-        { criterionId: 'skills', label: 'Skills', score: Math.round(ranking.skills_score), weight: 0, weightedScore: 0 },
-        { criterionId: 'experience', label: 'Experience', score: Math.round(ranking.experience_score), weight: 0, weightedScore: 0 },
-      ],
+      scores: components.map(([key, label]) => {
+        const detail = persistedScore.component_scores[key]
+        const explanation = detail.explanation
+        const isApplicable = !(/\(N\/A\)/i.test(explanation)
+          || (key === 'experience' && /against 0 required months/i.test(explanation)))
+        return {
+          criterionId: key, label,
+          score: detail.score,
+          weight: config.weights[key],
+          weightedScore: persistedScore.weighted_scores[key],
+          isApplicable,
+          explanation,
+        }
+      }),
       scoredAt: new Date(ranking.created_at),
-    })), [state.upload.resumes])
+      })
+    })
+  }, [state.upload.resumes])
 
   useEffect(() => {
     if (!state.projectId) { setRankingsLoading(false); return }
@@ -325,8 +438,12 @@ export default function CandidateRanking() {
     setRankingsLoading(true)
     dispatch({ type: 'SET_RANKED_CANDIDATES', payload: [] })
     dispatch({ type: 'SET_SCORING_ERROR', payload: null })
-    api.getRankings(state.projectId, { page_size: 100 })
-      .then((response) => { if (active) dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items) }) })
+    Promise.all([
+      api.getRankings(state.projectId, { page_size: 100 }),
+      api.getProjectScores(state.projectId),
+      api.getWeightConfig(state.projectId),
+    ])
+      .then(([response, scores, config]) => { if (active) dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items, scores, config) }) })
       .catch((err) => {
         if (!active) return
         dispatch({ type: 'SET_SCORING_ERROR', payload: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Unable to load rankings.' })
@@ -370,9 +487,12 @@ export default function CandidateRanking() {
       await api.rankProject(projectId)
 
       // Step 3: GET /api/v1/projects/{project_id}/rankings
-      const rankingsData = await api.getRankings(projectId, { page_size: 100 })
+      const [rankingsData, config] = await Promise.all([
+        api.getRankings(projectId, { page_size: 100 }),
+        api.getWeightConfig(projectId),
+      ])
 
-      const mapped = mapRankings(rankingsData.items)
+      const mapped = mapRankings(rankingsData.items, scoring.scores, config)
 
       dispatch({
         type: 'SET_SCORING_RESULT',
@@ -393,6 +513,7 @@ export default function CandidateRanking() {
 
   // Stats
   const screened = candidates.filter((c) => c.status === 'screened').length
+  const needsReview = candidates.filter((c) => c.status === 'pending').length
   const avgScore = candidates.length
     ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
     : 0
@@ -434,10 +555,9 @@ export default function CandidateRanking() {
         <motion.div variants={fadeUp} className="mb-5">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-[26px] font-bold text-slate-800 mb-1">Candidate Ranking</h1>
+              <h1 className="text-[30px] font-bold tracking-tight text-slate-900 mb-2">Candidate Rankings</h1>
               <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-                Run the full AI pipeline to extract, normalize, match, and rank all candidates
-                against the job description. Click a candidate row to view the AI explanation.
+                Candidates ranked against your screening criteria. Select a candidate to review the score breakdown.
               </p>
             </div>
 
@@ -477,9 +597,9 @@ export default function CandidateRanking() {
         <motion.div variants={fadeUp} className="grid grid-cols-4 gap-3 mb-5">
           {[
             { icon: Users,         label: 'Total Candidates', value: candidates.length, color: 'text-sky-600',   bg: 'bg-sky-50'   },
-            { icon: Star,          label: 'Screened',          value: screened,           color: 'text-green-600', bg: 'bg-green-50' },
-            { icon: Trophy,        label: 'Avg Score',         value: `${avgScore}%`,     color: 'text-sky-600',   bg: 'bg-sky-50'   },
-            { icon: LayoutDashboard, label: 'Top Score',       value: `${topScore}%`,     color: 'text-amber-600', bg: 'bg-amber-50' },
+            { icon: Star,          label: 'Shortlisted',       value: screened,           color: 'text-green-600', bg: 'bg-white' },
+            { icon: AlertCircle,   label: 'Needs Review',      value: needsReview,        color: 'text-amber-600', bg: 'bg-white' },
+            { icon: Trophy,        label: 'Average Score',     value: `${avgScore}%`,     color: 'text-sky-600',   bg: 'bg-white'   },
           ].map((s) => {
             const Icon = s.icon
             return (
@@ -580,7 +700,10 @@ export default function CandidateRanking() {
                   <th>Rank</th>
                   <th>Candidate</th>
                   <th>Score</th>
-                  <th>Status</th>
+                  <th>Recommendation</th>
+                  <th>Skills</th>
+                  <th>Experience</th>
+                  <th>Profile completeness</th>
                   <th>Action</th>
                   {state.scoringComplete && <th>AI Details</th>}
                 </tr>
@@ -634,10 +757,11 @@ export default function CandidateRanking() {
                           </div>
                         </td>
                         <td>
-                          <span className={STATUS_STYLES[candidate.status].cls}>
-                            {STATUS_STYLES[candidate.status].label}
-                          </span>
+                          <StatusBadge tone={candidate.status==='screened'?'success':candidate.status==='rejected'?'danger':'warning'}>{recommendationLabel(candidate)}</StatusBadge>
                         </td>
+                        <td className="font-medium">{candidate.scores.find(score=>score.criterionId==='skills')?.score ?? 0}%</td>
+                        <td className="font-medium">{candidate.scores.find(score=>score.criterionId==='experience')?.score ?? 0}%</td>
+                        <td className="font-medium">{Math.round(candidate.confidence ?? 0)}%</td>
                         <td>
                           <select
                             className="text-[11px] border border-slate-200 rounded-lg px-2 py-1 text-slate-600 outline-none bg-white"

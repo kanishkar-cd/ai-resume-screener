@@ -1,4 +1,5 @@
 from uuid import UUID
+from time import perf_counter
 
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,6 +19,8 @@ from app.schemas.extracted_info import (
 )
 from app.services.document_service import DocumentNotFoundException
 from app.services.extractors import JobDescriptionExtractor, ResumeExtractor
+from app.services.extractors.ai_resume_extractor import AIResumeExtractor
+from app.services.extractors.resume_merge import merge_resume_extractions
 
 logger = structlog.get_logger(__name__)
 
@@ -48,12 +51,15 @@ class ExtractionService:
         document_repository: DocumentRepository,
         parsed_repository: ParsedDocumentRepository,
         extraction_repository: ExtractionRepository,
+        ai_resume_extractor: AIResumeExtractor | None = None,
     ) -> None:
         self.document_repository = document_repository
         self.parsed_repository = parsed_repository
         self.extraction_repository = extraction_repository
+        self.ai_resume_extractor = ai_resume_extractor or AIResumeExtractor()
 
     async def extract_document_data(self, document_id: UUID) -> ExtractDocumentResponse:
+        total_started = perf_counter()
         document = await self._get_document(document_id)
         try:
             parsed = await self.parsed_repository.get_by_document_id(document_id)
@@ -64,21 +70,41 @@ class ExtractionService:
 
         try:
             await self.document_repository.update_processing(
-                document_id, ProcessingStage.EXTRACTION, ProcessingStatus.IN_PROGRESS
+                document_id, ProcessingStage.EXTRACTION, ProcessingStatus.IN_PROGRESS,
+                document=document, refresh=False,
             )
+            extraction_started = perf_counter()
+            ai_duration_ms = 0.0
             if document.document_type == DocumentTypeEnum.RESUME:
-                extracted = ResumeExtractor().extract(parsed.normalized_text)
+                deterministic = ResumeExtractor().extract(parsed.normalized_text)
+                ai_extracted = None
+                try:
+                    ai_started = perf_counter()
+                    ai_extracted = await self.ai_resume_extractor.extract(parsed.normalized_text)
+                    ai_duration_ms = (perf_counter() - ai_started) * 1000
+                except Exception as exc:
+                    ai_duration_ms = (perf_counter() - ai_started) * 1000
+                    logger.warning(
+                        "ai_resume_extraction_skipped",
+                        document_id=str(document_id),
+                        error_type=type(exc).__name__,
+                    )
+                extracted = merge_resume_extractions(deterministic, ai_extracted)
                 await self.extraction_repository.create_or_update_resume(
-                    ExtractedResumeCreate(document_id=document_id, **extracted)
+                    ExtractedResumeCreate(document_id=document_id, **extracted),
+                    commit=False, refresh=False,
                 )
             else:
                 extracted = JobDescriptionExtractor().extract(parsed.normalized_text)
                 await self.extraction_repository.create_or_update_job_description(
-                    ExtractedJobDescriptionCreate(document_id=document_id, **extracted)
+                    ExtractedJobDescriptionCreate(document_id=document_id, **extracted),
+                    commit=False, refresh=False,
                 )
             await self.document_repository.update_processing(
-                document_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED
+                document_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED,
+                document=document, refresh=False,
             )
+            extraction_duration_ms = (perf_counter() - extraction_started) * 1000
         except AppException as exc:
             await self._mark_failed(document_id, exc.message)
             raise
@@ -86,7 +112,12 @@ class ExtractionService:
             await self._mark_failed(document_id, "Information extraction failed.")
             raise ExtractionFailedException() from exc
 
-        logger.info("document_information_extracted", document_id=str(document_id))
+        logger.info(
+            "document_information_extracted", document_id=str(document_id),
+            ai_duration_ms=round(ai_duration_ms, 2),
+            extraction_and_persistence_ms=round(extraction_duration_ms, 2),
+            duration_ms=round((perf_counter() - total_started) * 1000, 2),
+        )
         return ExtractDocumentResponse(
             document_id=document_id,
             document_type=DocumentType(document.document_type.value),
@@ -121,6 +152,10 @@ class ExtractionService:
         return document
 
     async def _mark_failed(self, document_id: UUID, message: str) -> None:
+        try:
+            await self.document_repository.session.rollback()
+        except Exception:
+            pass
         try:
             await self.document_repository.update_processing(
                 document_id, ProcessingStage.FAILED, ProcessingStatus.FAILED,

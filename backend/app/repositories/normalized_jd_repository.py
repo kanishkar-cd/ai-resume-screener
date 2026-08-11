@@ -20,7 +20,11 @@ class NormalizedJDRepository:
         return await self.session.scalar(statement)
 
     async def upsert(
-        self, payload: NormalizedJDCreate, *, commit: bool = True
+        self,
+        payload: NormalizedJDCreate,
+        *,
+        commit: bool = True,
+        refresh: bool = True,
     ) -> NormalizedJDModel:
         existing = await self.get_by_document_id(payload.document_id)
 
@@ -44,8 +48,8 @@ class NormalizedJDRepository:
 
         if commit:
             await self.session.commit()
-            await self.session.refresh(model)
         else:
             await self.session.flush()
+        if refresh:
             await self.session.refresh(model)
         return model

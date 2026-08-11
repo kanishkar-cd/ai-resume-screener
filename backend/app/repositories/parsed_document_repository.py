@@ -22,7 +22,7 @@ class ParsedDocumentRepository:
         return await self.session.scalar(statement)
 
     async def upsert(
-        self, payload: ParsedDocumentCreate, *, commit: bool = True
+        self, payload: ParsedDocumentCreate, *, commit: bool = True, refresh: bool = True
     ) -> ParsedDocumentModel:
         existing = await self.get_by_document_id(payload.document_id)
         if existing is None:
@@ -49,10 +49,12 @@ class ParsedDocumentRepository:
 
         if commit:
             await self.session.commit()
-            await self.session.refresh(model)
+            if refresh:
+                await self.session.refresh(model)
         else:
             await self.session.flush()
-            await self.session.refresh(model)
+            if refresh:
+                await self.session.refresh(model)
         return model
 
     async def create(self, payload: ParsedDocumentCreate) -> ParsedDocumentModel:
@@ -64,3 +66,16 @@ class ParsedDocumentRepository:
     ) -> ParsedDocumentModel:
         """Backward-compatible alias for upsert."""
         return await self.upsert(payload, commit=commit)
+
+    async def delete_by_document_id(
+        self, document_id: UUID, *, commit: bool = True
+    ) -> bool:
+        model = await self.get_by_document_id(document_id)
+        if model is None:
+            return False
+        await self.session.delete(model)
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        return True

@@ -16,6 +16,7 @@ import {
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
 import { api, ProjectDashboard, ProjectAnalytics, CandidateRanking } from '@/api'
+import { useLocation } from 'react-router-dom'
 
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } }
@@ -39,6 +40,7 @@ function rankingToStatus(recommendation: string, isKnockedOut: boolean): Screeni
 }
 
 export default function RecruiterDashboard() {
+  const isReports = useLocation().pathname.endsWith('/reports')
   const { state, dispatch } = usePipeline()
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
@@ -119,24 +121,29 @@ export default function RecruiterDashboard() {
     : candidates.length > 0
       ? Math.max(...candidates.map((c) => c.overallScore))
       : 0
+  const lowestScoreVal = analytics ? Math.round(analytics.lowest_score) : candidates.length ? Math.min(...candidates.map(c=>c.overallScore)) : 0
+  const reviewCount = analytics?.recommendation_distribution?.REVIEW ?? analytics?.recommendation_distribution?.CONSIDER ?? candidates.filter(c=>c.status==='pending').length
+  const rejectedCount = analytics?.recommendation_distribution?.REJECT ?? candidates.filter(c=>c.status==='rejected').length
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="max-w-5xl mx-auto">
       <motion.div variants={fadeUp} className="mb-5">
-        <h1 className="text-[26px] font-bold text-slate-800 mb-1">Recruiter Dashboard</h1>
+        <h1 className="text-[30px] font-bold tracking-tight text-slate-900 mb-2">{isReports ? 'Reports' : 'Candidates'}</h1>
         <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-          Review, rank, and action AI-screened candidates. Click any row to see detailed scores
-          across all evaluation criteria.
+          A concise view of screening outcomes and candidate performance for this project.
         </p>
       </motion.div>
 
       {/* Stats */}
-      <motion.div variants={fadeUp} className="grid grid-cols-4 gap-3 mb-5">
+      <motion.div variants={fadeUp} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         {[
           { icon: Users, label: 'Total Candidates', value: totalCandidatesCount, color: 'text-sky-600', bg: 'bg-sky-50' },
           { icon: Star, label: 'Screened', value: screenedCount, color: 'text-green-600', bg: 'bg-green-50' },
           { icon: Trophy, label: 'Avg Score', value: `${avgScoreVal}%`, color: 'text-sky-600', bg: 'bg-sky-50' },
           { icon: LayoutDashboard, label: 'Top Score', value: `${topScoreVal}%`, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { icon: LayoutDashboard, label: 'Lowest Score', value: `${lowestScoreVal}%`, color: 'text-slate-600', bg: 'bg-white' },
+          { icon: Users, label: 'Needs Review', value: reviewCount, color: 'text-amber-600', bg: 'bg-white' },
+          { icon: Users, label: 'Rejected', value: rejectedCount, color: 'text-red-600', bg: 'bg-white' },
         ].map((s) => {
           const Icon = s.icon
           return (

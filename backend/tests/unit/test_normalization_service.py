@@ -11,7 +11,7 @@ from app.services.normalization_service import ExtractedDataNotFoundException, N
 class StubDocuments:
     def __init__(self, document): self.document = document; self.updates = []
     async def get_document(self, document_id): return self.document
-    async def update_processing(self, document_id, stage, status, error_message=None): self.updates.append((stage, status, error_message))
+    async def update_processing(self, document_id, stage, status, error_message=None, **kwargs): self.updates.append((stage, status, error_message))
 
 
 class StubExtractions:
@@ -22,8 +22,8 @@ class StubExtractions:
 
 class StubNormalizations:
     def __init__(self): self.resume = None
-    async def create_or_update_resume(self, data): self.resume = data
-    async def create_or_update_job_description(self, data): raise AssertionError
+    async def create_or_update_resume(self, data, **kwargs): self.resume = data
+    async def create_or_update_job_description(self, data, **kwargs): raise AssertionError
 
 
 @pytest.mark.asyncio

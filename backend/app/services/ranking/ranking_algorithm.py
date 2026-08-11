@@ -6,12 +6,21 @@ from app.schemas.ranking import CandidateRankingCreate
 
 
 class RankingAlgorithm:
+    RECOMMENDATION_PRIORITY = {
+        "SHORTLIST": 0,
+        "REVIEW": 1,
+        "CONSIDER": 2,
+        "REJECT": 3,
+    }
+
     @staticmethod
     def compute(
         candidates: list[tuple[Any, datetime]], previous_ranks: dict[UUID, int] | None = None,
     ) -> list[CandidateRankingCreate]:
         previous_ranks = previous_ranks or {}
         ordered = sorted(candidates, key=lambda item: (
+            bool(item[0].is_knocked_out),
+            RankingAlgorithm.RECOMMENDATION_PRIORITY.get(item[0].recommendation.value, 3),
             -float(item[0].final_score), -float(item[0].skills_score),
             -float(item[0].experience_score), -float(item[0].confidence),
             item[1], str(item[0].document_id),

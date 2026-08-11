@@ -129,7 +129,8 @@ async def test_parse_txt_success_persists_and_sets_parsed(
     assert payload.parser_engine == ParserEngine.PLAIN_TEXT
     assert payload.word_count == 3
     assert "Alice" in payload.raw_text
-    documents.session.commit.assert_awaited()
+    assert parsed.upsert.await_args.kwargs == {"commit": False, "refresh": False}
+    assert documents.update_status.await_args_list[1].kwargs["commit"] is True
 
 
 @pytest.mark.asyncio

@@ -32,3 +32,30 @@ def test_deterministic_insight_builder() -> None:
     assert any("Certifications" in item for item in insight.weaknesses)
     assert insight.improvement_suggestions[0] == "Develop demonstrable proficiency in Docker."
     assert "Weighted total 81.75" in insight.score_explanation
+
+
+def test_not_applicable_components_are_not_strengths_or_weaknesses() -> None:
+    extracted = SimpleNamespace(candidate_name="Jane Doe", designation=None)
+    normalized = SimpleNamespace(job_titles=[], experience=[])
+    score = SimpleNamespace(
+        component_scores={
+            "skills": {"score": 42.31, "matched_items": [], "missing_items": [], "explanation": "Matched required skills."},
+            "experience": {"score": 100, "matched_items": ["3 months"], "missing_items": [], "explanation": "Candidate experience is 3 months against 0 required months."},
+            "projects": {"score": 15.38, "matched_items": [], "missing_items": [], "explanation": "Matched project evidence."},
+            "education": {"score": 100, "matched_items": [], "missing_items": [], "explanation": "Education meets the configured requirement."},
+            "certifications": {"score": 100, "matched_items": [], "missing_items": [], "explanation": "No specific certification requirements configured (N/A)."},
+            "languages": {"score": 100, "matched_items": [], "missing_items": [], "explanation": "No specific language requirements configured (N/A)."},
+        },
+        weighted_scores={"skills": 26.04, "experience": 0, "projects": 3.55, "education": 15.38, "certifications": 0, "languages": 0},
+        raw_total_score=52.56, weighted_total_score=44.97, penalty_total=0,
+        bonus_total=15, final_score=59.97, confidence=91.67,
+        recommendation=RecommendationLevelEnum.CONSIDER, is_knocked_out=False,
+        knockout_reason=None,
+    )
+    insight = InsightBuilder().build(uuid4(), uuid4(), extracted, normalized, score)
+    assert insight.strengths == ["Education scored 100.00%."]
+    assert insight.weaknesses == ["Skills scored 42.31%.", "Projects scored 15.38%."]
+    assert "Experience: No JD requirement" in insight.score_explanation
+    assert "Certifications: No JD requirement" in insight.score_explanation
+    assert "Languages: No JD requirement" in insight.score_explanation
+    assert "50–69.99 recommendation band" in insight.recommendation_reason

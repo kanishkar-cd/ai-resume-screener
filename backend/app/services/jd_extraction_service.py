@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from time import perf_counter
 from uuid import UUID
 
 import structlog
@@ -21,6 +22,7 @@ from app.repositories.parsed_document_repository import ParsedDocumentRepository
 from app.schemas.document import DocumentType, ProcessingStage, ProcessingStatus
 from app.schemas.extracted_jd import ExtractedJDCreate, ExtractedJDRead, JDExtractResult
 from app.services.document_service import DocumentNotFoundException
+from app.services.extractors.ai_jd_extractor import AIJDExtractor
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +60,9 @@ SKILLS_VOCABULARY: frozenset[str] = frozenset({
     # Methodologies
     "agile", "scrum", "kanban", "tdd", "bdd", "microservices", "serverless",
     "solid", "clean architecture", "ddd", "event-driven",
+    "rest api", "rest apis", "object-oriented programming",
+    "data structures and algorithms", "software development and debugging",
+    "iot", "embedded systems", "plc programming",
 })
 
 CERTIFICATION_PATTERNS: list[re.Pattern[str]] = [
@@ -93,7 +98,7 @@ EXPERIENCE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in [
         r"\b(\d+)\+\s*years?\s+(?:of\s+)?(?:relevant\s+)?(?:professional\s+)?experience\b",
         r"\bminimum\s+(?:of\s+)?(\d+)\s+years?\b",
-        r"\b(\d+)\s*[-–]\s*(\d+)\s+years?\s+(?:of\s+)?experience\b",
+        r"\b(\d+)\s*[-–—]\s*(\d+)\s+years?(?:\s+(?:of\s+)?(?:professional\s+or\s+internship\s+)?experience)?\b",
         r"\bat\s+least\s+(\d+)\s+years?\b",
         r"\b(\d+)\s+years?\s+(?:of\s+)?(?:strong\s+)?(?:hands[-\s]on\s+)?experience\b",
         r"\b(\d+)\s+to\s+(\d+)\s+years?\b",
@@ -104,7 +109,8 @@ RESPONSIBILITY_VERBS: frozenset[str] = frozenset({
     "design", "develop", "build", "implement", "create", "architect", "lead",
     "manage", "coordinate", "collaborate", "maintain", "optimize", "improve",
     "deploy", "monitor", "integrate", "test", "review", "write", "own",
-    "deliver", "drive", "ensure", "establish", "define", "evaluate",
+    "deliver", "drive", "ensure", "establish", "define", "evaluate", "work",
+    "use", "contribute",
     "analyze", "research", "document", "support", "troubleshoot", "mentor",
 })
 
@@ -160,6 +166,90 @@ STOP_WORDS: frozenset[str] = frozenset({
 
 BULLET_PATTERN = re.compile(r"^[\s]*[-•*►▸▶·‣⁃◆○●✦✧★☆✱*]+\s+", re.MULTILINE)
 NUMBERED_PATTERN = re.compile(r"^[\s]*\d+[.)]\s+", re.MULTILINE)
+
+SECTION_HEADINGS = {
+    "job description": "description",
+    "key responsibilities": "responsibilities", "responsibilities": "responsibilities",
+    "required skills": "required_skills", "technical skills": "required_skills",
+    "required qualifications": "required_skills",
+    "preferred skills": "preferred_skills", "nice to have": "preferred_skills",
+    "preferred qualifications": "preferred_skills",
+    "education": "education", "education requirements": "education",
+    "qualifications": "education",
+    "experience": "experience", "experience required": "experience",
+    "keywords": "keywords",
+}
+
+SKILL_CANONICAL = {
+    "JavaScript": ("javascript",), "Python": ("python",), "C++": ("c++",),
+    "SQL": ("sql",), "HTML": ("html",), "CSS": ("css",),
+    "REST APIs": ("rest api", "rest apis", "restful api", "restful apis", "restful"),
+    "Git": ("git",), "Object-Oriented Programming": ("object-oriented programming", "object oriented programming", "oop"),
+    "Data Structures and Algorithms": ("data structures and algorithms", "data structures & algorithms", "dsa"),
+    "Software development and debugging": ("software development and debugging", "software development", "debugging"),
+    "React.js": ("react.js", "reactjs", "react"), "Node.js": ("node.js", "nodejs"),
+    "Express.js": ("express.js", "expressjs", "express"), "MongoDB": ("mongodb",),
+    "PostgreSQL": ("postgresql", "postgres"), "AWS": ("aws",), "Docker": ("docker",),
+    "CI/CD": ("ci/cd", "continuous integration and continuous delivery", "continuous integration/continuous delivery"),
+    "Jenkins": ("jenkins",), "GitHub Actions": ("github actions",), "IoT": ("iot",),
+    "Embedded Systems": ("embedded systems", "embedded system"), "PLC Programming": ("plc programming",),
+    "Machine Learning": ("machine learning",), "Linux": ("linux",),
+}
+
+DISCIPLINE_CANONICAL = {
+    "Computer Science": ("computer science",), "Information Technology": ("information technology",),
+    "Electronics & Instrumentation": ("electronics & instrumentation", "electronics and instrumentation"),
+    "Artificial Intelligence & Data Science": ("artificial intelligence & data science", "artificial intelligence and data science"),
+    "Electronics": ("electronics",), "Related Engineering": ("related engineering", "related engineering discipline"),
+}
+
+
+def _split_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {"header": []}
+    current = "header"
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        prefix, separator, remainder = line.partition(":")
+        candidate = re.sub(r"\s+", " ", prefix if separator else line).strip().casefold()
+        heading = SECTION_HEADINGS.get(candidate) if len(candidate) <= 60 else None
+        if heading:
+            current = heading
+            sections.setdefault(current, [])
+            if separator and remainder.strip():
+                sections[current].append(remainder.strip())
+        else:
+            sections.setdefault(current, []).append(line)
+    return {key: "\n".join(lines) for key, lines in sections.items()}
+
+
+def _canonical_skills(text: str) -> list[str]:
+    lowered = text.casefold()
+    found: list[str] = []
+    for canonical, aliases in SKILL_CANONICAL.items():
+        if any(re.search(r"(?<![\w])" + re.escape(alias) + r"(?![\w])", lowered) for alias in aliases):
+            found.append(canonical)
+    return found
+
+
+def _extract_job_title(text: str, sections: dict[str, str]) -> str | None:
+    match = re.search(r"(?im)^\s*(?:job\s*title|position|role)\s*:\s*([^\n]{2,80})$", text)
+    if match:
+        return match.group(1).strip()
+    for line in sections.get("header", "").splitlines()[:5]:
+        if re.fullmatch(r"(?:senior\s+|junior\s+|lead\s+)?(?:software|devops|data|machine learning|frontend|backend|full stack)\s+(?:engineer|developer|scientist)", line.strip(), re.I):
+            return line.strip()
+    return None
+
+
+def _extract_disciplines(text: str) -> list[str]:
+    lowered = text.casefold()
+    result: list[str] = []
+    for canonical, aliases in DISCIPLINE_CANONICAL.items():
+        if any(alias in lowered for alias in aliases):
+            result.append(canonical)
+    return result
 
 
 # ─── Extractor Logic ────────────────────────────────────────────────────────
@@ -278,12 +368,15 @@ class JDExtractionService:
         document_repository: DocumentRepository,
         parsed_repository: ParsedDocumentRepository,
         extracted_repository: ExtractedJDRepository,
+        ai_extractor: AIJDExtractor | None = None,
     ) -> None:
         self.document_repository = document_repository
         self.parsed_repository = parsed_repository
         self.extracted_repository = extracted_repository
+        self.ai_extractor = ai_extractor or AIJDExtractor()
 
     async def extract_document(self, document_id: UUID) -> JDExtractResult:
+        started_at = perf_counter()
         document = await self._load_document(document_id)
 
         # Only JD documents are handled here
@@ -297,6 +390,10 @@ class JDExtractionService:
             ProcessingStatusEnum.PARSED,
             ProcessingStatusEnum.COMPLETED,
             ProcessingStatusEnum.FAILED,
+            # Extraction uses an idempotent upsert. Permit recovery when a prior
+            # attempt was interrupted after setting IN_PROGRESS (for example,
+            # by a transient database/schema failure).
+            ProcessingStatusEnum.IN_PROGRESS,
         }
         if current_status not in extractable:
             raise DocumentNotExtractableException()
@@ -320,16 +417,66 @@ class JDExtractionService:
             document_id,
             ProcessingStatus.IN_PROGRESS,
             {**metadata, "extraction_error": None},
+            document=document,
+            refresh=False,
         )
 
         try:
+            sections = _split_sections(raw_text)
             skills, skills_conf = _extract_skills(raw_text)
-            responsibilities, resp_conf = _extract_responsibilities(raw_text)
-            education, edu_conf = _extract_education(raw_text)
+            required_skills = _canonical_skills(sections.get("required_skills", ""))
+            preferred_skills = _canonical_skills(sections.get("preferred_skills", ""))
+            combined_skill_keys = {value.casefold() for value in skills}
+            for value in [*required_skills, *preferred_skills]:
+                if value.casefold() not in combined_skill_keys:
+                    skills.append(value)
+                    combined_skill_keys.add(value.casefold())
+            responsibility_source = sections.get("responsibilities", "") or raw_text
+            responsibilities, resp_conf = _extract_responsibilities(responsibility_source)
+            education_source = sections.get("education", "") or raw_text
+            education, edu_conf = _extract_education(education_source)
+            education_disciplines = _extract_disciplines(education_source)
             experience, exp_conf = _extract_experience(raw_text)
             certifications, cert_conf = _extract_certifications(raw_text)
-            keywords = _extract_keywords(raw_text)
+            job_title = _extract_job_title(raw_text, sections)
+            keywords = list(dict.fromkeys([*([job_title] if job_title else []), *required_skills, *preferred_skills]))
             domain = _classify_domain(raw_text)
+            ai_recovered = False
+            important = (job_title, required_skills, education, experience, responsibilities)
+            if any(not value for value in important):
+                try:
+                    recovery = await self.ai_extractor.extract(raw_text)
+                except Exception as exc:
+                    recovery = None
+                    logger.warning("ai_jd_extraction_skipped", document_id=str(document_id), error_type=type(exc).__name__)
+                if recovery:
+                    recovered_fields = {
+                        "job_title": recovery.get("job_title"), "domain": recovery.get("domain"),
+                        "required_skills": recovery.get("required_skills", []),
+                        "preferred_skills": recovery.get("preferred_skills", []),
+                        "responsibilities": recovery.get("responsibilities", []),
+                        "education": recovery.get("education", []),
+                        "education_disciplines": recovery.get("education_disciplines", []),
+                        "experience": recovery.get("experience", []),
+                        "certifications": recovery.get("certifications", []),
+                        "keywords": recovery.get("keywords", []),
+                    }
+                    if not job_title and recovered_fields["job_title"]: job_title = recovered_fields["job_title"]
+                    if not domain and recovered_fields["domain"]: domain = recovered_fields["domain"]
+                    if not required_skills and recovered_fields["required_skills"]: required_skills = recovered_fields["required_skills"]
+                    if not preferred_skills and recovered_fields["preferred_skills"]: preferred_skills = recovered_fields["preferred_skills"]
+                    if not responsibilities and recovered_fields["responsibilities"]: responsibilities = recovered_fields["responsibilities"]
+                    if not education and recovered_fields["education"]: education = recovered_fields["education"]
+                    if not education_disciplines and recovered_fields["education_disciplines"]: education_disciplines = recovered_fields["education_disciplines"]
+                    if not experience and recovered_fields["experience"]: experience = recovered_fields["experience"]
+                    if not certifications and recovered_fields["certifications"]: certifications = recovered_fields["certifications"]
+                    if not keywords and recovered_fields["keywords"]: keywords = recovered_fields["keywords"]
+                    ai_recovered = True
+                    combined_skill_keys = {value.casefold() for value in skills}
+                    for value in [*required_skills, *preferred_skills]:
+                        if value.casefold() not in combined_skill_keys:
+                            skills.append(value)
+                            combined_skill_keys.add(value.casefold())
 
             confidence_scores = {
                 "skills": skills_conf,
@@ -345,18 +492,24 @@ class JDExtractionService:
             payload = ExtractedJDCreate(
                 document_id=document_id,
                 domain=domain,
+                job_title=job_title,
                 skills=skills,
+                required_skills=required_skills,
+                preferred_skills=preferred_skills,
                 responsibilities=responsibilities,
                 education=education,
+                education_disciplines=education_disciplines,
                 experience=experience,
                 certifications=certifications,
                 keywords=keywords,
                 confidence_scores=confidence_scores,
-                raw_metadata={"source_word_count": parsed.word_count},
+                raw_metadata={"source_word_count": parsed.word_count, "ai_recovery": "merged" if ai_recovered else "not_used"},
             )
 
             try:
-                await self.extracted_repository.upsert(payload)
+                await self.extracted_repository.upsert(
+                    payload, commit=False, refresh=False
+                )
             except SQLAlchemyError as exc:
                 raise InternalServerException("Unable to persist extraction result.") from exc
 
@@ -364,6 +517,8 @@ class JDExtractionService:
                 document_id,
                 ProcessingStatus.COMPLETED,
                 {**metadata, "extraction_error": None, "extraction_stage": "EXTRACTION"},
+                refresh=False,
+                document=document,
             )
         except AppException:
             await self._set_status(
@@ -390,6 +545,7 @@ class JDExtractionService:
             document_id=str(document_id),
             skills_count=len(skills),
             domain=domain,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
         return JDExtractResult(
             document_id=document_id,
@@ -425,10 +581,17 @@ class JDExtractionService:
         metadata: dict,
         *,
         commit: bool = True,
+        refresh: bool = True,
+        document=None,
     ):
         try:
             updated = await self.document_repository.update_status(
-                document_id, status, metadata, commit=commit
+                document_id,
+                status,
+                metadata,
+                commit=commit,
+                refresh=refresh,
+                document=document,
             )
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to update document status.") from exc

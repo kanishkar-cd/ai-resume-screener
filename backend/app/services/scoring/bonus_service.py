@@ -9,9 +9,13 @@ class BonusService:
     @classmethod
     def calculate(cls, resume: Any, job: Any, config: Any, components: ComponentScores) -> tuple[float, list[AdjustmentItem]]:
         items: list[AdjustmentItem] = []
-        candidate = {value.casefold() for value in resume.skills}
-        core = {value.casefold() for value in job.skills}
-        preferred = [value for value in config.preferred_skills if value.casefold() in candidate and value.casefold() not in core]
+        candidate = {value.strip().casefold() for value in resume.skills if value.strip()}
+        preferred_by_key: dict[str, str] = {}
+        for value in config.preferred_skills:
+            stripped = value.strip()
+            if stripped:
+                preferred_by_key.setdefault(stripped.casefold(), stripped)
+        preferred = [value for key, value in preferred_by_key.items() if key in candidate]
         if preferred:
             items.append(AdjustmentItem(rule_name="PREFERRED_SKILLS", delta_points=2.0 * len(preferred), description=f"Matched preferred skills: {', '.join(preferred)}"))
         candidate_months = sum(item.get("duration_months") or 0 for item in resume.experience)

@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BookOpen, Bell, ChevronDown, Home, Plus } from 'lucide-react'
-import { PIPELINE_STAGES } from '@/constants'
+import { Home, Plus, UserRound } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 
 const ROUTE_LABEL: Record<string, string> = {
@@ -15,9 +14,10 @@ const ROUTE_LABEL: Record<string, string> = {
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { startNewScreening } = usePipeline()
-  const currentLabel = ROUTE_LABEL[location.pathname] ?? 'AI Screener'
-  const totalSteps = PIPELINE_STAGES.length
+  const { state, startNewScreening } = usePipeline()
+  const routeParts = location.pathname.split('/').filter(Boolean)
+  const routeSection = routeParts[routeParts.length - 1]?.replace(/-/g, ' ')
+  const currentLabel = ROUTE_LABEL[location.pathname] ?? (routeSection ? routeSection.replace(/\b\w/g, (letter: string) => letter.toUpperCase()) : 'Overview')
 
   return (
     <motion.header
@@ -33,7 +33,7 @@ export default function Header() {
           className="flex items-center gap-1.5 text-slate-500 hover:text-sky-600 transition-colors text-[13px] font-medium"
         >
           <Home size={14} />
-          <span>AI Screener</span>
+          <span>{state.selectedProject?.title ?? 'AI Screener'}</span>
         </button>
         <span className="text-slate-300 text-[13px]">/</span>
         <motion.span
@@ -60,39 +60,8 @@ export default function Header() {
           <span className="hidden sm:inline">Create Project</span>
         </button>
 
-        {/* Documentation */}
-        <button className="flex items-center gap-2 text-[13px] text-slate-500 hover:text-sky-600 transition-colors font-medium px-3 py-1.5 rounded-lg hover:bg-sky-50">
-          <BookOpen size={15} />
-          <span className="hidden sm:inline">Documentation</span>
-        </button>
-
-        {/* Notifications */}
-        <div className="relative tooltip-wrap">
-          <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-sky-50 transition-colors text-slate-500 hover:text-sky-600">
-            <Bell size={16} />
-            <span className="notif-dot" />
-          </button>
-          <span className="tooltip">2 notifications</span>
-        </div>
-
-        {/* Divider */}
         <div className="w-px h-6 bg-slate-200" />
-
-        {/* User Avatar */}
-        <motion.button
-          className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-sky-50 transition-colors group"
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.99 }}
-        >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-sky-700 flex items-center justify-center text-white font-bold text-[12px] shadow-sky-sm flex-shrink-0">
-            H
-          </div>
-          <div className="hidden sm:block text-left">
-            <p className="text-[12px] font-600 text-slate-700 leading-none font-semibold">Harshini</p>
-            <p className="text-[10px] text-slate-400 leading-none mt-0.5">Recruiter</p>
-          </div>
-          <ChevronDown size={13} className="text-slate-400 group-hover:text-sky-500 transition-colors" />
-        </motion.button>
+        <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-600"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100"><UserRound size={15}/></span><span className="hidden sm:inline">Recruiter</span></div>
       </div>
     </motion.header>
   )

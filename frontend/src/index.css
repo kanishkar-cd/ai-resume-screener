@@ -651,3 +651,55 @@ input[type="range"]::-webkit-slider-thumb:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* Premium SaaS visual system */
+:root {
+  --sidebar-width: 252px;
+  --header-height: 64px;
+  --bg: #fafbfc;
+  --border: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --radius: 14px;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+body { background: #fafbfc; color: #111827; }
+.app-sidebar { background: #fff; border-right: 1px solid #e5e7eb; box-shadow: none; padding: 22px 16px !important; }
+.app-header { height: var(--header-height); border-bottom: 1px solid #eef0f2; padding: 0 32px !important; }
+.app-main { padding: 44px 48px 72px; background: #fafbfc; }
+.app-main > * { max-width: 1240px; margin-left: auto; margin-right: auto; }
+.card { border: 1px solid #e8eaed; border-radius: 14px; box-shadow: var(--shadow-card); }
+.card:hover { border-color: #e2e5e9; box-shadow: var(--shadow-card); }
+.glow-border-sky, .glow-border-sky-sm { border: 1px solid #e8eaed !important; box-shadow: var(--shadow-card) !important; }
+.btn-primary { background: #1476e8; border-radius: 9px; box-shadow: 0 1px 2px rgba(20,118,232,.18); padding: 10px 16px; }
+.btn-primary:hover { background: #0d67d4; transform: none; box-shadow: 0 2px 6px rgba(20,118,232,.2); }
+.btn-primary::before { display: none; }
+.btn-outline { border: 1px solid #dfe3e8; color: #374151; background: #fff; border-radius: 9px; padding: 9px 14px; }
+.btn-outline:hover { background: #f8fafc; border-color: #cfd5dc; color: #111827; }
+.upload-dropzone { border: 1px dashed #cfd7e3; border-radius: 14px; padding: 42px !important; }
+.upload-dropzone:hover, .upload-dropzone.drag-over { transform: none; border-color: #78aef0; box-shadow: 0 0 0 3px rgba(20,118,232,.06); }
+.table-base th { background: #fbfcfd; color: #7b8492; text-transform: none; letter-spacing: 0; padding: 13px 18px; }
+.table-base td { padding: 15px 18px; border-bottom-color: #eef0f2; }
+.table-base tbody tr:hover { background: #fafcff; }
+.page-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:32px; }
+.page-heading h1 { font-size:30px; line-height:1.15; letter-spacing:-.025em; font-weight:720; margin:0; }
+.page-heading p { color:#6b7280; font-size:14px; margin-top:8px; max-width:640px; line-height:1.55; }
+.page-heading-action { flex-shrink:0; }
+.stat-card { min-height:132px; padding:22px; background:#fff; border:1px solid #e8eaed; border-radius:14px; }
+.stat-card svg { color:#1476e8; margin-bottom:18px; }
+.stat-card p { color:#6b7280; font-size:12px; margin:0 0 7px; }
+.stat-card strong { display:block; color:#111827; font-size:24px; line-height:1.1; }
+.stat-card span { display:block; color:#9ca3af; font-size:11px; margin-top:7px; }
+.empty-state { text-align:center; padding:64px 24px; background:#fff; border:1px solid #eceef1; border-radius:14px; }
+.empty-state > span { width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; background:#f3f7fc; color:#1476e8; border-radius:12px; }
+.empty-state h3 { font-size:15px; margin:16px 0 0; }
+.empty-state p { color:#7b8492; font-size:13px; margin:7px auto 20px; max-width:360px; }
+.saas-status { display:inline-flex; align-items:center; padding:4px 8px; border-radius:999px; font-size:10px; font-weight:650; background:#f3f4f6; color:#4b5563; }
+.saas-status.info { background:#edf5ff; color:#1769c2; }.saas-status.success { background:#ecfdf3; color:#16803d; }.saas-status.warning { background:#fff7e8; color:#a15c00; }.saas-status.danger { background:#fff0f0; color:#c33; }
+.saas-progress { height:6px; background:#eef1f4; border-radius:999px; overflow:hidden; }.saas-progress span { display:block; height:100%; background:#1476e8; border-radius:inherit; transition:width .4s ease; }
+.saas-skeleton { border-radius:10px; min-height:72px; background:linear-gradient(90deg,#f3f4f6 25%,#fafafa 50%,#f3f4f6 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
+input:not([type=range]), textarea, select { border-color:#dfe3e8 !important; border-radius:9px !important; }
+input:not([type=range]):focus, textarea:focus, select:focus { border-color:#78aef0 !important; box-shadow:0 0 0 3px rgba(20,118,232,.08); }
+@media(max-width:1024px){.app-main{padding:32px 28px 56px}}
+@media(max-width:768px){.app-main{padding:28px 18px 48px}.app-header{padding:0 18px !important}.page-heading{flex-direction:column;margin-bottom:24px}.page-heading h1{font-size:26px}}

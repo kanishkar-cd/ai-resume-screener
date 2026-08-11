@@ -1,3 +1,4 @@
+from asyncio import to_thread
 from time import perf_counter
 from uuid import UUID
 
@@ -88,11 +89,13 @@ class ParsingService:
                 **metadata,
                 "parse_error": None,
             },
+            document=document,
+            refresh=False,
         )
 
         started_at = perf_counter()
         try:
-            parsed = parse_document_file(path, document.mime_type)
+            parsed = await to_thread(parse_document_file, path, document.mime_type)
             duration_ms = (perf_counter() - started_at) * 1000
             if not parsed.raw_text or not parsed.raw_text.strip():
                 raise DocumentParseFailedException(
@@ -112,6 +115,7 @@ class ParsingService:
                     parsing_duration_ms=round(duration_ms, 3),
                 ),
                 commit=False,
+                refresh=False,
             )
             updated = await self._set_status(
                 document_id,
@@ -124,9 +128,9 @@ class ParsingService:
                     "ocr_fallback_used": parsed.ocr_fallback_used,
                     "ocr_engine": parsed.ocr_engine,
                 },
-                commit=False,
+                refresh=False,
+                document=document,
             )
-            await self.document_repository.session.commit()
         except AppException:
             await self.document_repository.session.rollback()
             await self._mark_failed(document_id, metadata, "Parse rejected.")
@@ -199,10 +203,13 @@ class ParsingService:
         metadata: dict[str, object],
         *,
         commit: bool = True,
+        refresh: bool = True,
+        document=None,
     ):
         try:
             updated = await self.document_repository.update_status(
-                document_id, status, metadata, commit=commit
+                document_id, status, metadata, commit=commit, refresh=refresh,
+                document=document,
             )
         except SQLAlchemyError as exc:
             raise InternalServerException(

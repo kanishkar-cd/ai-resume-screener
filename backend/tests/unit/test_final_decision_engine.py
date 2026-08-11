@@ -47,3 +47,49 @@ def test_knockout_confidence_and_recommendation_thresholds() -> None:
 
     assert RecommendationService.recommend(100, 70, True) == RecommendationLevel.REJECT
 
+
+def test_knockout_matching_is_case_insensitive_and_reason_is_deduplicated() -> None:
+    config = SimpleNamespace(
+        mandatory_skills=["JavaScript", "javascript", "Python"],
+        knockout_rules=[{"rule_type": "MISSING_MANDATORY_SKILL", "enabled": True}],
+    )
+    knocked, reason = WeightCalculationService.knockout(
+        _components(missing_skills=["JavaScript", "javascript"]), config
+    )
+    assert knocked is True
+    assert reason == "Missing mandatory skills: JavaScript"
+
+
+def test_na_categories_redistribute_weight_to_applicable_criteria() -> None:
+    config = SimpleNamespace(
+        skills_weight=40, experience_weight=25, projects_weight=15,
+        education_weight=10, certifications_weight=5, languages_weight=5,
+    )
+    components = _components(80)
+    weighted, raw, total = WeightCalculationService.calculate(
+        components, config, {"skills", "projects", "education"}
+    )
+    assert raw == 80
+    assert total == 80
+    assert weighted.experience == 0
+    assert weighted.certifications == 0
+    assert weighted.languages == 0
+    assert round(sum(weighted.model_dump().values()), 2) == 80
+
+
+def test_applicable_categories_exclude_unconfigured_experience_certifications_and_languages() -> None:
+    job = SimpleNamespace(
+        skills=["Python"], keywords=["API"], degree_requirements=["Bachelor's Degree"],
+        experience_requirements=[{"minimum_months": 0}],
+    )
+    config = SimpleNamespace(
+        mandatory_skills=[], min_experience_years=0, required_degree=None,
+        required_certifications=[], required_languages=[],
+    )
+    assert WeightCalculationService.applicable_categories(job, config) == {
+        "skills", "projects", "education"
+    }
+
+
+def test_knockout_does_not_destroy_merit_score() -> None:
+    assert WeightCalculationService.final_score(55.75, 0, 0) == 55.75
