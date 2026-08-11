@@ -1,486 +1,195 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import {
-  Briefcase,
-  Globe,
-  Folder,
-  GraduationCap,
-  Award,
-  Code2,
-  Info,
-  ArrowLeft,
-  ArrowRight,
-  type LucideIcon,
-} from 'lucide-react'
-import { usePipeline } from '@/store/pipelineStore'
+import { ArrowLeft, ArrowRight, Award, Briefcase, Check, ChevronDown, Code2, Folder, Globe, GraduationCap, type LucideIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { api, ApiError, type NormalizedJobDescription, type WeightDistribution } from '@/api'
 import { ROLE_PRESETS } from '@/constants'
-import { WeightCriterion } from '@/types'
-import { api, ApiError, type WeightDistribution } from '@/api'
+import { usePipeline } from '@/store/pipelineStore'
+import type { WeightCriterion } from '@/types'
 
-const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
-const container = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } }
+const ICON_MAP: Record<string, LucideIcon> = { Briefcase, Globe, Folder, GraduationCap, Award, Code2 }
 
-const ICON_MAP: Record<string, LucideIcon> = {
-  Briefcase,
-  Globe,
-  Folder,
-  GraduationCap,
-  Award,
-  Code2,
+function toDistribution(weights: WeightCriterion[]): WeightDistribution {
+  return weights.reduce<WeightDistribution>((result, criterion) => {
+    result[criterion.id] = Math.round(criterion.weight)
+    return result
+  }, { skills: 0, experience: 0, projects: 0, education: 0, certifications: 0, languages: 0 })
 }
 
-/** Build WeightDistribution 1:1 from UI criteria (ids match backend keys). */
-function toWeightDistribution(weights: WeightCriterion[]): WeightDistribution {
-  const distribution: WeightDistribution = {
-    skills: 0,
-    experience: 0,
-    projects: 0,
-    education: 0,
-    certifications: 0,
-    languages: 0,
-  }
+const splitValues = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)
 
-  for (const criterion of weights) {
-    distribution[criterion.id] = Math.round(criterion.weight)
-  }
-
-  return distribution
+function Chips({ items }: { items: string[] }) {
+  if (!items.length) return <span className="text-[12px] text-slate-400">Not configured</span>
+  return <div className="flex flex-wrap gap-1.5">{items.map((item) => <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-600">{item}</span>)}</div>
 }
 
-// ─── SVG Donut Chart Component ────────────────────────────────
-function DonutChart({ weights, total }: { weights: WeightCriterion[]; total: number }) {
-  const radius = 70
-  const strokeWidth = 18
-  const circumference = 2 * Math.PI * radius
-
-  let accumulatedPercent = 0
-
-  return (
-    <div className="relative w-52 h-52 mx-auto flex items-center justify-center">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 180 180">
-        {/* Background ring */}
-        <circle
-          cx="90"
-          cy="90"
-          r={radius}
-          fill="transparent"
-          stroke="#f1f5f9"
-          strokeWidth={strokeWidth}
-        />
-        {/* Segments */}
-        {weights.map((c) => {
-          if (c.weight <= 0) return null
-          const strokeLength = (c.weight / 100) * circumference
-          const dashArray = `${strokeLength} ${circumference - strokeLength}`
-          const dashOffset = -((accumulatedPercent / 100) * circumference)
-          accumulatedPercent += c.weight
-
-          return (
-            <motion.circle
-              key={c.id}
-              cx="90"
-              cy="90"
-              r={radius}
-              fill="transparent"
-              stroke={c.color || '#3b82f6'}
-              strokeWidth={strokeWidth}
-              strokeDasharray={dashArray}
-              strokeDashoffset={dashOffset}
-              strokeLinecap="butt"
-              initial={{ strokeDasharray: `0 ${circumference}` }}
-              animate={{ strokeDasharray: dashArray, strokeDashoffset: dashOffset }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-            />
-          )
-        })}
-      </svg>
-
-      {/* Center text */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-        <motion.span
-          key={total}
-          className={`text-[28px] font-extrabold leading-none ${
-            Math.abs(total - 100) < 0.5 ? 'text-slate-800' : 'text-amber-600'
-          }`}
-          initial={{ scale: 0.85 }}
-          animate={{ scale: 1 }}
-        >
-          {total}%
-        </motion.span>
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-          TOTAL
-        </span>
-      </div>
-    </div>
-  )
-}
-
-// ─── Main Weightage Setting Component ────────────────────────
 export default function WeightageSetting() {
   const { state, dispatch, completeAndAdvance } = usePipeline()
   const navigate = useNavigate()
-
-  const [localWeights, setLocalWeights] = useState<WeightCriterion[]>(state.weights)
-  const [selectedPreset, setSelectedPreset] = useState<string>('balanced')
+  const localWeights = state.weights
+  const [selectedPreset, setSelectedPreset] = useState('balanced')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(state.weightConfigSaved)
+  const [jobProfile, setJobProfile] = useState<NormalizedJobDescription | null>(null)
   const [advanced, setAdvanced] = useState({ passingScore: 60, minExperience: 0, requiredDegree: '', mandatorySkills: '', preferredSkills: '', knockoutRules: '', customKeywords: '' })
 
-  const total = localWeights.reduce((s, w) => s + Math.round(w.weight), 0)
-  const isValid = Math.abs(total - 100) < 0.5
+  const total = localWeights.reduce((sum, criterion) => sum + Math.round(criterion.weight), 0)
+  const weightsValid = localWeights.every((criterion) => criterion.weight >= 0 && criterion.weight <= 100)
+  const rulesValid = advanced.passingScore >= 0 && advanced.passingScore <= 100 && advanced.minExperience >= 0
+  const isValid = total === 100 && weightsValid && rulesValid
   const canSubmit = isValid && !isSaving && Boolean(state.projectId)
 
   useEffect(() => {
     let active = true
-    if (state.projectId) {
-      api
-        .getWeightConfig(state.projectId)
-        .then((config) => {
-          if (!active || !config?.weights) return
-          setLocalWeights((prev) =>
-            prev.map((w) => {
-              const weightVal = config.weights[w.id as keyof typeof config.weights]
-              return weightVal !== undefined ? { ...w, weight: weightVal } : w
-            })
-          )
-          Object.entries(config.weights).forEach(([id, weight]) => {
-            dispatch({ type: 'UPDATE_WEIGHT', payload: { id, weight } })
-          })
-          dispatch({
-            type: 'SET_WEIGHT_CONFIG_SAVED',
-            payload: { saved: true, weightConfigId: config.id },
-          })
-          setSaveSuccess(true)
-          setAdvanced({ passingScore: config.passing_score, minExperience: config.min_experience_years, requiredDegree: config.required_degree ?? '', mandatorySkills: config.mandatory_skills.join(', '), preferredSkills: config.preferred_skills.join(', '), knockoutRules: config.knockout_rules.map((rule) => rule.rule_type).join(', '), customKeywords: config.custom_keywords.join(', ') })
-        })
-        .catch(() => {
-          // No saved weight config yet; keep current local/store state
-        })
-    }
-    return () => {
-      active = false
-    }
-  }, [state.projectId, dispatch])
+    if (!state.projectId) return
+    api.getWeightConfig(state.projectId).then((config) => {
+      if (!active || !config?.weights) return
+      Object.entries(config.weights).forEach(([id, weight]) => dispatch({ type: 'UPDATE_WEIGHT', payload: { id, weight } }))
+      dispatch({ type: 'SET_WEIGHT_CONFIG_SAVED', payload: { saved: true, weightConfigId: config.id } })
+      setAdvanced({ passingScore: config.passing_score, minExperience: config.min_experience_years, requiredDegree: config.required_degree ?? '', mandatorySkills: config.mandatory_skills.join(', '), preferredSkills: config.preferred_skills.join(', '), knockoutRules: config.knockout_rules.map((rule) => rule.rule_type).join(', '), customKeywords: config.custom_keywords.join(', ') })
+      const matchingPreset = ROLE_PRESETS.find((preset) => Object.entries(preset.weights).every(([key, value]) => config.weights[key as keyof WeightDistribution] === value))
+      setSelectedPreset(matchingPreset?.id ?? 'custom')
+      setSaveSuccess(true)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [dispatch, state.projectId])
 
-  const clearSavedFlag = () => {
+  useEffect(() => {
+    if (!state.jdDocumentId) return
+    let active = true
+    api.getNormalizedDocument(state.jdDocumentId).then((document) => {
+      if (active && 'required_skills' in document) setJobProfile(document)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [state.jdDocumentId])
+
+  const markDirty = () => {
+    setSaveError(null)
     setSaveSuccess(false)
-    if (state.weightConfigSaved) {
-      dispatch({
-        type: 'SET_WEIGHT_CONFIG_SAVED',
-        payload: { saved: false, weightConfigId: null },
-      })
-    }
+    if (state.weightConfigSaved) dispatch({ type: 'SET_WEIGHT_CONFIG_SAVED', payload: { saved: false, weightConfigId: null } })
   }
 
-  const updateWeight = (id: string, requestedVal: number) => {
+  const updateWeight = (id: string, requested: number) => {
+    const value = Number.isFinite(requested) ? Math.min(100, Math.max(0, requested)) : 0
     setSelectedPreset('custom')
-    setSaveError(null)
-    clearSavedFlag()
-    setLocalWeights((prev) => {
-      const otherSum = prev
-        .filter((w) => w.id !== id)
-        .reduce((sum, w) => sum + Math.round(w.weight), 0)
-      const maxAllowed = Math.max(0, 100 - otherSum)
-      const clampedVal = Math.min(requestedVal, maxAllowed)
+    markDirty()
+    dispatch({ type: 'UPDATE_WEIGHT', payload: { id, weight: value } })
+  }
 
-      return prev.map((w) =>
-        w.id === id ? { ...w, weight: Math.max(0, clampedVal) } : w
-      )
-    })
+  const updateAdvanced = <K extends keyof typeof advanced>(key: K, value: (typeof advanced)[K]) => {
+    markDirty()
+    setAdvanced((current) => ({ ...current, [key]: value }))
   }
 
   const applyPreset = (presetId: string) => {
-    const preset = ROLE_PRESETS.find((p) => p.id === presetId)
+    const preset = ROLE_PRESETS.find((item) => item.id === presetId)
     if (!preset) return
+    markDirty()
     setSelectedPreset(presetId)
-    setSaveError(null)
-    clearSavedFlag()
-    setLocalWeights((prev) =>
-      prev.map((w) => {
-        const newWeight = preset.weights[w.id as keyof typeof preset.weights] ?? w.weight
-        return { ...w, weight: newWeight }
-      })
-    )
+    localWeights.forEach((criterion) => dispatch({ type: 'UPDATE_WEIGHT', payload: { id: criterion.id, weight: preset.weights[criterion.id] ?? criterion.weight } }))
   }
 
-  const handleContinue = async () => {
-    if (!canSubmit) return
-
-    const projectId = state.projectId
-    if (!projectId) {
-      setSaveError('No project found. Upload and process a job description first.')
-      return
-    }
-
-    const distribution = toWeightDistribution(localWeights)
-    const mappedTotal =
-      distribution.skills +
-      distribution.experience +
-      distribution.projects +
-      distribution.education +
-      distribution.certifications +
-      distribution.languages
-
-    if (Math.abs(mappedTotal - 100) > 0.5) {
-      setSaveError(`Weights must total 100% (currently ${mappedTotal}%).`)
-      return
-    }
-
+  const saveConfiguration = async (continueAfterSave = false) => {
+    if (!canSubmit || !state.projectId) return false
     setIsSaving(true)
     setSaveError(null)
-
     try {
-      localWeights.forEach((w) =>
-        dispatch({ type: 'UPDATE_WEIGHT', payload: { id: w.id, weight: w.weight } })
-      )
-
-      const split = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)
-      const saved = await api.createWeightConfig(projectId, { weights: distribution, passing_score: advanced.passingScore, min_experience_years: advanced.minExperience, required_degree: advanced.requiredDegree.trim() || null, mandatory_skills: split(advanced.mandatorySkills), preferred_skills: split(advanced.preferredSkills), knockout_rules: split(advanced.knockoutRules).map((rule_type) => ({ rule_type, enabled: true })), custom_keywords: split(advanced.customKeywords) })
-
-      dispatch({
-        type: 'SET_WEIGHT_CONFIG_SAVED',
-        payload: { saved: true, weightConfigId: saved.id },
+      const distribution = toDistribution(localWeights)
+      const saved = await api.createWeightConfig(state.projectId, {
+        weights: distribution,
+        passing_score: advanced.passingScore,
+        min_experience_years: advanced.minExperience,
+        required_degree: advanced.requiredDegree.trim() || null,
+        mandatory_skills: splitValues(advanced.mandatorySkills),
+        preferred_skills: splitValues(advanced.preferredSkills),
+        knockout_rules: splitValues(advanced.knockoutRules).map((rule_type) => ({ rule_type, enabled: true })),
+        custom_keywords: splitValues(advanced.customKeywords),
       })
+      localWeights.forEach((criterion) => dispatch({ type: 'UPDATE_WEIGHT', payload: { id: criterion.id, weight: criterion.weight } }))
+      dispatch({ type: 'SET_WEIGHT_CONFIG_SAVED', payload: { saved: true, weightConfigId: saved.id } })
       setSaveSuccess(true)
-      completeAndAdvance()
-      navigate(`/projects/${projectId}/resumes`)
-    } catch (err) {
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Failed to save weight configuration'
-      setSaveError(message)
-      dispatch({
-        type: 'SET_WEIGHT_CONFIG_SAVED',
-        payload: { saved: false, weightConfigId: null },
-      })
+      if (continueAfterSave) {
+        completeAndAdvance()
+        navigate(`/projects/${state.projectId}/resumes`)
+      }
+      return true
+    } catch (error) {
+      setSaveError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Failed to save weight configuration')
+      return false
     } finally {
       setIsSaving(false)
     }
   }
 
-  const handleBack = () => {
-    navigate(`/projects/${state.projectId}/job-description`)
+  const experienceLabel = jobProfile?.experience_requirements
+    .slice()
+    .sort((a, b) => a.display_value.length - b.display_value.length)[0]?.display_value
+  const ruleValues = (key: 'mandatorySkills' | 'preferredSkills' | 'customKeywords' | 'knockoutRules') => {
+    const configured = splitValues(advanced[key])
+    if (configured.length) return configured
+    if (key === 'mandatorySkills') return jobProfile?.required_skills ?? []
+    if (key === 'preferredSkills') return jobProfile?.preferred_skills ?? []
+    return []
+  }
+  const continueToResumes = () => {
+    if (!canSubmit || !state.projectId) return
+    if (saveSuccess) {
+      completeAndAdvance()
+      navigate(`/projects/${state.projectId}/resumes`)
+      return
+    }
+    void saveConfiguration(true)
   }
 
-  return (
-    <motion.div variants={container} initial="hidden" animate="show" className="max-w-5xl mx-auto">
-      {/* ── Main Outer Card ── */}
-      <div className="card glow-border-sky p-0 overflow-hidden shadow-sm rounded-2xl bg-white">
-        
-        {/* ── Header Row with Presets ── */}
-        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-[24px] font-bold text-slate-800 mb-1 tracking-tight">
-              Weightage Setting
-            </h1>
-            <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-              Define the importance of each criterion for resume scoring. The total allocation must equal 100% before continuing to candidate ranking.
-            </p>
-          </div>
+  return <div className="mx-auto max-w-6xl pb-28">
+    <header className="mb-8">
+      <h1 className="text-[28px] font-bold tracking-tight text-slate-900">Scoring Configuration</h1>
+      <p className="mt-2 text-[13px] text-slate-500">Define how candidates will be evaluated for this position.</p>
+      {jobProfile && <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-5 py-4">
+        <div className="mr-auto"><p className="text-[14px] font-semibold text-slate-900">{jobProfile.job_title || 'Job profile'}</p><p className="mt-0.5 text-[11px] text-slate-500">{jobProfile.domain || 'Domain not specified'}</p></div>
+        <span className="text-[11px] text-slate-500"><strong className="text-slate-800">{jobProfile.required_skills.length}</strong> required skills</span>
+        <span className="text-[11px] text-slate-500"><strong className="text-slate-800">{jobProfile.preferred_skills.length}</strong> preferred skills</span>
+        {experienceLabel && <span className="text-[11px] text-slate-500">Experience: <strong className="text-slate-800">{experienceLabel}</strong></span>}
+      </div>}
+    </header>
 
-          {/* Role Presets */}
-          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-            {ROLE_PRESETS.map((preset) => {
-              const active = selectedPreset === preset.id
-              return (
-                <motion.button
-                  key={preset.id}
-                  onClick={() => applyPreset(preset.id)}
-                  disabled={isSaving}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 ${
-                    active
-                      ? 'bg-sky-50 text-sky-700 border border-sky-300 shadow-sm font-semibold'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                  }`}
-                >
-                  {preset.label}
-                </motion.button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* ── Body Grid: Left Criteria Sliders | Right Donut & Legend ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
-          
-          {/* Left Column (6 Criteria Cards) */}
-          <div className="lg:col-span-7 p-6 space-y-4">
-            {localWeights.map((criterion, idx) => {
-              const Icon = ICON_MAP[criterion.icon || 'Briefcase'] || Briefcase
-
-              return (
-                <motion.div
-                  key={criterion.id}
-                  initial={{ opacity: 0, x: -12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="p-4 rounded-xl border border-slate-100 bg-slate-50/40 hover:bg-white hover:border-slate-200 transition-all duration-200 group"
-                >
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-3">
-                      {/* Icon Container */}
-                      <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
-                        style={{ backgroundColor: criterion.iconBg || '#dcfce7' }}
-                      >
-                        <Icon size={18} style={{ color: criterion.iconColor || '#16a34a' }} />
-                      </div>
-
-                      {/* Text */}
-                      <div>
-                        <p className="text-[13.5px] font-bold text-slate-800 leading-tight">
-                          {criterion.label}
-                        </p>
-                        <p className="text-[11px] text-slate-400 leading-tight mt-0.5 font-medium">
-                          {criterion.description}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Weight Badge */}
-                    <div
-                      className="px-3 py-1 rounded-lg text-[13px] font-bold flex-shrink-0"
-                      style={{
-                        backgroundColor: criterion.badgeBg || '#dcfce7',
-                        color: criterion.badgeText || '#15803d',
-                      }}
-                    >
-                      {criterion.weight}%
-                    </div>
-                  </div>
-
-                  {/* Range Slider */}
-                  <div className="relative pt-1">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={criterion.weight}
-                      disabled={isSaving}
-                      onChange={(e) => updateWeight(criterion.id, Number(e.target.value))}
-                      className="w-full h-2 rounded-lg appearance-none cursor-pointer outline-none bg-slate-100 disabled:opacity-60"
-                      style={{
-                        background: `linear-gradient(to right, ${criterion.color || '#10b981'} 0%, ${
-                          criterion.color || '#10b981'
-                        } ${criterion.weight}%, #e2e8f0 ${criterion.weight}%, #e2e8f0 100%)`,
-                      }}
-                    />
-                  </div>
-                </motion.div>
-              )
-            })}
-          </div>
-
-          {/* Right Column (Donut Chart, Legend, Info Card) */}
-          <div className="lg:col-span-5 p-6 flex flex-col justify-between bg-slate-50/20">
-            <div>
-              {/* Donut Chart */}
-              <div className="my-2">
-                <DonutChart weights={localWeights} total={total} />
-              </div>
-
-              {/* Summary Legend */}
-              <div className="mt-6 space-y-2.5 px-2">
-                {localWeights.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between text-[12.5px]">
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: c.color || '#3b82f6' }}
-                      />
-                      <span className="font-medium text-slate-700">{c.label}</span>
-                    </div>
-                    <span className="font-bold text-slate-600">{c.weight}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Info Card */}
-            <div className="mt-6 rounded-2xl bg-white border border-slate-200/70 p-4 shadow-sm flex items-start gap-3">
-              <div className="w-6 h-6 rounded-full bg-sky-50 text-sky-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Info size={15} />
-              </div>
-              <p className="text-[11.5px] text-slate-500 leading-relaxed font-normal">
-                The AI uses these weights to generate a composite score for each candidate. Heavily weighted categories have more influence on the final ranking.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 border-t border-slate-100">
-          <h2 className="text-[14px] font-bold text-slate-800 mb-4">Screening Requirements</h2>
-          <div className="grid md:grid-cols-3 gap-4">
-            <label className="text-[11px] font-semibold text-slate-600">Passing score<input type="number" min={0} max={100} value={advanced.passingScore} onChange={(e)=>setAdvanced({...advanced,passingScore:Number(e.target.value)})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
-            <label className="text-[11px] font-semibold text-slate-600">Minimum experience<input type="number" min={0} value={advanced.minExperience} onChange={(e)=>setAdvanced({...advanced,minExperience:Number(e.target.value)})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
-            <label className="text-[11px] font-semibold text-slate-600">Required degree<input value={advanced.requiredDegree} onChange={(e)=>setAdvanced({...advanced,requiredDegree:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>
-            {([['Mandatory skills','mandatorySkills'],['Preferred skills','preferredSkills'],['Knockout rules','knockoutRules'],['Custom keywords','customKeywords']] as const).map(([label,key])=><label key={key} className="text-[11px] font-semibold text-slate-600">{label}<input placeholder="Comma separated" value={advanced[key]} onChange={(e)=>setAdvanced({...advanced,[key]:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2"/></label>)}
-          </div>
-        </div>
-
-        {/* ── Footer Row (Pipeline Progress + Buttons) ── */}
-        <div className="p-5 bg-slate-50/60 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-          
-          {/* Pipeline Progress Indicator */}
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
-              PIPELINE PROGRESS
-            </p>
-            <div className="flex items-center gap-1.5">
-              <div className="w-6 h-2 rounded-full bg-sky-600" />
-              <div className="w-6 h-2 rounded-full bg-sky-600" />
-              <div className="w-6 h-2 rounded-full bg-slate-200" />
-              <div className="w-6 h-2 rounded-full bg-slate-200" />
-              <div className="w-6 h-2 rounded-full bg-slate-200" />
-            </div>
-            {isSaving && (
-              <p className="text-[11px] text-sky-600 mt-2 font-medium">Saving weight configuration…</p>
-            )}
-            {saveError && (
-              <p className="text-[11px] text-red-500 mt-2 max-w-sm leading-relaxed">{saveError}</p>
-            )}
-            {saveSuccess && !saveError && !isSaving && (
-              <p className="text-[11px] text-green-600 mt-2 font-medium">Weight configuration saved.</p>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <motion.button
-              onClick={handleBack}
-              disabled={isSaving}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="btn-outline flex-1 sm:flex-initial py-2.5 px-5 text-[13px] flex items-center justify-center gap-2 font-medium"
-            >
-              <ArrowLeft size={15} />
-              Back to Upload
-            </motion.button>
-
-            <motion.button
-              onClick={handleContinue}
-              disabled={!canSubmit}
-              whileHover={canSubmit ? { scale: 1.02 } : undefined}
-              whileTap={canSubmit ? { scale: 0.98 } : undefined}
-              className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-                canSubmit
-                  ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
-              }`}
-            >
-              {isSaving ? 'Saving…' : 'Continue to Resume Upload'}
-              {!isSaving && <ArrowRight size={15} />}
-            </motion.button>
-          </div>
-        </div>
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-5 md:flex-row md:items-center md:justify-between">
+        <div><h2 className="text-[16px] font-semibold text-slate-900">Weight Allocation</h2><p className="mt-1 text-[11px] text-slate-500">Allocate exactly 100% across the six scoring criteria.</p></div>
+        <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-1">{ROLE_PRESETS.map((preset) => <button key={preset.id} type="button" disabled={isSaving} onClick={() => applyPreset(preset.id)} className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${selectedPreset === preset.id ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{preset.label}</button>)}</div>
       </div>
-    </motion.div>
-  )
+
+      <div className="divide-y divide-slate-100 px-6">
+        {localWeights.map((criterion) => {
+          const Icon = ICON_MAP[criterion.icon || 'Briefcase'] || Briefcase
+          return <div key={criterion.id} className="grid gap-4 py-5 md:grid-cols-[minmax(220px,1fr)_minmax(300px,1.4fr)] md:items-center">
+            <div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Icon size={17}/></span><div><p className="text-[13px] font-semibold text-slate-800">{criterion.label}</p><p className="mt-1 text-[11px] leading-relaxed text-slate-500">{criterion.description}</p></div></div>
+            <div className="flex items-center gap-4"><input aria-label={`${criterion.label} weight`} type="range" min={0} max={100} value={criterion.weight} disabled={isSaving} onChange={(event) => updateWeight(criterion.id, Number(event.target.value))} className="h-1.5 min-w-0 flex-1 cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-50"/><label className="flex items-center rounded-lg border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"><input aria-label={`${criterion.label} percentage`} type="number" min={0} max={100} value={criterion.weight} disabled={isSaving} onChange={(event) => updateWeight(criterion.id, Number(event.target.value))} className="w-14 border-0 bg-transparent px-2 py-1.5 text-right text-[12px] font-semibold text-slate-800 outline-none"/><span className="pr-2 text-[11px] text-slate-400">%</span></label></div>
+          </div>
+        })}
+      </div>
+
+      <div className={`flex items-center justify-between border-t px-6 py-5 ${isValid ? 'border-emerald-100 bg-emerald-50/40' : total > 100 ? 'border-red-100 bg-red-50/40' : 'border-slate-100 bg-slate-50/60'}`}>
+        <div><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total allocation</p><p className={`mt-1 text-[30px] font-bold tracking-tight ${isValid ? 'text-emerald-700' : total > 100 ? 'text-red-600' : 'text-slate-900'}`}>{total}%</p></div>
+        <p className={`flex items-center gap-1.5 text-[12px] font-medium ${isValid ? 'text-emerald-700' : total > 100 ? 'text-red-600' : 'text-slate-500'}`}>{isValid ? <><Check size={14}/> Ready to continue</> : total > 100 ? `${total - 100}% over allocation` : `${100 - total}% remaining`}</p>
+      </div>
+    </section>
+
+    <details className="group mt-6 rounded-xl border border-slate-200 bg-white">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-6 py-5"><div><h2 className="text-[15px] font-semibold text-slate-900">Screening Rules</h2><p className="mt-1 text-[11px] text-slate-500">Define mandatory requirements and knockout conditions.</p></div><ChevronDown size={16} className="text-slate-400 transition-transform group-open:rotate-180"/></summary>
+      <div className="grid gap-5 border-t border-slate-100 px-6 py-6 md:grid-cols-2">
+        <label className="text-[11px] font-semibold text-slate-600">Passing score<input type="number" min={0} max={100} value={advanced.passingScore} onChange={(event) => updateAdvanced('passingScore', Number(event.target.value))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-[12px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>
+        <label className="text-[11px] font-semibold text-slate-600">Minimum experience (years)<input type="number" min={0} value={advanced.minExperience} onChange={(event) => updateAdvanced('minExperience', Number(event.target.value))} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-[12px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>
+        <label className="text-[11px] font-semibold text-slate-600">Required degree<input value={advanced.requiredDegree} onChange={(event) => updateAdvanced('requiredDegree', event.target.value)} placeholder={jobProfile?.degree_requirements[0] ?? ''} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-[12px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/></label>
+        {([['Mandatory skills','mandatorySkills'],['Preferred skills','preferredSkills'],['Custom keywords','customKeywords'],['Knockout rules','knockoutRules']] as const).map(([label, key]) => <label key={key} className="text-[11px] font-semibold text-slate-600">{label}<input value={advanced[key]} onChange={(event) => updateAdvanced(key, event.target.value)} placeholder="Comma separated" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-[12px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"/><div className="mt-2"><Chips items={ruleValues(key)}/></div></label>)}
+      </div>
+    </details>
+
+    {(saveError || saveSuccess) && <div className={`mt-5 rounded-lg border px-4 py-3 text-[12px] ${saveError ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{saveError || 'Weight configuration saved.'}</div>}
+
+    <div className="sticky bottom-0 z-10 mt-8 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+      <button type="button" onClick={() => navigate(`/projects/${state.projectId}/job-description`)} disabled={isSaving} className="btn-outline justify-center"><ArrowLeft size={14}/> Back to Job Description</button>
+      <div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void saveConfiguration(false)} disabled={!canSubmit || saveSuccess} className="btn-outline justify-center disabled:cursor-not-allowed disabled:opacity-50">{isSaving ? 'Saving…' : saveSuccess ? 'Configuration Saved' : 'Save Configuration'}</button><button type="button" onClick={continueToResumes} disabled={!canSubmit} className="btn-primary justify-center disabled:cursor-not-allowed disabled:opacity-50">Continue to Resume Upload <ArrowRight size={14}/></button></div>
+    </div>
+  </div>
 }

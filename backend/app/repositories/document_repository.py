@@ -187,8 +187,10 @@ class DocumentRepository:
         metadata: dict[str, object] | None = None,
         *,
         commit: bool = True,
+        refresh: bool = True,
+        document: DocumentModel | None = None,
     ) -> DocumentModel | None:
-        document = await self.get_document(document_id)
+        document = document or await self.get_document(document_id)
         if document is None:
             return None
         document.processing_status = ProcessingStatusEnum(status.value)
@@ -196,10 +198,12 @@ class DocumentRepository:
             document.metadata_json = metadata
         if commit:
             await self.session.commit()
-            await self.session.refresh(document)
+            if refresh:
+                await self.session.refresh(document)
         else:
             await self.session.flush()
-            await self.session.refresh(document)
+            if refresh:
+                await self.session.refresh(document)
         return document
 
     async def update_processing(
@@ -208,16 +212,24 @@ class DocumentRepository:
         stage: ProcessingStage,
         status: ProcessingStatus,
         error_message: str | None = None,
+        *,
+        commit: bool = True,
+        refresh: bool = True,
+        document: DocumentModel | None = None,
     ) -> DocumentModel | None:
         """Persist Stage 2 processing state for an active document."""
-        document = await self.get_document(document_id)
+        document = document or await self.get_document(document_id)
         if document is None:
             return None
         document.processing_stage = ProcessingStageEnum(stage.value)
         document.processing_status = ProcessingStatusEnum(status.value)
         document.error_message = error_message
-        await self.session.commit()
-        await self.session.refresh(document)
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+        if refresh:
+            await self.session.refresh(document)
         return document
 
     async def delete_document(

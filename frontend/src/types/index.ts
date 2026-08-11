@@ -106,6 +106,8 @@ export interface CandidateScore {
   score: number
   weight: number
   weightedScore: number
+  isApplicable?: boolean
+  explanation?: string
 }
 
 export interface Candidate {
@@ -122,6 +124,8 @@ export interface Candidate {
   confidence?: number
   recommendation?: string
   isKnockedOut?: boolean
+  knockoutReason?: string | null
+  rejectionReason?: 'below_recommendation_threshold' | 'knockout'
   documentId?: string
   status: ScreeningStatus
   extractedFields: ExtractedField[]

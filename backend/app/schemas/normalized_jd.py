@@ -33,10 +33,16 @@ class NormalizedJDCreate(BaseModel):
     document_id: UUID
     extracted_job_description_id: UUID
     skills: list[str] = Field(default_factory=list)
+    job_title: str | None = None
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     degree_requirements: list[str] = Field(default_factory=list)
+    education_disciplines: list[str] = Field(default_factory=list)
     experience_requirements: list[CanonicalExperienceRequirement] = Field(default_factory=list)
     domain: str | None = None
     keywords: list[str] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
     normalization_metadata: NormalizationMetadata
     ruleset_version: str = "1.0"
 
@@ -47,10 +53,16 @@ class NormalizedJDRead(BaseModel):
     document_id: UUID
     extracted_job_description_id: UUID
     skills: list[str]
+    job_title: str | None = None
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     degree_requirements: list[str]
+    education_disciplines: list[str] = Field(default_factory=list)
     experience_requirements: list[CanonicalExperienceRequirement]
     domain: str | None
     keywords: list[str]
+    responsibilities: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
     normalization_metadata: NormalizationMetadata
     ruleset_version: str
     created_at: datetime
@@ -86,10 +98,16 @@ class NormalizedJDRead(BaseModel):
             document_id=obj.document_id,
             extracted_job_description_id=obj.extracted_job_description_id,
             skills=obj.skills or [],
+            job_title=obj.job_title,
+            required_skills=obj.required_skills or [],
+            preferred_skills=obj.preferred_skills or [],
             degree_requirements=obj.degree_requirements or [],
+            education_disciplines=obj.education_disciplines or [],
             experience_requirements=exp_reqs,
             domain=obj.domain,
             keywords=obj.keywords or [],
+            responsibilities=obj.responsibilities or [],
+            certifications=obj.certifications or [],
             normalization_metadata=meta,
             ruleset_version=obj.ruleset_version,
             created_at=obj.created_at,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from time import perf_counter
 from uuid import UUID
 
 import structlog
@@ -126,15 +127,33 @@ def _canonicalize_skills(raw_skills: list[str]) -> tuple[list[str], list[Normali
 
 
 def _canonicalize_keywords(raw_keywords: list[str]) -> list[str]:
-    """Deduplicate and lowercase keyword list."""
+    """Deduplicate keyword values case-insensitively without concatenating them."""
     seen: set[str] = set()
     result: list[str] = []
     for kw in raw_keywords:
-        canonical = kw.lower().strip()
-        if canonical not in seen:
-            seen.add(canonical)
-            result.append(canonical)
-    return sorted(result)
+        cleaned = re.sub(r"\s+", " ", kw).strip()
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result
+
+
+def _safe_list(source: object, field: str) -> list[str]:
+    value = getattr(source, field, [])
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+def _stable_casefold(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result
 
 
 # ─── Exceptions ─────────────────────────────────────────────────────────────
@@ -166,6 +185,7 @@ class JDNormalizationService:
         self.normalized_repository = normalized_repository
 
     async def normalize_document(self, document_id: UUID) -> JDNormalizeResult:
+        started_at = perf_counter()
         document = await self._load_document(document_id)
 
         # Load extracted data
@@ -184,7 +204,10 @@ class JDNormalizationService:
         warnings: list[str] = []
 
         # ── Skills ──────────────────────────────────────────────
-        canonical_skills, skill_changes = _canonicalize_skills(extracted.skills or [])
+        required_skills = _stable_casefold(_safe_list(extracted, "required_skills"))
+        preferred_skills = _stable_casefold(_safe_list(extracted, "preferred_skills"))
+        grouped_skills = [*required_skills, *preferred_skills]
+        canonical_skills, skill_changes = _canonicalize_skills(grouped_skills or list(extracted.skills or []))
         changes.extend(skill_changes)
 
         # ── Degrees ─────────────────────────────────────────────
@@ -225,6 +248,13 @@ class JDNormalizationService:
 
         # ── Keywords ────────────────────────────────────────────
         canonical_keywords = _canonicalize_keywords(extracted.keywords or [])
+        responsibilities = _stable_casefold(_safe_list(extracted, "responsibilities"))
+        certifications = _stable_casefold(_safe_list(extracted, "certifications"))
+        education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
+        job_title_value = getattr(extracted, "job_title", None)
+        job_title = job_title_value.strip() if isinstance(job_title_value, str) else None
+        if job_title and job_title.isupper():
+            job_title = job_title.title()
 
         # ── Domain passthrough ──────────────────────────────────
         domain = extracted.domain
@@ -249,16 +279,24 @@ class JDNormalizationService:
             document_id=document_id,
             extracted_job_description_id=extracted.id,
             skills=canonical_skills,
+            job_title=job_title,
+            required_skills=required_skills,
+            preferred_skills=preferred_skills,
             degree_requirements=degree_requirements,
+            education_disciplines=education_disciplines,
             experience_requirements=experience_requirements,
             domain=domain,
             keywords=canonical_keywords,
+            responsibilities=responsibilities,
+            certifications=certifications,
             normalization_metadata=norm_meta,
             ruleset_version=RULESET_VERSION,
         )
 
         try:
-            await self.normalized_repository.upsert(payload)
+            await self.normalized_repository.upsert(
+                payload, commit=False, refresh=False
+            )
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to persist normalization result.") from exc
 
@@ -267,6 +305,8 @@ class JDNormalizationService:
             document_id,
             ProcessingStatus.COMPLETED,
             {**metadata, "normalization_stage": "NORMALIZATION", "extraction_error": None},
+            refresh=False,
+            document=document,
         )
 
         logger.info(
@@ -275,6 +315,7 @@ class JDNormalizationService:
             canonical_skills=len(canonical_skills),
             degrees=len(degree_requirements),
             experience_reqs=len(experience_requirements),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
         return JDNormalizeResult(
             document_id=document_id,
@@ -315,10 +356,17 @@ class JDNormalizationService:
         metadata: dict,
         *,
         commit: bool = True,
+        refresh: bool = True,
+        document=None,
     ):
         try:
             updated = await self.document_repository.update_status(
-                document_id, status, metadata, commit=commit
+                document_id,
+                status,
+                metadata,
+                commit=commit,
+                refresh=refresh,
+                document=document,
             )
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to update document status.") from exc

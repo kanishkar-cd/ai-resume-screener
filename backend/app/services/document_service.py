@@ -80,14 +80,17 @@ class DocumentService:
         project_id: UUID,
         document_type: DocumentType,
         file: UploadFile,
+        *,
+        verify_project: bool = True,
     ) -> DocumentUploadRead:
         started_at = perf_counter()
-        try:
-            project = await self.project_repository.get_by_id(project_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to verify project ownership.") from exc
-        if project is None:
-            raise ProjectNotFoundException()
+        if verify_project:
+            try:
+                project = await self.project_repository.get_by_id(project_id)
+            except SQLAlchemyError as exc:
+                raise InternalServerException("Unable to verify project ownership.") from exc
+            if project is None:
+                raise ProjectNotFoundException()
 
         original_filename, extension = await validate_file(file)
         subfolder = (
@@ -232,7 +235,9 @@ class DocumentService:
         for file in files:
             try:
                 successful.append(
-                    await self.upload_document(project_id, DocumentType.RESUME, file)
+                    await self.upload_document(
+                        project_id, DocumentType.RESUME, file, verify_project=False
+                    )
                 )
             except AppException as exc:
                 failed.append(

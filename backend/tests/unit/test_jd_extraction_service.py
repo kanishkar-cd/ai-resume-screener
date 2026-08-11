@@ -107,3 +107,27 @@ async def test_jd_extraction_successful_patterns() -> None:
     assert any("aws certified" in cert.lower() for cert in payload.certifications)
     assert len(payload.responsibilities) >= 2
     assert payload.domain == "DevOps / Infrastructure"
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_can_recover_a_stranded_in_progress_document() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    document_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=document_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.IN_PROGRESS,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="Job Title: Software Engineer\nExperience: 0-2 years\nResponsibilities:\n- Develop reliable software.",
+        word_count=12,
+    )
+
+    result = await JDExtractionService(doc_repo, parsed_repo, extracted_repo).extract_document(document_id)
+
+    assert result.processing_status == ProcessingStatus.COMPLETED
+    extracted_repo.upsert.assert_awaited_once()

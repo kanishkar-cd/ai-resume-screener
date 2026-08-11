@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from app.schemas.scoring import ComponentScores
 from app.services.scoring.component_scoring_service import ComponentScoringService
 
@@ -29,6 +31,54 @@ def test_no_requirement_component_scores_one_hundred() -> None:
     config = SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[])
     scores = ComponentScoringService().score(resume, job, config)
     assert all(getattr(scores, name).score == 100 for name in ComponentScores.model_fields)
+
+
+def test_required_skills_are_case_insensitive_and_deduplicated() -> None:
+    service = ComponentScoringService()
+    detail = service._match(
+        ["javascript", "PYTHON", "sql"],
+        ["JavaScript", "javascript", "Python", "SQL", "sql"],
+        "required skills",
+    )
+    assert detail.score == 100
+    assert detail.matched_items == ["JavaScript", "Python", "SQL"]
+    assert detail.missing_items == []
+
+
+def test_preferred_skills_are_case_insensitive_and_deduplicated() -> None:
+    from app.services.scoring.bonus_service import BonusService
+
+    resume = SimpleNamespace(
+        skills=["react.JS"], experience=[], education=[]
+    )
+    job = SimpleNamespace(skills=[], experience_requirements=[], degree_requirements=[])
+    config = SimpleNamespace(
+        preferred_skills=["React.js", "REACT.JS"], min_experience_years=0,
+        required_degree=None,
+    )
+    total, items = BonusService.calculate(
+        resume, job, config,
+        ComponentScoringService().score(
+            SimpleNamespace(skills=[], experience=[], education=[], certifications=[], languages=[]),
+            SimpleNamespace(skills=[], experience_requirements=[], degree_requirements=[], keywords=[]),
+            SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[]),
+        ),
+    )
+    assert total == 2
+    assert items[0].description == "Matched preferred skills: React.js"
+
+
+@pytest.mark.parametrize(
+    ("required", "candidate"),
+    [
+        ("Bachelor's Degree", "Bachelor of Engineering"),
+        ("Bachelor's Degree", "Bachelor of Technology"),
+        ("B.E.", "Bachelor's Degree"),
+        ("B.Tech", "Bachelor's Degree"),
+    ],
+)
+def test_bachelors_degree_equivalence(required: str, candidate: str) -> None:
+    assert ComponentScoringService._education_score([candidate], required) == 100
 
 
 
@@ -128,6 +178,4 @@ def test_stage5_recommendation_enum_and_summary_fields() -> None:
     assert score_data.missing_skills == ["Go"]
     assert score_data.strengths == ["Skills: Matched 1 skill."]
     assert score_data.weaknesses == []
-
-
 

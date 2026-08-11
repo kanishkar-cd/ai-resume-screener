@@ -1,4 +1,5 @@
 from uuid import UUID
+from time import perf_counter
 
 import structlog
 from pydantic import ValidationError
@@ -58,23 +59,32 @@ class NormalizationService:
         self.normalizations = normalizations
 
     async def normalize_document_data(self, document_id: UUID) -> NormalizeDocumentResponse:
+        started_at = perf_counter()
         document = await self._get_document(document_id)
         extracted = await self._get_extracted(document)
         try:
-            await self.documents.update_processing(document_id, ProcessingStage.NORMALIZATION, ProcessingStatus.IN_PROGRESS)
+            await self.documents.update_processing(
+                document_id, ProcessingStage.NORMALIZATION, ProcessingStatus.IN_PROGRESS,
+                document=document, refresh=False,
+            )
             if document.document_type == DocumentTypeEnum.RESUME:
                 values = ResumeNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_resume(
-                    NormalizedResumeCreate(document_id=document_id, extracted_resume_id=extracted.id, **values)
+                    NormalizedResumeCreate(document_id=document_id, extracted_resume_id=extracted.id, **values),
+                    commit=False, refresh=False,
                 )
             elif document.document_type == DocumentTypeEnum.JOB_DESCRIPTION:
                 values = JobDescriptionNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_job_description(
-                    NormalizedJobDescriptionCreate(document_id=document_id, extracted_job_description_id=extracted.id, **values)
+                    NormalizedJobDescriptionCreate(document_id=document_id, extracted_job_description_id=extracted.id, **values),
+                    commit=False, refresh=False,
                 )
             else:
                 raise UnsupportedNormalizationTypeException()
-            await self.documents.update_processing(document_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED)
+            await self.documents.update_processing(
+                document_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED,
+                document=document, refresh=False,
+            )
         except ValidationError as exc:
             await self._mark_failed(document_id, "Canonical data failed validation.")
             raise NormalizationValidationException(details={"errors": exc.errors(include_url=False)}) from exc
@@ -84,7 +94,11 @@ class NormalizationService:
         except Exception as exc:
             await self._mark_failed(document_id, "Document data normalization failed.")
             raise NormalizationFailedException() from exc
-        logger.info("document_data_normalized", document_id=str(document_id), ruleset_version=RULESET_VERSION)
+        logger.info(
+            "document_data_normalized", document_id=str(document_id),
+            ruleset_version=RULESET_VERSION,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
         return NormalizeDocumentResponse(
             document_id=document_id, document_type=DocumentType(document.document_type.value),
             processing_stage=ProcessingStage.COMPLETED, ruleset_version=RULESET_VERSION,

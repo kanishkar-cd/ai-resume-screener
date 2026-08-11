@@ -9,6 +9,13 @@ COMPONENT_LABELS = {
 }
 
 
+def _is_not_applicable(name: str, detail: dict[str, Any]) -> bool:
+    explanation = str(detail.get("explanation") or "").casefold()
+    return "(n/a)" in explanation or (
+        name == "experience" and "against 0 required months" in explanation
+    )
+
+
 class SummaryGenerator:
     @staticmethod
     def generate(extracted: Any, normalized: Any, score: Any, rank: Any | None) -> str:
@@ -23,13 +30,21 @@ class SummaryGenerator:
 class StrengthGenerator:
     @staticmethod
     def generate(component_scores: dict[str, Any]) -> list[str]:
-        return [f"{COMPONENT_LABELS[name]} scored {float(detail['score']):.2f}%." for name, detail in component_scores.items() if float(detail["score"]) >= 80]
+        return [
+            f"{COMPONENT_LABELS[name]} scored {float(detail['score']):.2f}%."
+            for name, detail in component_scores.items()
+            if not _is_not_applicable(name, detail) and float(detail["score"]) >= 80
+        ]
 
 
 class WeaknessGenerator:
     @staticmethod
     def generate(component_scores: dict[str, Any]) -> list[str]:
-        return [f"{COMPONENT_LABELS[name]} scored {float(detail['score']):.2f}%." for name, detail in component_scores.items() if float(detail["score"]) < 60]
+        return [
+            f"{COMPONENT_LABELS[name]} scored {float(detail['score']):.2f}%."
+            for name, detail in component_scores.items()
+            if not _is_not_applicable(name, detail) and float(detail["score"]) < 60
+        ]
 
 
 class SkillGapGenerator:
@@ -43,8 +58,19 @@ class RecommendationGenerator:
     @staticmethod
     def generate(score: Any) -> str:
         if score.is_knocked_out:
-            return f"NOT_RECOMMENDED because a knockout rule applied: {score.knockout_reason or 'unspecified rule'}."
-        return f"{score.recommendation.value} based on a final score of {float(score.final_score):.2f}, confidence of {float(score.confidence):.2f}%, and the configured decision thresholds."
+            reason = score.knockout_reason or "unspecified mandatory requirement"
+            return f"REJECT because a mandatory requirement was not satisfied: {reason}."
+        final_score = float(score.final_score)
+        recommendation = score.recommendation.value
+        if recommendation == "SHORTLIST":
+            rule = "is 85 or above"
+        elif recommendation == "REVIEW":
+            rule = "falls within the current 70–84.99 recommendation band"
+        elif recommendation == "CONSIDER":
+            rule = "falls within the current 50–69.99 recommendation band"
+        else:
+            rule = "falls below the current recommendation threshold of 50"
+        return f"{recommendation} because the final score of {final_score:.2f} {rule}."
 
 
 class ImprovementGenerator:
@@ -60,10 +86,16 @@ class InsightBuilder:
         components = score.component_scores or {}
         matched, missing = SkillGapGenerator.generate(components)
         weighted = ", ".join(f"{COMPONENT_LABELS[name]} {float(value):.2f}" for name, value in (score.weighted_scores or {}).items())
+        not_applicable = [
+            f"{COMPONENT_LABELS[name]}: No JD requirement"
+            for name, detail in components.items() if _is_not_applicable(name, detail)
+        ]
+        na_text = f" Not applicable: {'; '.join(not_applicable)}." if not_applicable else ""
         explanation = (
             f"Raw total {float(score.raw_total_score):.2f}; weighted contributions: {weighted}. "
             f"Weighted total {float(score.weighted_total_score):.2f}, penalties {float(score.penalty_total):.2f}, "
             f"bonuses {float(score.bonus_total):.2f}, final score {float(score.final_score):.2f}."
+            f"{na_text}"
         )
         return CandidateInsightCreate(
             document_id=document_id, project_id=project_id,

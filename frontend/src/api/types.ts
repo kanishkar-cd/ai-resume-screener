@@ -216,9 +216,13 @@ export interface ExtractedJobDescription {
   id: string
   document_id: string
   domain: string | null
+  job_title: string | null
   skills: string[]
+  required_skills: string[]
+  preferred_skills: string[]
   responsibilities: string[]
   education: string[]
+  education_disciplines: string[]
   experience: string[]
   certifications: string[]
   keywords: string[]
@@ -309,10 +313,16 @@ export interface NormalizedJobDescription {
   document_id: string
   extracted_job_description_id: string
   skills: string[]
+  job_title: string | null
+  required_skills: string[]
+  preferred_skills: string[]
   degree_requirements: string[]
+  education_disciplines: string[]
   experience_requirements: CanonicalExperienceRequirement[]
   domain: string | null
   keywords: string[]
+  responsibilities: string[]
+  certifications: string[]
   normalization_metadata: NormalizationMetadata
   ruleset_version: string
   created_at: string
@@ -473,6 +483,7 @@ export interface CandidateRanking {
   recommendation: RecommendationLevel
   confidence: number
   is_knocked_out: boolean
+  knockout_reason: string | null
   skills_score: number
   experience_score: number
   previous_rank: number | null

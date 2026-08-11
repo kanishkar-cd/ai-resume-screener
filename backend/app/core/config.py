@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     OCR_LANGUAGES: list[str] | str = Field(default_factory=lambda: ["en"])
     OCR_DPI: int = 200
 
+    GROQ_API_KEY: str | None = None
+    ENABLE_AI_RESUME_EXTRACTION: bool = False
+    ENABLE_AI_JD_EXTRACTION: bool = False
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
+
     @field_validator("OCR_LANGUAGES", mode="before")
     @classmethod
     def assemble_ocr_languages(cls, v: object) -> object:

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   FileText,
@@ -13,6 +13,8 @@ import { usePipeline } from '@/store/pipelineStore'
 import { UploadedFile, JdProcessingStage, JdProcessingStatus } from '@/types'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '@/api'
+import type { ExtractedJobDescription, NormalizedJobDescription, ParsedDocument } from '@/api'
+import { JobProfile } from '@/components/ui/DocumentProfiles'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -83,6 +85,9 @@ export default function DocumentUpload() {
   const [flowPhase, setFlowPhase] = useState<
     'idle' | 'uploading' | 'parsing' | 'extracting' | 'normalizing' | 'ready' | 'error'
   >('idle')
+  const [profile, setProfile] = useState<{ normalized: NormalizedJobDescription; extracted: ExtractedJobDescription | null; parsed: ParsedDocument | null } | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const lookedUpProjectRef = useRef<string | null>(null)
 
   const busy =
     flowPhase === 'uploading' ||
@@ -101,6 +106,8 @@ export default function DocumentUpload() {
 
   useEffect(() => {
     if (!state.projectId || state.jdDocumentId) return
+    if (lookedUpProjectRef.current === state.projectId) return
+    lookedUpProjectRef.current = state.projectId
     api.getJobDescription(state.projectId).then((document) => {
       dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: document.id })
       dispatch({
@@ -118,6 +125,26 @@ export default function DocumentUpload() {
       updateJdProcessing({ status: document.processing_status, stage: document.processing_stage })
     }).catch(() => undefined)
   }, [dispatch, state.jdDocumentId, state.projectId])
+
+  useEffect(() => {
+    if (!state.jdDocumentId || !state.jdNormalized) {
+      setProfile(null)
+      return
+    }
+    let active = true
+    Promise.all([
+      api.getNormalizedDocument(state.jdDocumentId),
+      api.getExtractedDocument(state.jdDocumentId).catch(() => null),
+      api.getParsedDocument(state.jdDocumentId).catch(() => null),
+    ]).then(([normalized, extracted, parsed]) => {
+      if (!active || !('degree_requirements' in normalized)) return
+      setProfile({ normalized, extracted: extracted && 'responsibilities' in extracted ? extracted : null, parsed })
+      setProfileError(null)
+    }).catch((err) => {
+      if (active) setProfileError(errorMessage(err, 'Unable to load normalized job profile'))
+    })
+    return () => { active = false }
+  }, [state.jdDocumentId, state.jdNormalized])
 
   /**
    * Poll GET /projects/{projectId}/job-description until parse finishes or fails.
@@ -302,10 +329,9 @@ export default function DocumentUpload() {
     >
       {/* Page Header */}
       <motion.div variants={fadeUp} className="mb-5">
-        <h1 className="text-[26px] font-bold text-slate-800 mb-1">Document Upload</h1>
+        <h1 className="text-[30px] font-bold tracking-tight text-slate-900 mb-2">Job Description</h1>
         <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-          Upload the <strong className="text-slate-600">job description (JD) document</strong>.
-          The file is verified for format, size, and readability before defining scoring criteria weights.
+          Define the role you're hiring for. Upload a PDF, DOCX, or TXT document to begin processing.
         </p>
       </motion.div>
 
@@ -391,6 +417,10 @@ export default function DocumentUpload() {
           </p>
         )}
       </motion.div>
+
+      {state.jdNormalized && !profile && !profileError && <div className="card mb-5 p-6 text-[12px] text-slate-500">Loading final job profile…</div>}
+      {profileError && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-[12px] text-red-700">Normalization failed: {profileError}</div>}
+      {profile && <div className="mb-5"><JobProfile {...profile}/></div>}
 
       {/* Bottom Row */}
       <motion.div variants={fadeUp} className="card glow-border-sky p-0 overflow-hidden">

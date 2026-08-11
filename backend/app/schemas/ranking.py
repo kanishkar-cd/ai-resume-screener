@@ -45,6 +45,7 @@ class CandidateRankingRead(BaseModel):
     recommendation: RecommendationLevel
     confidence: float
     is_knocked_out: bool
+    knockout_reason: str | None = None
     skills_score: float
     experience_score: float
     previous_rank: int | None = None
