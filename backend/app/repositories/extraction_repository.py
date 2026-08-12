@@ -59,6 +59,18 @@ class ExtractionRepository:
             )
         )
 
+    async def get_resumes_by_document_ids(
+        self, document_ids: list[UUID]
+    ) -> list[ExtractedResumeModel]:
+        if not document_ids:
+            return []
+        result = await self.session.scalars(
+            select(ExtractedResumeModel).where(
+                ExtractedResumeModel.document_id.in_(document_ids)
+            )
+        )
+        return list(result.all())
+
     async def get_job_description_by_document_id(
         self, document_id: UUID
     ) -> ExtractedJDModel | None:

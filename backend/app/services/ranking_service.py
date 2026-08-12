@@ -2,6 +2,7 @@ import math
 from typing import Any
 from uuid import UUID
 
+import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.exceptions import AppException, InternalServerException
@@ -16,6 +17,8 @@ from app.schemas.ranking import (
 from app.schemas.scoring import RecommendationLevel
 from app.services.project_service import ProjectNotFoundException
 from app.services.ranking import RankingAlgorithm
+
+logger = structlog.get_logger(__name__)
 
 
 class NoScoredCandidatesException(AppException):
@@ -41,6 +44,7 @@ class RankingService:
         self.projects, self.documents, self.scores, self.rankings = projects, documents, scores, rankings
 
     async def compute_project_rankings(self, project_id: UUID) -> RankingComputationRead:
+        logger.info("[RANK] ranking started", project_id=str(project_id))
         await self._verify_project(project_id)
         try:
             scores = await self.scores.get_project_scores(project_id)
@@ -59,6 +63,11 @@ class RankingService:
             raise InternalServerException("Unable to persist candidate rankings.") from exc
         except Exception as exc:
             raise RankingExecutionFailedException() from exc
+        logger.info(
+            "[RANK] ranking completed",
+            project_id=str(project_id),
+            candidate_count=len(computed),
+        )
         return RankingComputationRead(project_id=project_id, total_ranked=len(computed), message="Candidate rankings computed successfully.")
 
     async def list_rankings(

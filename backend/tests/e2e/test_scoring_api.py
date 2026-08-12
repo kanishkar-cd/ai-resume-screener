@@ -23,7 +23,7 @@ class FakeScoringFacade:
             id=uuid4(), document_id=self.document_id, project_id=self.project_id,
             component_scores=components, weighted_scores=WeightedScores(skills=40, experience=25, projects=15, education=10, certifications=5, languages=5),
             raw_total_score=100, weighted_total_score=100, penalty_total=0, bonus_total=0,
-            final_score=100, confidence=91.67, recommendation=RecommendationLevel.STRONG_MATCH,
+            final_score=100, confidence=91.67, recommendation=RecommendationLevel.SHORTLIST,
             weight_config_version=3, skills_score=100, experience_score=100, projects_score=100,
             education_score=100, certifications_score=100, languages_score=100,
             created_at=now, updated_at=now,

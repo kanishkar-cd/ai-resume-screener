@@ -571,3 +571,22 @@ Role : Software Engineer Intern
     assert "Kumaraguru College of Technology" in (edu["institution"] or "")
 
 
+def test_candidate_name_variations() -> None:
+    extractor = ResumeExtractor()
+
+    names_to_test = [
+        ("Vaishnavi\nvaishnavi@gmail.com\n9876543210", "Vaishnavi"),
+        ("Harshini\nharshini@gmail.com\n9876543210", "Harshini"),
+        ("Shri Harini Karthika\nshri@gmail.com\n9876543210", "Shri Harini Karthika"),
+        ("Dr. Shri Harini Karthika\ndr@gmail.com\n9876543210", "Dr. Shri Harini Karthika"),
+        ("John Michael Doe\njohn@gmail.com\n9876543210", "John Michael Doe"),
+    ]
+
+    for text, expected in names_to_test:
+        res = extractor.extract(text)
+        assert res["candidate_name"] == expected
+
+    # Verify designation-only lines are rejected as candidate names
+    designation_text = "Senior Software Engineer\nengineer@gmail.com\n9876543210"
+    res_desig = extractor.extract(designation_text)
+    assert res_desig["candidate_name"] is None

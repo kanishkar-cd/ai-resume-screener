@@ -55,6 +55,12 @@ class NormalizationRepository:
     async def get_resume_by_document_id(self, document_id: UUID) -> NormalizedResumeModel | None:
         return await self.session.scalar(select(NormalizedResumeModel).where(NormalizedResumeModel.document_id == document_id))
 
+    async def get_resumes_by_document_ids(self, document_ids: list[UUID]) -> list[NormalizedResumeModel]:
+        if not document_ids:
+            return []
+        result = await self.session.scalars(select(NormalizedResumeModel).where(NormalizedResumeModel.document_id.in_(document_ids)))
+        return list(result.all())
+
     async def get_job_description_by_document_id(self, document_id: UUID) -> NormalizedJDModel | None:
         return await self.session.scalar(select(NormalizedJDModel).where(NormalizedJDModel.document_id == document_id))
 

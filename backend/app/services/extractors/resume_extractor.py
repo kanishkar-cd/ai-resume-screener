@@ -111,14 +111,17 @@ class ResumeExtractor:
 
     @staticmethod
     def _candidate_name(lines: list[str]) -> str | None:
-
+        from app.services.pipeline.extraction_pipeline import SECTION_ALIASES
+        all_headings = {alias for aliases in SECTION_ALIASES.values() for alias in aliases}
         for line in lines[:5]:
             if re.search(r"[@\d:/]|http", line):
                 continue
             words = line.split()
-            if 2 <= len(words) <= 4:
+            if 1 <= len(words) <= 5:
                 clean = re.sub(r"[^\w\s.-]", "", line).strip()
-                if clean and not match_terms(clean, DESIGNATIONS):
+                if not clean or clean.casefold() in all_headings:
+                    continue
+                if not match_terms(clean, DESIGNATIONS):
                     return clean[:255]
         return None
 

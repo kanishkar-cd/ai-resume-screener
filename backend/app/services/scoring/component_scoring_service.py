@@ -8,12 +8,14 @@ from app.services.pipeline.extraction_pipeline import DESIGNATIONS
 
 class ComponentScoringService:
     DEGREE_RANKS = {
-        "high school": 1, "associate": 2, "bachelor of science": 3,
-        "bachelor s degree": 3,
+        "high school": 1, "associate": 2,
+        "bachelor of science": 3, "bachelor s degree": 3,
         "bachelor of engineering": 3, "bachelor of technology": 3,
+        "b sc": 3, "b s": 3, "b com": 3, "bca": 3, "b tech": 3, "b e": 3, "be": 3,
         "master of science": 4, "master of engineering": 4,
         "master of technology": 4, "master of business administration": 4,
-        "doctor of philosophy": 5,
+        "m sc": 4, "m s": 4, "mca": 4, "mba": 4,
+        "doctor of philosophy": 5, "phd": 5,
     }
 
     @staticmethod
@@ -105,8 +107,10 @@ class ComponentScoringService:
     def degree_rank(cls, degree: str | None) -> int:
         if not degree: return 0
         key = re.sub(r"[^a-z0-9]+", " ", degree.casefold()).strip()
-        if key in {"be", "b e", "btech", "b tech"}:
+        if key in {"be", "b e", "btech", "b tech", "b sc", "b s", "b com", "bca"}:
             return 3
+        if key in {"m sc", "m s", "mca", "mba"}:
+            return 4
         return max((rank for name, rank in cls.DEGREE_RANKS.items() if name in key), default=0)
 
     @classmethod

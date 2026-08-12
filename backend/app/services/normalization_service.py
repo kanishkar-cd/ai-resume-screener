@@ -62,13 +62,21 @@ class NormalizationService:
         started_at = perf_counter()
         document = await self._get_document(document_id)
         extracted = await self._get_extracted(document)
+        logger.info(
+            "[NORMALIZE] normalization started",
+            document_id=str(document_id),
+            document_type=document.document_type.value,
+        )
         try:
             await self.documents.update_processing(
                 document_id, ProcessingStage.NORMALIZATION, ProcessingStatus.IN_PROGRESS,
                 document=document, refresh=False,
             )
             if document.document_type == DocumentTypeEnum.RESUME:
-                values = ResumeNormalizer().normalize(extracted)
+                affinda_values = (getattr(extracted, "raw_metadata", {}) or {}).get(
+                    "affinda_normalized_profile"
+                )
+                values = affinda_values or ResumeNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_resume(
                     NormalizedResumeCreate(document_id=document_id, extracted_resume_id=extracted.id, **values),
                     commit=False, refresh=False,
@@ -95,7 +103,12 @@ class NormalizationService:
             await self._mark_failed(document_id, "Document data normalization failed.")
             raise NormalizationFailedException() from exc
         logger.info(
-            "document_data_normalized", document_id=str(document_id),
+            "[NORMALIZE] normalization completed", document_id=str(document_id),
+            document_type=document.document_type.value,
+            skills_count=len(values.get("skills") or []),
+            education_count=len(values.get("education") or []),
+            experience_count=len(values.get("experience") or values.get("experience_requirements") or []),
+            certifications_count=len(values.get("certifications") or []),
             ruleset_version=RULESET_VERSION,
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )

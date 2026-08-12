@@ -37,6 +37,7 @@ import {
   type WeightConfig,
   type ExtractedResume,
   type NormalizedResume,
+  type Document as ApiDocument,
 } from '@/api'
 
 // ─── Animation variants ───────────────────────────────────────
@@ -92,7 +93,7 @@ interface ExplanationDrawerProps {
 function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
   const [insights, setInsights] = useState<CandidateInsights | null>(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
-  const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null } | null>(null)
+  const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
 
@@ -124,11 +125,11 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
     }
     let active = true
     setLoadingProfile(true)
-    Promise.all([api.getNormalizedDocument(candidate.id), api.getExtractedDocument(candidate.id).catch(() => null)])
-      .then(([normalized, extracted]) => {
+    Promise.all([api.getNormalizedDocument(candidate.id), api.getExtractedDocument(candidate.id).catch(() => null), api.getDocument(candidate.id)])
+      .then(([normalized, extracted, document]) => {
         if (!active) return
         if (!('job_titles' in normalized)) throw new Error('Normalized resume data was not returned.')
-        setResumeProfile({ normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null })
+        setResumeProfile({ normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null, document })
         setProfileError(null)
       })
       .catch((err) => { if (active) setProfileError(err instanceof Error ? err.message : 'Unable to load normalized resume data.') })
@@ -191,7 +192,7 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
               {loadingProfile && <div className="rounded-xl border border-slate-200 p-4 text-[12px] text-slate-500">Loading final resume profile…</div>}
               {profileError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12px] text-amber-800">Normalization pending: {profileError}</div>}
-              {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted}/>}
+              {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted} document={resumeProfile.document}/>}
 
               {candidate.isKnockedOut && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4">
