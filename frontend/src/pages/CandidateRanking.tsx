@@ -37,8 +37,10 @@ import {
   type WeightConfig,
   type ExtractedResume,
   type NormalizedResume,
+  type NormalizedJobDescription,
   type Document as ApiDocument,
 } from '@/api'
+import type { MatchVerdict } from '@/types'
 
 // ─── Animation variants ───────────────────────────────────────
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -85,33 +87,295 @@ function scoringPrerequisitesMet(state: ReturnType<typeof usePipeline>['state'])
 }
 
 // ─── AI Explanation Drawer ────────────────────────────────────
+type EvidenceDisplay = {
+  label: string
+  source: string
+  snippet: string
+}
+
+const REQUIREMENT_COMPONENT_LABELS: Record<string, string> = {
+  skill: 'Skill',
+  degree: 'Education',
+  certification: 'Certification',
+  language: 'Language',
+  hard_constraint: 'Hard constraint',
+  project_relevance: 'Project',
+  responsibility: 'Responsibility',
+  contextual_experience: 'Contextual experience',
+  experience: 'Experience',
+}
+
+function titleCase(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function componentFromRequirementId(requirementId: string) {
+  const [prefix] = requirementId.split(':')
+  return REQUIREMENT_COMPONENT_LABELS[prefix] || titleCase(prefix || 'Requirement')
+}
+
+function verdictStatusLabel(status: MatchVerdict['status']) {
+  if (status === 'MATCHED') return 'matched'
+  if (status === 'NO_MATCH') return 'no_match'
+  return 'unclear'
+}
+
+function verdictStatusClass(status: MatchVerdict['status']) {
+  if (status === 'MATCHED') return 'border-green-200 bg-green-50 text-green-700'
+  if (status === 'NO_MATCH') return 'border-red-200 bg-red-50 text-red-700'
+  return 'border-amber-200 bg-amber-50 text-amber-700'
+}
+
+function methodLabel(method: string | null) {
+  if (method === 'llm_confirmed') return 'AI Confirmed'
+  if (method === 'llm_rejected') return 'AI Rejected'
+  if (method === 'llm_unresolved') return 'AI Unresolved'
+  if (method === 'exact') return 'Exact Match'
+  if (method === 'alias') return 'Alias Match'
+  if (method === 'taxonomy') return 'Taxonomy Rank'
+  return method || 'Deterministic'
+}
+
+function truncateEvidence(text: string, max = 180) {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  return compact.length > max ? `${compact.slice(0, max - 1)}...` : compact
+}
+
+function addRequirementLabels(map: Map<string, string>, prefix: string, values: Array<string | null | undefined>) {
+  values.filter(Boolean).forEach((value, index) => {
+    map.set(`${prefix}:${index + 1}`, value as string)
+  })
+}
+
+function buildRequirementLabelMap(jd: NormalizedJobDescription | null) {
+  const map = new Map<string, string>()
+  if (!jd) return map
+  addRequirementLabels(map, 'skill', jd.skills)
+  addRequirementLabels(map, 'degree', jd.degree_requirements)
+  addRequirementLabels(map, 'responsibility', jd.responsibilities)
+  addRequirementLabels(map, 'certification', jd.certifications)
+  addRequirementLabels(map, 'experience', jd.experience_requirements.map((req) => req.display_value))
+  return map
+}
+
+function buildEvidenceMap(profile: { normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null) {
+  const map = new Map<string, EvidenceDisplay>()
+  const extracted = profile?.extracted
+  if (!extracted) return map
+
+  extracted.experience.forEach((item, index) => {
+    const title = item.title || item.designation || 'Work experience'
+    const source = [title, item.company].filter(Boolean).join(' at ')
+    const text = [item.description, ...(item.responsibilities || [])].filter(Boolean).join(' ')
+    map.set(`experience:${index + 1}`, {
+      label: source,
+      source: 'Work experience',
+      snippet: truncateEvidence(text || item.duration || source),
+    })
+  })
+
+  extracted.projects.forEach((item, index) => {
+    const technologies = item.technologies?.length ? ` Technologies: ${item.technologies.join(', ')}.` : ''
+    const text = `${item.description || ''}${technologies}`.trim()
+    map.set(`project:${index + 1}`, {
+      label: item.name || `Project ${index + 1}`,
+      source: 'Project',
+      snippet: truncateEvidence(text || item.name || `Project ${index + 1}`),
+    })
+  })
+
+  return map
+}
+
+function RequirementVerdictPanel({
+  verdicts,
+  requirementLabels,
+  evidenceMap,
+  loading,
+  error,
+}: {
+  verdicts: MatchVerdict[]
+  requirementLabels: Map<string, string>
+  evidenceMap: Map<string, EvidenceDisplay>
+  loading: boolean
+  error: string | null
+}) {
+  const hasAiRun = verdicts.some(
+    (verdict) => verdict.method === 'llm_confirmed' || verdict.method === 'llm_rejected' || verdict.method === 'llm_unresolved'
+  )
+
+  const groups = [
+    {
+      title: 'Deterministic Matches',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'MATCHED' && verdict.method !== 'llm_confirmed'),
+    },
+    {
+      title: 'AI-confirmed Matches',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'MATCHED' && verdict.method === 'llm_confirmed'),
+      isAiGroup: true,
+    },
+    {
+      title: 'AI-rejected Requirements',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'NO_MATCH' && verdict.method === 'llm_rejected'),
+      isAiGroup: true,
+    },
+    {
+      title: 'Deterministic No Matches',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'NO_MATCH' && verdict.method !== 'llm_rejected'),
+    },
+    {
+      title: 'AI Evaluated Unclear',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'UNRESOLVED' && verdict.method === 'llm_unresolved'),
+      isAiGroup: true,
+    },
+    {
+      title: 'Unresolved / Pending Evidence',
+      verdicts: verdicts.filter((verdict) => verdict.status === 'UNRESOLVED' && verdict.method !== 'llm_unresolved'),
+    },
+  ]
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+              Requirement-level Explanation
+            </p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ${
+                hasAiRun
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {hasAiRun ? 'AI Review Completed' : 'AI Stage Not Run'}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Verdicts explain requirement evidence. Scores and ranking remain backend-calculated.
+          </p>
+        </div>
+        {loading && <span className="text-[11px] font-semibold text-sky-600">Loading...</span>}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          AI Review Unavailable: {error}
+        </div>
+      )}
+
+      {!loading && verdicts.length === 0 && (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-[12px] text-slate-500">
+          No requirement-level match verdicts are stored for this candidate yet.
+        </div>
+      )}
+
+      {verdicts.length > 0 && (
+        <div className="space-y-4">
+          {groups.map((group) => {
+            if (group.isAiGroup && !hasAiRun && group.verdicts.length === 0) {
+              return null
+            }
+            return (
+              <div key={group.title}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{group.title}</p>
+                  <span className="text-[11px] text-slate-400">{group.verdicts.length}</span>
+                </div>
+                {group.verdicts.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">None</p>
+                ) : (
+                  <div className="space-y-2">
+                    {group.verdicts.map((verdict) => {
+                      const evidence = verdict.evidence_ids.map((id) => ({ id, item: evidenceMap.get(id) }))
+                      return (
+                        <div key={verdict.requirement_id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[12px] font-semibold text-slate-800">
+                                {requirementLabels.get(verdict.requirement_id) || verdict.requirement_id}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-slate-400">
+                                {componentFromRequirementId(verdict.requirement_id)} - {verdict.requirement_id}
+                              </p>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${verdictStatusClass(verdict.status)}`}>
+                              {verdictStatusLabel(verdict.status)}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>method={methodLabel(verdict.method)}</span>
+                            {(verdict.method === 'llm_confirmed' || verdict.method === 'llm_rejected' || verdict.method === 'llm_unresolved') && (
+                              <span>confidence {Math.round(verdict.confidence * 100)}%</span>
+                            )}
+                          </div>
+                          {verdict.reasoning && (
+                            <p className="mt-2 text-[12px] leading-relaxed text-slate-600">{verdict.reasoning}</p>
+                          )}
+                          {evidence.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {evidence.map(({ id, item }) => (
+                                <div key={id} className="rounded-md border border-white bg-white px-2.5 py-2 text-[11px] text-slate-500">
+                                  <p className="font-semibold text-slate-600">
+                                    {item ? `${item.source}: ${item.label}` : id}
+                                  </p>
+                                  {item ? (
+                                    <p className="mt-0.5 leading-relaxed">{item.snippet}</p>
+                                  ) : (
+                                    <p className="mt-0.5 text-amber-600">Evidence details unavailable in the loaded profile.</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface ExplanationDrawerProps {
   candidate: Candidate | null
+  projectId: string | null
+  jdDocumentId: string | null
   onClose: () => void
 }
 
-function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
+function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: ExplanationDrawerProps) {
   const [insights, setInsights] = useState<CandidateInsights | null>(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
+  const [normalizedJd, setNormalizedJd] = useState<NormalizedJobDescription | null>(null)
+  const [jdError, setJdError] = useState<string | null>(null)
+  const [loadingJd, setLoadingJd] = useState(false)
 
   React.useEffect(() => {
     if (!candidate?.id) {
       setInsights(null)
+      setLoadingInsights(false)
       return
     }
     let isMounted = true
     setLoadingInsights(true)
     api.getInsights(candidate.id)
       .then((res) => {
-        if (isMounted) {
-          setInsights(res)
-          setLoadingInsights(false)
-        }
+        if (isMounted) setInsights(res)
       })
       .catch(() => {
+        if (isMounted) setInsights(null)
+      })
+      .finally(() => {
         if (isMounted) setLoadingInsights(false)
       })
     return () => { isMounted = false }
@@ -137,9 +401,39 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
     return () => { active = false }
   }, [candidate?.id])
 
+  React.useEffect(() => {
+    if (!candidate || (!jdDocumentId && !projectId)) {
+      setNormalizedJd(null)
+      setJdError(null)
+      return
+    }
+    let active = true
+    setLoadingJd(true)
+    const jdRequest = jdDocumentId
+      ? Promise.resolve({ id: jdDocumentId })
+      : api.getJobDescription(projectId!)
+    jdRequest
+      .then((document) => api.getNormalizedDocument(document.id))
+      .then((normalized) => {
+        if (!active) return
+        if (!('job_title' in normalized)) throw new Error('Normalized job description data was not returned.')
+        setNormalizedJd(normalized)
+        setJdError(null)
+      })
+      .catch((err) => {
+        if (!active) return
+        setNormalizedJd(null)
+        setJdError(err instanceof Error ? err.message : 'Unable to load normalized job description requirements.')
+      })
+      .finally(() => { if (active) setLoadingJd(false) })
+    return () => { active = false }
+  }, [candidate, jdDocumentId, projectId])
+
   const aiSummaryText = insights?.summary || candidate?.aiExplanation || 'AI explanation not yet generated. Please run the AI pipeline first.'
   const displayStrengths = insights?.strengths?.length ? insights.strengths : candidate?.keyStrengths || []
   const displayWeaknesses = insights?.weaknesses?.length ? insights.weaknesses : candidate?.keyWeaknesses || []
+  const requirementLabels = buildRequirementLabelMap(normalizedJd)
+  const evidenceMap = buildEvidenceMap(resumeProfile)
 
   return (
     <AnimatePresence>
@@ -259,6 +553,14 @@ function ExplanationDrawer({ candidate, onClose }: ExplanationDrawerProps) {
                   </p>
                 )}
               </div>
+
+              <RequirementVerdictPanel
+                verdicts={candidate.matchVerdicts || []}
+                requirementLabels={requirementLabels}
+                evidenceMap={evidenceMap}
+                loading={loadingJd || loadingProfile}
+                error={jdError}
+              />
 
               {/* Key Strengths */}
               {displayStrengths.length > 0 && (
@@ -422,12 +724,18 @@ export default function CandidateRanking() {
         return {
           criterionId: key, label,
           score: detail.score,
-          weight: config.weights[key],
+          weight: (persistedScore.effective_weights && persistedScore.effective_weights[key] !== undefined)
+            ? persistedScore.effective_weights[key]
+            : config.weights[key],
           weightedScore: persistedScore.weighted_scores[key],
           isApplicable,
           explanation,
         }
       }),
+      matchVerdicts: persistedScore.match_verdicts || [],
+      passingScore: persistedScore.passing_score ?? config.passing_score,
+      effectiveWeights: persistedScore.effective_weights,
+      scoreBreakdown: persistedScore.score_breakdown || [],
       scoredAt: new Date(ranking.created_at),
       })
     })
@@ -533,6 +841,8 @@ export default function CandidateRanking() {
       {/* AI Explanation Drawer */}
       <ExplanationDrawer
         candidate={selectedCandidate}
+        projectId={state.projectId}
+        jdDocumentId={state.jdDocumentId}
         onClose={() => setSelectedCandidate(null)}
       />
 

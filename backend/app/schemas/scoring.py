@@ -46,6 +46,14 @@ class AdjustmentItem(BaseModel):
     description: str
 
 
+class CategoryBreakdownItem(BaseModel):
+    category: str
+    component_score: float
+    effective_weight: float
+    contribution: float
+    is_applicable: bool
+
+
 class CandidateScoreCreate(BaseModel):
     document_id: UUID
     project_id: UUID
@@ -62,6 +70,9 @@ class CandidateScoreCreate(BaseModel):
     knockout_reason: str | None = None
     penalty_summary: list[AdjustmentItem] = Field(default_factory=list)
     bonus_summary: list[AdjustmentItem] = Field(default_factory=list)
+    passing_score: float = Field(default=70.0, ge=0, le=100)
+    effective_weights: dict[str, float] = Field(default_factory=dict)
+    score_breakdown: list[CategoryBreakdownItem] = Field(default_factory=list)
     weight_config_version: int = Field(ge=1)
     matched_skills: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)

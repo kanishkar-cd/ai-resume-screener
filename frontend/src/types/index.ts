@@ -110,6 +110,19 @@ export interface CandidateScore {
   explanation?: string
 }
 
+export type MatchVerdictStatus = 'MATCHED' | 'NO_MATCH' | 'UNRESOLVED'
+
+export type MatchVerdictMethod = 'exact' | 'alias' | 'taxonomy' | 'llm_confirmed' | 'llm_rejected' | 'llm_unresolved'
+
+export interface MatchVerdict {
+  requirement_id: string
+  status: MatchVerdictStatus
+  confidence: number
+  evidence_ids: string[]
+  reasoning: string
+  method: MatchVerdictMethod | null
+}
+
 export interface Candidate {
   id: string
   name: string
@@ -130,9 +143,13 @@ export interface Candidate {
   status: ScreeningStatus
   extractedFields: ExtractedField[]
   scores: CandidateScore[]
+  matchVerdicts?: MatchVerdict[]
   aiExplanation?: string
   keyStrengths?: string[]
   keyWeaknesses?: string[]
+  passingScore?: number
+  effectiveWeights?: Record<string, number>
+  scoreBreakdown?: import('../api/types').CategoryBreakdownItem[]
   extractedAt?: Date
   scoredAt?: Date
 }

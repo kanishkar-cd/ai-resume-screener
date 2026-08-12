@@ -217,3 +217,82 @@ async def test_validated_llm_match_enriches_scoring_copy_only() -> None:
     assert before.skills == after.skills
     assert before.experience == after.experience
     assert before.education == after.education
+
+
+def test_ai_verdict_classification_contract_validation() -> None:
+    verdict_confirmed = MatchVerdict(
+        requirement_id="responsibility:1", status=MatchStatus.MATCHED, confidence=0.9,
+        evidence_ids=["project:1"], method=MatchMethod.LLM_CONFIRMED,
+    )
+    assert verdict_confirmed.method == MatchMethod.LLM_CONFIRMED
+
+    verdict_rejected = MatchVerdict(
+        requirement_id="responsibility:2", status=MatchStatus.NO_MATCH, confidence=0.95,
+        evidence_ids=["project:1"], reasoning="Candidate text does not satisfy database requirement.",
+        method=MatchMethod.LLM_REJECTED,
+    )
+    assert verdict_rejected.method == MatchMethod.LLM_REJECTED
+
+    verdict_unresolved = MatchVerdict(
+        requirement_id="responsibility:3", status=MatchStatus.UNRESOLVED, confidence=0.0,
+        evidence_ids=[], reasoning="Ambiguous context.",
+        method=MatchMethod.LLM_UNRESOLVED,
+    )
+    assert verdict_unresolved.method == MatchMethod.LLM_UNRESOLVED
+
+
+@pytest.mark.asyncio
+async def test_multi_candidate_isolation_and_evidence_prefilter_fallback() -> None:
+    class MockGroqEvaluator:
+        enabled = True
+        async def evaluate(self, requirements, evidence, allowed_evidence=None):
+            verdicts = []
+            for r in requirements:
+                if "database" in r.text.casefold():
+                    verdicts.append(MatchVerdict(
+                        requirement_id=r.requirement_id, status=MatchStatus.MATCHED, confidence=0.9,
+                        evidence_ids=[e.evidence_id for e in evidence[:1]], reasoning="AI confirmed database match.",
+                        method=MatchMethod.LLM_CONFIRMED,
+                    ))
+                else:
+                    verdicts.append(MatchVerdict(
+                        requirement_id=r.requirement_id, status=MatchStatus.NO_MATCH, confidence=0.85,
+                        evidence_ids=[e.evidence_id for e in evidence[:1]], reasoning="AI rejected requirement.",
+                        method=MatchMethod.LLM_REJECTED,
+                    ))
+            return verdicts
+
+    service = HybridMatchingService(settings=settings(), evaluator=MockGroqEvaluator())
+    job = SimpleNamespace(
+        skills=[], preferred_skills=[], degree_requirements=[], keywords=[],
+        responsibilities=["Architect database schemas", "Manage Kubernetes clusters"],
+        experience_requirements=[],
+    )
+
+    # Candidate 1
+    extracted_cand1 = SimpleNamespace(
+        projects=[{"name": "App 1", "description": "Built PostgreSQL database models", "technologies": ["PostgreSQL"]}],
+        experience=[],
+    )
+    _, verdicts_cand1 = await service.match(job, SimpleNamespace(skills=[], education=[], certifications=[], languages=[]), extracted_cand1, SimpleNamespace(mandatory_skills=[], required_certifications=[], required_languages=[]))
+
+    # Candidate 2
+    extracted_cand2 = SimpleNamespace(
+        projects=[{"name": "App 2", "description": "Designed UI components in React", "technologies": ["React"]}],
+        experience=[],
+    )
+    _, verdicts_cand2 = await service.match(job, SimpleNamespace(skills=[], education=[], certifications=[], languages=[]), extracted_cand2, SimpleNamespace(mandatory_skills=[], required_certifications=[], required_languages=[]))
+
+    # Assert candidate 1 verdicts
+    resp1_cand1 = next(v for v in verdicts_cand1 if v.requirement_id == "responsibility:1")
+    assert resp1_cand1.method == MatchMethod.LLM_CONFIRMED
+    assert resp1_cand1.status == MatchStatus.MATCHED
+
+    # Assert candidate 2 verdicts
+    resp1_cand2 = next(v for v in verdicts_cand2 if v.requirement_id == "responsibility:1")
+    assert resp1_cand2.method == MatchMethod.LLM_CONFIRMED
+
+    resp2_cand2 = next(v for v in verdicts_cand2 if v.requirement_id == "responsibility:2")
+    assert resp2_cand2.method == MatchMethod.LLM_REJECTED
+    assert resp2_cand2.status == MatchStatus.NO_MATCH
+

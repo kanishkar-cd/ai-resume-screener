@@ -63,12 +63,15 @@ class CandidateScoreModel(UUIDMixin, TimestampMixin, Base):
         ),
         nullable=False,
     )
+    passing_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("70.0"), server_default="70.0")
+    effective_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     is_knocked_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
     knockout_reason: Mapped[str | None] = mapped_column(Text)
     penalty_summary: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     bonus_summary: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    score_breakdown: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     match_verdicts: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     weight_config_version: Mapped[int] = mapped_column(Integer, nullable=False)
     ranking: Mapped["CandidateRankingModel | None"] = relationship(

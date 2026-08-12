@@ -25,6 +25,8 @@ class MatchMethod(str, Enum):
     ALIAS = "alias"
     TAXONOMY = "taxonomy"
     LLM_CONFIRMED = "llm_confirmed"
+    LLM_REJECTED = "llm_rejected"
+    LLM_UNRESOLVED = "llm_unresolved"
 
 
 class Requirement(BaseModel):
@@ -57,6 +59,10 @@ class MatchVerdict(BaseModel):
             raise ValueError("matched verdicts require a method")
         if self.method == MatchMethod.LLM_CONFIRMED and self.status != MatchStatus.MATCHED:
             raise ValueError("llm_confirmed is valid only for matched verdicts")
+        if self.method == MatchMethod.LLM_REJECTED and self.status != MatchStatus.NO_MATCH:
+            raise ValueError("llm_rejected is valid only for no_match verdicts")
+        if self.method == MatchMethod.LLM_UNRESOLVED and self.status != MatchStatus.UNRESOLVED:
+            raise ValueError("llm_unresolved is valid only for unresolved verdicts")
         return self
 
 

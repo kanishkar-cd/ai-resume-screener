@@ -186,15 +186,18 @@ class EvidencePrefilter:
         self.threshold, self.limit = threshold, limit
 
     def select(self, requirement: Requirement, evidence: list[Evidence]) -> list[Evidence]:
-        required = _tokens(requirement.text)
-        if not required:
+        if not evidence:
             return []
+        required = _tokens(requirement.text)
         scored = []
         for item in evidence:
-            overlap = len(required & _tokens(item.text)) / len(required)
-            if overlap >= self.threshold:
-                scored.append((overlap, item.evidence_id, item))
+            overlap = len(required & _tokens(item.text)) / len(required) if required else 0.0
+            scored.append((overlap, item.evidence_id, item))
         scored.sort(key=lambda row: (-row[0], row[1]))
+        passing = [row[2] for row in scored if row[0] >= self.threshold]
+        if passing:
+            return passing[: self.limit]
+        # Fallback to available evidence items so LLM can perform semantic review
         return [row[2] for row in scored[: self.limit]]
 
 
@@ -268,13 +271,16 @@ class GroqMatchEvaluator:
             seen.add(item.requirement_id)
             confirmed = item.status == MatchStatus.MATCHED and item.confidence >= threshold and valid_evidence
             accepted_no_match = item.status == MatchStatus.NO_MATCH and valid_evidence
+            status = MatchStatus.MATCHED if confirmed else MatchStatus.NO_MATCH if accepted_no_match else MatchStatus.UNRESOLVED
+            method = MatchMethod.LLM_CONFIRMED if confirmed else MatchMethod.LLM_REJECTED if accepted_no_match else MatchMethod.LLM_UNRESOLVED
+            reasoning = item.reasoning if (confirmed or accepted_no_match) else (item.reasoning or "LLM verdict unresolved by confidence or evidence validation.")
             result.append(MatchVerdict(
                 requirement_id=item.requirement_id,
-                status=MatchStatus.MATCHED if confirmed else MatchStatus.NO_MATCH if accepted_no_match else MatchStatus.UNRESOLVED,
-                confidence=item.confidence if (confirmed or accepted_no_match) else 0,
+                status=status,
+                confidence=item.confidence if (confirmed or accepted_no_match) else 0.0,
                 evidence_ids=item.evidence_ids if valid_evidence else [],
-                reasoning=item.reasoning if (confirmed or accepted_no_match) else "LLM verdict rejected by validation.",
-                method=MatchMethod.LLM_CONFIRMED if confirmed else None,
+                reasoning=reasoning,
+                method=method,
             ))
         return result
 

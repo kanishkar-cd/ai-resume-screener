@@ -58,7 +58,7 @@ class WeightCalculationService:
         }
         weighted = {name: round(raw[name] * effective_weights[name] / 100, 2) for name in weights}
         raw_total = round(sum(raw[name] for name in applicable) / len(applicable), 2) if applicable else 0.0
-        return WeightedScores(**weighted), raw_total, round(sum(weighted.values()), 2)
+        return WeightedScores(**weighted), raw_total, round(sum(weighted.values()), 2), {name: round(val, 2) for name, val in effective_weights.items()}
 
     @staticmethod
     def final_score(weighted_total: float, penalty_total: float, bonus_total: float) -> float:
