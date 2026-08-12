@@ -3,6 +3,7 @@ from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.matching import MatchVerdict
 
 
 class RecommendationLevel(str, Enum):
@@ -66,6 +67,7 @@ class CandidateScoreCreate(BaseModel):
     missing_skills: list[str] = Field(default_factory=list)
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
+    match_verdicts: list[MatchVerdict] = Field(default_factory=list)
 
 
 

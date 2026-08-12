@@ -19,6 +19,7 @@ from app.services.scoring import (
     BonusService, ComponentScoringService, ConfidenceService, PenaltyService,
     RecommendationService, WeightCalculationService,
 )
+from app.services.matching_service import HybridMatchingService
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +70,7 @@ class ScoringEngineFacade:
         self.normalizations, self.extractions = normalizations, extractions
         self.weight_configs, self.scores = weight_configs, scores
         self.components = ComponentScoringService()
+        self.hybrid_matching = HybridMatchingService()
 
     async def score_project(self, project_id: UUID) -> ProjectScoringRead:
         logger.info("[SCORE] scoring started", project_id=str(project_id))
@@ -153,7 +155,18 @@ class ScoringEngineFacade:
             if extracted is None:
                 extracted = await self.extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
-            components = self.components.score(resume, job, config, extracted.projects)
+            try:
+                scoring_extracted, match_verdicts = await self.hybrid_matching.match(
+                    job, resume, extracted, config
+                )
+            except Exception as exc:
+                logger.warning(
+                    "hybrid_matching_fallback",
+                    document_id=str(document.id),
+                    error_type=type(exc).__name__,
+                )
+                scoring_extracted, match_verdicts = extracted, []
+            components = self.components.score(resume, job, config, scoring_extracted.projects)
             applicable_categories = WeightCalculationService.applicable_categories(job, config)
             weighted, raw_total, weighted_total = WeightCalculationService.calculate(
                 components, config, applicable_categories
@@ -211,6 +224,7 @@ class ScoringEngineFacade:
                 missing_skills=missing_skills,
                 strengths=strengths,
                 weaknesses=weaknesses,
+                match_verdicts=match_verdicts,
             ))
             logger.info(
                 "[SCORE] candidate scored",
