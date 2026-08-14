@@ -523,10 +523,11 @@ export default function CandidateRanking() {
     if (!state.projectId) { setRankingsLoading(false); return }
     let active = true
     setRankingsLoading(true)
-    Promise.all([api.getRankings(state.projectId, { page_size: 100 }), api.getProjectScores(state.projectId), api.getWeightConfig(state.projectId)])
-      .then(([response, scores, config]) => {
+    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { skills: 50, experience: 0, projects: 50, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
+    Promise.all([api.getRankings(state.projectId, { page_size: 100 }), api.getProjectScores(state.projectId)])
+      .then(([response, scores]) => {
         if (active) {
-          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items, scores, config) })
+          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items, scores, dummyConfig) })
           setFetchError(null)
         }
       })
