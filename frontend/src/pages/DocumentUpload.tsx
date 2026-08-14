@@ -293,6 +293,38 @@ export default function DocumentUpload() {
           status: 'error',
           errorMessage: message,
         },
+      })
+      dispatch({ type: 'SET_PROCESSING', payload: false })
+    }
+  }
+
+  const handleRemoveJD = () => {
+    if (busy) return
+    setFlowError(null)
+    setFlowPhase('idle')
+    dispatch({ type: 'SET_JD', payload: null })
+    dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: null })
+    updateJdProcessing({ status: null, stage: null, normalized: false })
+  }
+
+  const handleContinue = () => {
+    if (!canProceedJD) return
+    completeAndAdvance()
+    navigate(`/projects/${state.projectId}/resumes`)
+  }
+
+  const jdCount = state.jdNormalized && state.jdDocumentId ? 1 : 0
+  const statusText = processingLabel(
+    state.jdProcessingStage,
+    state.jdProcessingStatus,
+    state.jdNormalized,
+    busy,
+  )
+
+  return (
+    <motion.div
+      variants={container}
+      initial="hidden"
       animate="show"
       className="max-w-5xl mx-auto"
     >
@@ -461,7 +493,7 @@ export default function DocumentUpload() {
               animate={canProceedJD ? { boxShadow: ['0 4px 12px rgba(2,132,199,0.3)', '0 6px 20px rgba(2,132,199,0.5)', '0 4px 12px rgba(2,132,199,0.3)'] } : undefined}
               transition={canProceedJD ? { duration: 2, repeat: Infinity } : undefined}
             >
-              Continue to Stage 2
+              Continue to Resume Upload
               <ArrowRight size={15} />
             </motion.button>
             <p className="text-[10px] text-slate-400 text-center leading-relaxed">
