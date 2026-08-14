@@ -47,6 +47,8 @@ export default function DepartmentDashboard() {
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteProject, setConfirmDeleteProject] = useState<Project | null>(null)
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
+  const [isDeletingAll, setIsDeletingAll] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const department: Department =
@@ -94,6 +96,11 @@ export default function DepartmentDashboard() {
     setConfirmDeleteProject(proj)
   }
 
+  const handleDeleteAllClick = () => {
+    setDeleteError(null)
+    setConfirmDeleteAll(true)
+  }
+
   const handleConfirmDelete = async () => {
     if (!confirmDeleteProject) return
     const targetId = confirmDeleteProject.id
@@ -101,12 +108,27 @@ export default function DepartmentDashboard() {
     setDeleteError(null)
     try {
       await api.deleteProject(targetId)
+      setProjects((prev) => prev.filter((p) => p.id !== targetId))
       setConfirmDeleteProject(null)
-      fetchDeptProjects()
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete requisition. Please try again.')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleConfirmDeleteAll = async () => {
+    if (projects.length === 0) return
+    setIsDeletingAll(true)
+    setDeleteError(null)
+    try {
+      await Promise.all(projects.map((p) => api.deleteProject(p.id)))
+      setProjects([])
+      setConfirmDeleteAll(false)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete all requisitions. Please try again.')
+    } finally {
+      setIsDeletingAll(false)
     }
   }
 
@@ -122,36 +144,47 @@ export default function DepartmentDashboard() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-7">
-      {/* Clean ATS Header with Breadcrumbs & Name */}
-      <div className="border-b border-slate-200/60 pb-6">
-        <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
-          <button
-            type="button"
-            onClick={() => navigate('/departments')}
-            className="text-slate-500 hover:text-blue-600 transition-colors font-medium"
-          >
-            Departments
-          </button>
-          <span>/</span>
-          <span className="text-blue-600 font-bold">{department.name}</span>
+      {/* Clean ATS Header with Breadcrumbs, Name & Create Requisition Action */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/60 pb-6">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
+            <button
+              type="button"
+              onClick={() => navigate('/departments')}
+              className="text-slate-500 hover:text-blue-600 transition-colors font-medium cursor-pointer"
+            >
+              Departments
+            </button>
+            <span>/</span>
+            <span className="text-blue-600 font-bold">{department.name}</span>
+          </div>
+
+          <div className="flex items-center gap-3 mt-1">
+            <div className={`w-9 h-9 rounded-xl ${department.badgeBg} flex items-center justify-center shrink-0`}>
+              <Icon size={18} className={department.badgeText} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
+                <span>{department.name}</span>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-slate-100 text-slate-600">
+                  {department.code}
+                </span>
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium line-clamp-1">
+                {department.description}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-1">
-          <div className={`w-9 h-9 rounded-xl ${department.badgeBg} flex items-center justify-center shrink-0`}>
-            <Icon size={18} className={department.badgeText} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-              <span>{department.name}</span>
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-slate-100 text-slate-600">
-                {department.code}
-              </span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5 font-medium line-clamp-1">
-              {department.description}
-            </p>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate(`/departments/${department.id}/requisitions/new`)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer self-start md:self-auto shrink-0"
+        >
+          <Plus size={15} />
+          <span>Create Requisition</span>
+        </button>
       </div>
 
       {error && (
@@ -177,15 +210,29 @@ export default function DepartmentDashboard() {
             )}
           </div>
 
-          <div className="relative max-w-xs w-full">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by title or target role..."
-              className="w-full pl-8 pr-3.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-all"
-            />
+          <div className="flex items-center gap-3">
+            <div className="relative max-w-xs w-full">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by title or target role..."
+                className="w-full pl-8 pr-3.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-all"
+              />
+            </div>
+
+            {projects.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllClick}
+                disabled={isDeletingAll}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 border border-red-200/80 rounded-xl transition-all cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Trash2 size={14} className="shrink-0" />
+                <span>Delete All</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -205,7 +252,7 @@ export default function DepartmentDashboard() {
               <button
                 type="button"
                 onClick={() => navigate(`/departments/${department.id}/requisitions/new`)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
               >
                 <Plus size={14} />
                 <span>Create Requisition</span>
@@ -296,7 +343,7 @@ export default function DepartmentDashboard() {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Single Delete Confirmation Modal */}
       {confirmDeleteProject && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150">
@@ -313,7 +360,7 @@ export default function DepartmentDashboard() {
               <button
                 type="button"
                 onClick={() => setConfirmDeleteProject(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -334,7 +381,7 @@ export default function DepartmentDashboard() {
               <button
                 type="button"
                 onClick={() => setConfirmDeleteProject(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -351,6 +398,70 @@ export default function DepartmentDashboard() {
                   </>
                 ) : (
                   <span>Confirm Delete</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {confirmDeleteAll && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                  <Trash2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Delete All Requisitions</h3>
+                  <p className="text-xs text-slate-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteAll(false)}
+                disabled={isDeletingAll}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete <strong className="text-slate-900">all {projects.length} {projects.length === 1 ? 'requisition' : 'requisitions'}</strong> for <strong className="text-slate-900">{department.name}</strong>? All associated screening scores, candidate rankings, and job description files will be permanently removed from the database.
+            </p>
+
+            {deleteError && (
+              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteAll(false)}
+                disabled={isDeletingAll}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAll}
+                disabled={isDeletingAll}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingAll ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Deleting All...</span>
+                  </>
+                ) : (
+                  <span>Confirm Delete All</span>
                 )}
               </button>
             </div>
