@@ -627,29 +627,6 @@ export default function CandidateRanking() {
           </div>
         </motion.div>
 
-        {/* ── KPI Cards ── */}
-        <motion.div variants={fadeUp} className="grid grid-cols-4 gap-3">
-          {[
-            { icon: Users,       label: 'Total Candidates',     value: candidates.length, color: 'text-blue-600',   bg: 'bg-blue-50 border-blue-100'   },
-            { icon: CheckCircle2,label: 'Shortlisted',          value: shortlisted,       color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
-            { icon: HelpCircle,  label: 'Needs Review',         value: needsReview,       color: 'text-amber-600',   bg: 'bg-amber-50 border-amber-100'   },
-            { icon: Trophy,      label: 'Avg Match Score',      value: `${avgScore}%`,    color: 'text-blue-600',    bg: 'bg-white border-slate-200'      },
-          ].map((kpi) => {
-            const Icon = kpi.icon
-            return (
-              <motion.div key={kpi.label} className={`rounded-2xl border p-5 ${kpi.bg}`} whileHover={{ y: -2 }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon size={14} className={kpi.color} />
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{kpi.label}</p>
-                </div>
-                <motion.p key={String(kpi.value)} className={`text-[26px] font-extrabold ${kpi.color}`} initial={{ scale: 0.85 }} animate={{ scale: 1 }}>
-                  {kpi.value}
-                </motion.p>
-              </motion.div>
-            )
-          })}
-        </motion.div>
-
         {/* ── Candidate Table ── */}
         <motion.div variants={fadeUp} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
 

@@ -135,28 +135,25 @@ export default function RecruiterDashboard() {
       </motion.div>
 
       {/* Stats */}
-      <motion.div variants={fadeUp} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      <motion.div variants={fadeUp} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { icon: Users, label: 'Total Candidates', value: totalCandidatesCount, color: 'text-sky-600', bg: 'bg-sky-50' },
-          { icon: Star, label: 'Screened', value: screenedCount, color: 'text-green-600', bg: 'bg-green-50' },
-          { icon: Trophy, label: 'Avg Score', value: `${avgScoreVal}%`, color: 'text-sky-600', bg: 'bg-sky-50' },
-          { icon: LayoutDashboard, label: 'Top Score', value: `${topScoreVal}%`, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { icon: LayoutDashboard, label: 'Lowest Score', value: `${lowestScoreVal}%`, color: 'text-slate-600', bg: 'bg-white' },
-          { icon: Users, label: 'Needs Review', value: reviewCount, color: 'text-amber-600', bg: 'bg-white' },
-          { icon: Users, label: 'Rejected', value: rejectedCount, color: 'text-red-600', bg: 'bg-white' },
+          { icon: Users, label: 'Total Candidates', value: totalCandidatesCount, color: 'text-blue-600', bg: 'bg-blue-50/80 border-blue-100/80' },
+          { icon: Star, label: 'Screened', value: screenedCount, color: 'text-emerald-600', bg: 'bg-emerald-50/80 border-emerald-100/80' },
+          { icon: Users, label: 'Needs Review', value: reviewCount, color: 'text-amber-600', bg: 'bg-amber-50/80 border-amber-100/80' },
+          { icon: Users, label: 'Rejected', value: rejectedCount, color: 'text-red-600', bg: 'bg-red-50/80 border-red-100/80' },
         ].map((s) => {
           const Icon = s.icon
           return (
             <motion.div
               key={s.label}
-              className={`card p-4 ${s.bg} border-transparent`}
+              className={`rounded-2xl border p-5 ${s.bg}`}
               whileHover={{ y: -2 }}
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1.5">
                 <Icon size={14} className={s.color} />
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">{s.label}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{s.label}</p>
               </div>
-              <motion.p key={String(s.value)} className={`text-[24px] font-bold ${s.color}`} initial={{ scale: 0.85 }} animate={{ scale: 1 }}>
+              <motion.p key={String(s.value)} className={`text-[26px] font-extrabold ${s.color}`} initial={{ scale: 0.85 }} animate={{ scale: 1 }}>
                 {s.value}
               </motion.p>
             </motion.div>
