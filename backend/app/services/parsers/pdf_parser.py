@@ -1,6 +1,8 @@
 from pathlib import Path
 
+# pyrefly: ignore [missing-import]
 import fitz
+# pyrefly: ignore [missing-import]
 import structlog
 
 from app.schemas.parsed_document import ParserEngine
