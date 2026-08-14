@@ -40,7 +40,12 @@ class ComponentScoringService:
         job_req_skills = list(getattr(job, "required_skills", None) or [])
         if not job_req_skills:
             job_req_skills = list(getattr(job, "skills", None) or [])
-        required_skills = self._deduplicate([*(config.mandatory_skills or []), *job_req_skills])
+        
+        # Only required skills count towards deterministic skill score
+        required_skills = self._deduplicate(job_req_skills)
+        if config and getattr(config, "mandatory_skills", None):
+            required_skills = self._deduplicate([*(config.mandatory_skills or []), *required_skills])
+
         skills = self._match(candidate_skills, required_skills, "required skills")
 
         candidate_months = sum(item.get("duration_months") or 0 for item in (resume.experience or []))

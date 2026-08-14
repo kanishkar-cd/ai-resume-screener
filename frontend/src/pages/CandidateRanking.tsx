@@ -49,7 +49,7 @@ function getRecommendationConfig(candidate: Candidate): {
   iconColor: string
   Icon: typeof CheckCircle2
 } {
-  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
+  if (candidate.status === 'rejected' || candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
     return {
       label: 'Not Relevant',
       shortLabel: 'Reject',
@@ -58,7 +58,7 @@ function getRecommendationConfig(candidate: Candidate): {
       Icon: ThumbsDown,
     }
   }
-  if (candidate.recommendation === 'SHORTLIST') {
+  if (candidate.status === 'screened' || candidate.recommendation === 'SHORTLIST') {
     return {
       label: 'Strong Match',
       shortLabel: 'Shortlist',
@@ -527,7 +527,13 @@ export default function CandidateRanking() {
     Promise.all([api.getRankings(state.projectId, { page_size: 100 }), api.getProjectScores(state.projectId)])
       .then(([response, scores]) => {
         if (active) {
-          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: mapRankings(response.items, scores, dummyConfig) })
+          const freshMapped = mapRankings(response.items, scores, dummyConfig)
+          const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
+          const merged = freshMapped.map((c) => {
+            const overrideStatus = existingStatusMap.get(c.id)
+            return overrideStatus ? { ...c, status: overrideStatus } : c
+          })
+          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
           setFetchError(null)
         }
       })
@@ -537,7 +543,7 @@ export default function CandidateRanking() {
       })
       .finally(() => { if (active) setRankingsLoading(false) })
     return () => { active = false }
-  }, [dispatch, mapRankings, state.projectId])
+  }, [dispatch, mapRankings, state.projectId, state.candidates.length])
 
   // Derived data
   const filtered = candidates

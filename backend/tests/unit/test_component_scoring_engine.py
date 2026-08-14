@@ -218,3 +218,91 @@ def test_or_alternative_skills_group_matching_and_50_mark_calculation() -> None:
     assert round((c2_scores.skills.score / 100.0) * 50.0, 2) == 16.66
 
 
+def test_6_out_of_12_required_skills_equals_25_out_of_50() -> None:
+    """Requirement test: 6/12 required skills = 25/50 skill match score."""
+    service = ComponentScoringService()
+    req_skills = [f"Skill_{i}" for i in range(12)]
+    candidate_skills = [f"Skill_{i}" for i in range(6)]
+
+    resume = SimpleNamespace(skills=candidate_skills, experience=[], education=[], certifications=[], languages=[])
+    job = SimpleNamespace(required_skills=req_skills, skills=[], experience_requirements=[], degree_requirements=[], keywords=[])
+    config = SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[])
+
+    scores = service.score(resume, job, config)
+    assert scores.skills.score == 50.0  # 6/12 * 100
+    deterministic_50 = (scores.skills.score / 100.0) * 50.0
+    assert deterministic_50 == 25.0
+
+
+def test_preferred_skills_do_not_increase_deterministic_skill_score() -> None:
+    """Requirement test: Preferred skills must not increase the deterministic skill score."""
+    service = ComponentScoringService()
+    req_skills = ["Skill_A", "Skill_B"]
+    pref_skills = ["Bonus_X", "Bonus_Y", "Bonus_Z"]
+
+    # Candidate has 1 required skill + 3 preferred skills
+    resume = SimpleNamespace(skills=["Skill_A", "Bonus_X", "Bonus_Y", "Bonus_Z"], experience=[], education=[], certifications=[], languages=[])
+    job = SimpleNamespace(required_skills=req_skills, preferred_skills=pref_skills, skills=[], experience_requirements=[], degree_requirements=[], keywords=[])
+    config = SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[])
+
+    scores = service.score(resume, job, config)
+    assert scores.skills.score == 50.0  # 1/2 required skills matched = 50%
+    deterministic_50 = (scores.skills.score / 100.0) * 50.0
+    assert deterministic_50 == 25.0
+
+
+def test_languages_ignored_when_jd_has_no_language_requirement() -> None:
+    """Requirement test: Ignore languages unless JD explicitly requires them."""
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+
+    job = SimpleNamespace(skills=["Python"], experience_requirements=[], degree_requirements=[], keywords=[])
+    config_no_lang = SimpleNamespace(mandatory_skills=[], required_languages=[], min_experience_years=0, required_degree=None, required_certifications=[])
+    
+    categories = WeightCalculationService.applicable_categories(job, config_no_lang)
+    assert "languages" not in categories
+
+
+def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_50() -> None:
+    """Requirement test: Final score must be exactly skill_score + ai_relevance_score with no default 40/50 fallback."""
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+    from app.schemas.scoring import ComponentScoreDetail, ComponentScores
+
+    # 1. Skill score 25/50 + AI relevance 35/50 = 60/100
+    comp_score_50 = ComponentScoringService()._match(["A"], ["A", "B"], "skills")  # 50% = 25/50
+    evidence_detail = ComponentScoreDetail(score=70.0, matched_items=[], missing_items=[], explanation="70% = 35/50")
+    components = ComponentScores(
+        skills=comp_score_50, experience=evidence_detail, projects=evidence_detail,
+        education=evidence_detail, certifications=evidence_detail, languages=evidence_detail,
+    )
+
+    final = WeightCalculationService.final_score(0, 0, 0, components=components)
+    assert final == 60.0  # 25 + 35
+
+    # 2. Assert no static 40/50 or default fallback scores are injected
+    zero_detail = ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation="0%")
+    zero_components = ComponentScores(
+        skills=zero_detail, experience=zero_detail, projects=zero_detail,
+        education=zero_detail, certifications=zero_detail, languages=zero_detail,
+    )
+    zero_final = WeightCalculationService.final_score(0, 0, 0, components=zero_components)
+    assert zero_final == 0.0
+
+
+def test_ranking_sorts_strictly_by_final_score() -> None:
+    """Requirement test: Rankings sort strictly by final_score."""
+    from app.services.ranking import RankingAlgorithm
+    from app.schemas.scoring import RecommendationLevel
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    c1 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=45.0, is_knocked_out=False, recommendation=RecommendationLevel.REJECT, skills_score=45, experience_score=45, confidence=90), None)
+    c2 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=85.0, is_knocked_out=False, recommendation=RecommendationLevel.SHORTLIST, skills_score=85, experience_score=85, confidence=90), None)
+    c3 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=65.0, is_knocked_out=False, recommendation=RecommendationLevel.CONSIDER, skills_score=65, experience_score=65, confidence=90), None)
+
+    rankings = RankingAlgorithm.compute([c1, c2, c3], {})
+    assert rankings[0].document_id == c2[0].document_id and rankings[0].rank_position == 1  # 85
+    assert rankings[1].document_id == c3[0].document_id and rankings[1].rank_position == 2  # 65
+    assert rankings[2].document_id == c1[0].document_id and rankings[2].rank_position == 3  # 45
+
+
+
