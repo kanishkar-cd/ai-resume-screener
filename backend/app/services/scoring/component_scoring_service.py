@@ -37,9 +37,10 @@ class ComponentScoringService:
 
     def score(self, resume: Any, job: Any, config: Any, projects: list[dict[str, Any]] | None = None) -> ComponentScores:
         candidate_skills = list(resume.skills or [])
-        # Mandatory configuration owns the canonical display casing when the JD
-        # contains the same skill with a different case.
-        required_skills = self._deduplicate([*(config.mandatory_skills or []), *(job.skills or [])])
+        job_req_skills = list(getattr(job, "required_skills", None) or [])
+        if not job_req_skills:
+            job_req_skills = list(getattr(job, "skills", None) or [])
+        required_skills = self._deduplicate([*(config.mandatory_skills or []), *job_req_skills])
         skills = self._match(candidate_skills, required_skills, "required skills")
 
         candidate_months = sum(item.get("duration_months") or 0 for item in (resume.experience or []))
@@ -96,12 +97,47 @@ class ComponentScoringService:
         return ComponentScores(skills=skills, experience=experience, projects=project_score, education=education, certifications=certifications, languages=languages)
 
 
-    def _match(self, candidate: list[str], required: list[str], label: str) -> ComponentScoreDetail:
-        required = self._deduplicate(required)
+    def _match_groups(self, candidate: list[str], required_items: list[str], label: str) -> ComponentScoreDetail:
+        """
+        Match candidate items against required requirements.
+        Supports OR alternative groups formatted as "A / B / C" or "A or B or C".
+        Each alternative group counts as 1 requirement item. Matching any alternative satisfies the group.
+        """
         candidate_keys = self._keys(candidate)
-        matched = [item for item in required if item.strip().casefold() in candidate_keys]
-        missing = [item for item in required if item.strip().casefold() not in candidate_keys]
-        return ComponentScoreDetail(score=self._percentage(matched, required), matched_items=matched, missing_items=missing, explanation=f"Matched {len(matched)} of {len(required)} {label}.")
+        matched_display: list[str] = []
+        missing_display: list[str] = []
+        satisfied_groups = 0
+
+        # Clean and deduplicate requirement items while preserving group structure
+        raw_items = self._deduplicate(required_items)
+        if not raw_items:
+            return ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=f"No {label} required.")
+
+        for item in raw_items:
+            # Parse alternative choices within the requirement line
+            alternatives = [alt.strip() for alt in re.split(r"\s+(?:or|\/|\|)\s+|\s*,\s*or\s+", item, flags=re.IGNORECASE) if alt.strip()]
+            if not alternatives:
+                alternatives = [item.strip()]
+
+            # Check if any alternative is present in the candidate's skills/items
+            matched_alt = next((alt for alt in alternatives if alt.casefold() in candidate_keys), None)
+
+            if matched_alt:
+                satisfied_groups += 1
+                matched_display.append(matched_alt)
+            else:
+                missing_display.append(item)
+
+        score = round(min(100.0, (satisfied_groups / len(raw_items)) * 100.0), 2)
+        return ComponentScoreDetail(
+            score=score,
+            matched_items=matched_display,
+            missing_items=missing_display,
+            explanation=f"Matched {satisfied_groups} of {len(raw_items)} {label}.",
+        )
+
+    def _match(self, candidate: list[str], required: list[str], label: str) -> ComponentScoreDetail:
+        return self._match_groups(candidate, required, label)
 
     @classmethod
     def degree_rank(cls, degree: str | None) -> int:

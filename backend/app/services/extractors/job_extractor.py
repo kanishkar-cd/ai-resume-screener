@@ -34,20 +34,9 @@ class JobDescriptionExtractor:
                 job_title = matched_desig[0]
                 break
 
-        # Extracted responsibilities: get responsibilities section or find responsibility prose
+        # Extracted responsibilities: get responsibilities section strictly
         resp_block = sections.get("responsibilities", "")
         responsibilities = content_lines(resp_block)
-        if not responsibilities:
-            # Look in header or summary sections for sentences/lines containing action verbs or responsibility indicators
-            for sec_key in ("header", "summary"):
-                sec_text = sections.get(sec_key, "")
-                lines = content_lines(sec_text)
-                for line in lines:
-                    # Skip lines that are just job title or contact
-                    if match_terms(line, DESIGNATIONS) and len(line.split()) <= 4:
-                        continue
-                    if re.search(r"\b(?:responsible|responsibilities|design|develop|build|maintain|collaborate|lead|manage|create|implement|test)\b", line, re.I):
-                        responsibilities.append(line)
 
         # Education: extract only the degree/qualification names rather than whole sentence
         matched_degrees: list[str] = []

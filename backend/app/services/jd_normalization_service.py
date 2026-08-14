@@ -109,21 +109,17 @@ def _canonicalize_degree(raw: str) -> tuple[str, str]:
 
 
 def _canonicalize_skills(raw_skills: list[str]) -> tuple[list[str], list[NormalizationChange]]:
-    """Lowercase, deduplicate and sort skills."""
+    """Deduplicate skills preserving original display casing and list order."""
     changes: list[NormalizationChange] = []
     seen: dict[str, str] = {}
     for skill in raw_skills:
-        canonical = skill.lower().strip()
-        if canonical not in seen:
-            if skill != canonical:
-                changes.append(NormalizationChange(
-                    field="skills",
-                    source=skill,
-                    canonical=canonical,
-                    rule="skills:lowercase",
-                ))
-            seen[canonical] = skill
-    return sorted(seen.keys()), changes
+        cleaned = re.sub(r"\s+", " ", skill).strip()
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key not in seen:
+            seen[key] = cleaned
+    return list(seen.values()), changes
 
 
 def _canonicalize_keywords(raw_keywords: list[str]) -> list[str]:
@@ -238,22 +234,26 @@ class JDNormalizationService:
 
         # ── Experience ──────────────────────────────────────────
         experience_requirements: list[CanonicalExperienceRequirement] = []
+        seen_exp_keys: set[str] = set()
         for raw_exp in (extracted.experience or []):
             req = _parse_experience_phrase(raw_exp)
-            experience_requirements.append(req)
-            changes.append(NormalizationChange(
-                field="experience",
-                source=raw_exp,
-                canonical=req.display_value,
-                rule=f"experience_parse:months(min={req.minimum_months},max={req.maximum_months})",
-            ))
+            exp_key = f"{req.minimum_months}:{req.maximum_months}:{req.display_value.casefold()}"
+            if exp_key not in seen_exp_keys:
+                seen_exp_keys.add(exp_key)
+                experience_requirements.append(req)
+                changes.append(NormalizationChange(
+                    field="experience",
+                    source=raw_exp,
+                    canonical=req.display_value,
+                    rule=f"experience_parse:months(min={req.minimum_months},max={req.maximum_months})",
+                ))
 
         if not experience_requirements:
             warnings.append("No experience requirements found in extracted data.")
 
         # ── Keywords ────────────────────────────────────────────
         canonical_keywords = _canonicalize_keywords(extracted.keywords or [])
-        responsibilities = _stable_casefold(_safe_list(extracted, "responsibilities"))
+        responsibilities = [r.strip() for r in (extracted.responsibilities or []) if r.strip()]
         certifications = _stable_casefold(_safe_list(extracted, "certifications"))
         education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
         job_title_value = getattr(extracted, "job_title", None)

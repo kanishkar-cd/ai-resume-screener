@@ -86,11 +86,12 @@ CERTIFICATION_PATTERNS: list[re.Pattern[str]] = [
 
 DEGREE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in [
-        r"\b(?:bachelor(?:'?s)?|b\.?\s*(?:sc|e|tech|s)|undergraduate)\s*(?:degree|of|in)?\s*(?:computer\s*science|software|engineering|it|information\s*technology|mathematics|statistics|physics|electrical|mechanical)?\b",
-        r"\b(?:master(?:'?s)?|m\.?\s*(?:sc|e|tech|s|ba)|postgraduate|graduate)\s*(?:degree|of|in)?\s*(?:computer\s*science|software|engineering|data\s*science|machine\s*learning|it|information\s*technology|mathematics)?\b",
+        r"\b(?:bachelor(?:'?s)?|b\.?\s*(?:sc|e|tech|s|com|ca)|undergraduate)\s*(?:degree|of|in)?\s*(?:[a-z\s\&\,]+)?\b",
+        r"\b(?:master(?:'?s)?|m\.?\s*(?:sc|e|tech|s|ba|ca)|postgraduate|graduate)\s*(?:degree|of|in)?\s*(?:[a-z\s\&\,]+)?\b",
         r"\b(?:phd|ph\.d|doctorate|doctoral)\b",
         r"\b(?:mba|master\s+of\s+business\s+administration)\b",
         r"\b(?:associate\s+degree)\b",
+        r"\b(?:degree|qualification)\s+in\s+[a-z\s\&\,]+(?:\s+or\s+(?:related|equivalent)\s+(?:field|discipline|experience))?\b",
     ]
 ]
 
@@ -224,22 +225,60 @@ def _split_sections(text: str) -> dict[str, str]:
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
+_FILLER_PHRASES = [
+    re.compile(r"\b(?:or\s+a\s+similar\s+(?:programming\s+)?language|or\s+equivalent|is\s+an?\s+advantage|is\s+a\s+plus|preferred|good\s+to\s+have|exposure\s+to|basic\s+knowledge\s+of|understanding\s+of|strong\s+knowledge\s+of|hands[-\s]on\s+experience\s+with)\b", re.I),
+    re.compile(r"^(?:or|and|is|an|a|the|with|in|of|to|for|from|by|on|at|as)\b", re.I),
+    re.compile(r"\b(?:is\s+an?\s+advantage|is\s+a\s+plus|an?\s+advantage\.?|\badvantage\.?)$", re.I),
+]
+
+_STOP_WORDS = {"or", "and", "is", "an", "a", "the", "with", "in", "of", "to", "for", "from", "by", "on", "at", "as", "basic", "exposure", "understanding", "advantage"}
+
+def _clean_skill_term(term: str) -> str:
+    cleaned = term.strip()
+    for pat in _FILLER_PHRASES:
+        cleaned = pat.sub("", cleaned).strip()
+    # Strip leading/trailing punctuation and sentence fragments
+    cleaned = re.sub(r"^[^\w\+\#]+|[^\w\+\#]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
 def _canonical_skills(text: str) -> list[str]:
-    lowered = text.casefold()
-    found: list[str] = []
-    for canonical, aliases in SKILL_CANONICAL.items():
-        if any(re.search(r"(?<![\w])" + re.escape(alias) + r"(?![\w])", lowered) for alias in aliases):
-            found.append(canonical)
-    return found
+    """Extract atomic skills directly from section text items without fragmenting natural sentences."""
+    if not text.strip():
+        return []
+    terms: list[str] = []
+    seen: set[str] = set()
+
+    # Split lines first to preserve bullet points and sentence boundaries
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines:
+        cleaned_line = BULLET_PATTERN.sub("", line)
+        cleaned_line = NUMBERED_PATTERN.sub("", cleaned_line).strip()
+        if not cleaned_line or re.match(r"^(?:required|preferred|technical)\s+skills?:?$", cleaned_line, re.I):
+            continue
+
+        # Split line by commas, semicolons, or slashes if it contains multiple items
+        parts = re.split(r"[,;]\s*", cleaned_line)
+        for part in parts:
+            part_cleaned = _clean_skill_term(part)
+            if not part_cleaned or part_cleaned.casefold() in _STOP_WORDS or len(part_cleaned) <= 1:
+                continue
+            if len(part_cleaned) <= 60:
+                key = part_cleaned.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    terms.append(part_cleaned)
+    return terms
 
 
 def _extract_job_title(text: str, sections: dict[str, str]) -> str | None:
-    match = re.search(r"(?im)^\s*(?:job\s*title|position|role)\s*:\s*([^\n]{2,80})$", text)
+    match = re.search(r"(?im)^\s*(?:job\s*title|position|role|title)\s*:\s*([^\n]{2,80})$", text)
     if match:
         return match.group(1).strip()
-    for line in sections.get("header", "").splitlines()[:5]:
-        if re.fullmatch(r"(?:senior\s+|junior\s+|lead\s+)?(?:software|devops|data|machine learning|frontend|backend|full stack)\s+(?:engineer|developer|scientist)", line.strip(), re.I):
-            return line.strip()
+    for line in text.splitlines()[:5]:
+        stripped = line.strip()
+        if stripped and len(stripped) < 60 and not re.search(r"\b(?:requirements|responsibilities|qualifications|about\s+us|description|location|salary)\b", stripped, re.I):
+            return stripped
     return None
 
 
@@ -267,21 +306,18 @@ def _extract_skills(text: str) -> tuple[list[str], float]:
 
 
 def _extract_responsibilities(text: str) -> tuple[list[str], float]:
-    """Extract bullet-point / numbered list items that start with action verbs."""
-    lines: list[str] = []
+    """Extract bullet-point / list items directly from responsibilities section text."""
+    responsibilities: list[str] = []
+    seen: set[str] = set()
 
-    # Strip bullet markers and collect lines
     for line in text.splitlines():
         cleaned = BULLET_PATTERN.sub("", line)
         cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
-        if cleaned:
-            lines.append(cleaned)
-
-    responsibilities: list[str] = []
-    for line in lines:
-        first_word = line.split()[0].lower().rstrip(".,;:") if line.split() else ""
-        if first_word in RESPONSIBILITY_VERBS and len(line) > 20:
-            responsibilities.append(line)
+        if len(cleaned) > 15:
+            key = cleaned.casefold()
+            if key not in seen and not re.match(r"^(?:key\s+)?responsibilities:?$", key, re.I):
+                seen.add(key)
+                responsibilities.append(cleaned)
 
     confidence = min(1.0, len(responsibilities) / 5) if responsibilities else 0.0
     return responsibilities[:30], round(confidence, 2)
@@ -441,8 +477,8 @@ class JDExtractionService:
                 if value.casefold() not in combined_skill_keys:
                     skills.append(value)
                     combined_skill_keys.add(value.casefold())
-            responsibility_source = sections.get("responsibilities", "") or raw_text
-            responsibilities, resp_conf = _extract_responsibilities(responsibility_source)
+            responsibility_source = sections.get("responsibilities", "")
+            responsibilities, resp_conf = _extract_responsibilities(responsibility_source) if responsibility_source else ([], 0.0)
             education_source = sections.get("education", "") or raw_text
             education, edu_conf = _extract_education(education_source)
             education_disciplines = _extract_disciplines(education_source)
@@ -514,6 +550,18 @@ class JDExtractionService:
                 keywords=keywords,
                 confidence_scores=confidence_scores,
                 raw_metadata={"source_word_count": parsed.word_count, "ai_recovery": "merged" if ai_recovered else "not_used"},
+            )
+
+            logger.info(
+                "jd_pipeline_trace",
+                document_id=str(document_id),
+                raw_jd_text_snippet=raw_text[:200],
+                affinda_used=affinda_result is not None,
+                ai_used=ai_recovered,
+                extracted_skills=skills,
+                extracted_required_skills=required_skills,
+                extracted_responsibilities=responsibilities[:3],
+                extracted_experience=experience,
             )
 
             try:

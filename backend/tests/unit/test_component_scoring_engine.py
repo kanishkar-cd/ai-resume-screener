@@ -179,3 +179,42 @@ def test_stage5_recommendation_enum_and_summary_fields() -> None:
     assert score_data.strengths == ["Skills: Matched 1 skill."]
     assert score_data.weaknesses == []
 
+
+def test_or_alternative_skills_group_matching_and_50_mark_calculation() -> None:
+    """
+    Test generic AND/OR requirements:
+    "Python or Java or JavaScript", "Docker", "PostgreSQL / MySQL"
+    - Total 3 requirement groups.
+    - Matching 'Python' satisfies Group 1 (1/3).
+    - Matching 'Docker' satisfies Group 2 (2/3).
+    - Candidate has no DB skill (missing Group 3).
+    - Skill score = 2/3 * 100 = 66.67%.
+    - Deterministic 50-mark contribution = 66.67% of 50 = 33.33 marks.
+    """
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+
+    service = ComponentScoringService()
+    job_reqs = ["Python or Java or JavaScript", "Docker", "PostgreSQL / MySQL"]
+
+    # Candidate 1: Has Java, Docker, MySQL -> 100% match (3/3 groups satisfied)
+    c1_resume = SimpleNamespace(skills=["Java", "Docker", "MySQL"], experience=[], education=[], certifications=[], languages=[])
+    c1_job = SimpleNamespace(skills=[], required_skills=job_reqs, experience_requirements=[], degree_requirements=[], keywords=[])
+    c1_config = SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[])
+
+    c1_scores = service.score(c1_resume, c1_job, c1_config)
+    assert c1_scores.skills.score == 100.0
+    assert len(c1_scores.skills.matched_items) == 3
+    assert c1_scores.skills.missing_items == []
+    # 100% skill score converts to exactly 50.0 marks out of 50
+    assert (c1_scores.skills.score / 100.0) * 50.0 == 50.0
+
+    # Candidate 2: Has Python only (satisfies 1 of 3 groups)
+    c2_resume = SimpleNamespace(skills=["Python"], experience=[], education=[], certifications=[], languages=[])
+    c2_scores = service.score(c2_resume, c1_job, c1_config)
+    assert c2_scores.skills.score == 33.33
+    assert c2_scores.skills.matched_items == ["Python"]
+    assert len(c2_scores.skills.missing_items) == 2
+    # 33.33% skill score converts to 16.66 marks out of 50
+    assert round((c2_scores.skills.score / 100.0) * 50.0, 2) == 16.66
+
+

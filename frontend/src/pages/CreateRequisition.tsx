@@ -607,23 +607,23 @@ export default function CreateRequisition() {
                     </div>
                   )}
 
-                  {/* Role Responsibilities — collapsed by default */}
-                  {extractedJd?.responsibilities && extractedJd.responsibilities.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                      <ListChecks size={15} className="text-emerald-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1.5 w-full">
-                        <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Role Responsibilities</p>
-                          {extractedJd.responsibilities.length > 3 && (
-                            <button
-                              type="button"
-                              onClick={() => setShowAllResponsibilities((v) => !v)}
-                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors"
-                            >
-                              {showAllResponsibilities ? 'Show less ↑' : `+${extractedJd.responsibilities.length - 3} more ↓`}
-                            </button>
-                          )}
-                        </div>
+                  {/* Role Responsibilities */}
+                  <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                    <ListChecks size={15} className="text-emerald-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5 w-full">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Role Responsibilities</p>
+                        {extractedJd?.responsibilities && extractedJd.responsibilities.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllResponsibilities((v) => !v)}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                          >
+                            {showAllResponsibilities ? 'Show less ↑' : `+${extractedJd.responsibilities.length - 3} more ↓`}
+                          </button>
+                        )}
+                      </div>
+                      {extractedJd?.responsibilities && extractedJd.responsibilities.length > 0 ? (
                         <ul className="space-y-1">
                           {(showAllResponsibilities
                             ? extractedJd.responsibilities
@@ -635,9 +635,11 @@ export default function CreateRequisition() {
                             </li>
                           ))}
                         </ul>
-                      </div>
+                      ) : (
+                        <p className="text-xs font-semibold text-slate-500 italic">Not specified in JD</p>
+                      )}
                     </div>
-                  )}
+                  </div>
 
                   {/* Empty state */}
                   {(!extractedJd ||
