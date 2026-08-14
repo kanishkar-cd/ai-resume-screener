@@ -48,12 +48,35 @@ class RankingService:
         await self._verify_project(project_id)
         try:
             scores = await self.scores.get_project_scores(project_id)
-            if not scores: raise NoScoredCandidatesException()
+            if not scores:
+                # If project scores haven't been generated yet, attempt auto-scoring via ScoringEngineFacade
+                try:
+                    from app.repositories.extraction_repository import ExtractionRepository
+                    from app.repositories.normalization_repository import NormalizationRepository
+                    from app.repositories.weight_config_repository import WeightConfigRepository
+                    from app.services.scoring_service import ScoringEngineFacade
+
+                    scoring_facade = ScoringEngineFacade(
+                        self.projects, self.documents, NormalizationRepository(self.scores.session),
+                        ExtractionRepository(self.scores.session), WeightConfigRepository(self.scores.session),
+                        self.scores,
+                    )
+                    await scoring_facade.score_project(project_id)
+                    scores = await self.scores.get_project_scores(project_id)
+                except Exception as exc:
+                    logger.warning("[RANK] auto_scoring_failed", project_id=str(project_id), error=str(exc))
+
+            if not scores:
+                raise NoScoredCandidatesException("No candidates have been scored for this project yet. Please score candidates before computing rankings.")
+
             candidates = []
             for score in scores:
                 document = await self.documents.get_document(score.document_id)
-                if document is not None: candidates.append((score, document.created_at))
-            if not candidates: raise NoScoredCandidatesException()
+                if document is not None:
+                    candidates.append((score, document.created_at))
+            if not candidates:
+                raise NoScoredCandidatesException("No candidate documents found for scoring records.")
+
             existing = await self.rankings.get_existing_rankings(project_id)
             previous = {ranking.document_id: ranking.rank_position for ranking in existing}
             computed = RankingAlgorithm.compute(candidates, previous)
