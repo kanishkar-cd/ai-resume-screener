@@ -86,16 +86,19 @@ class InsightBuilder:
     def build(self, document_id: Any, project_id: Any, extracted: Any, normalized: Any, score: Any, rank: Any | None = None) -> CandidateInsightCreate:
         components = score.component_scores or {}
         matched, missing = SkillGapGenerator.generate(components)
-        weighted = ", ".join(f"{COMPONENT_LABELS[name]} {float(value):.2f}" for name, value in (score.weighted_scores or {}).items())
         not_applicable = [
             f"{COMPONENT_LABELS[name]}: No JD requirement"
             for name, detail in components.items() if _is_not_applicable(name, detail)
         ]
         na_text = f" Not applicable: {'; '.join(not_applicable)}." if not_applicable else ""
+        skills_score = float(score.skills_score or 0)
+        skill_marks_50 = (skills_score / 100.0) * 50.0
+        final_val = float(score.final_score or 0)
+        ai_rel_val = max(0.0, round(final_val - skill_marks_50, 2))
         explanation = (
-            f"Raw total {float(score.raw_total_score):.2f}; weighted contributions: {weighted}. "
-            f"Weighted total {float(score.weighted_total_score):.2f}, penalties {float(score.penalty_total):.2f}, "
-            f"bonuses {float(score.bonus_total):.2f}, final score {float(score.final_score):.2f}."
+            f"Deterministic Skill Match: {skill_marks_50:.2f}/50 marks; "
+            f"AI JD Relevance & Evidence: {ai_rel_val:.2f}/50 marks; "
+            f"Final Score: {final_val:.2f}/100."
             f"{na_text}"
         )
         return CandidateInsightCreate(

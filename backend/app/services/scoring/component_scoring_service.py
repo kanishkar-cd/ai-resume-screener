@@ -50,7 +50,8 @@ class ComponentScoringService:
 
         candidate_months = sum(item.get("duration_months") or 0 for item in (resume.experience or []))
         job_months = max([item.get("minimum_months") or 0 for item in (job.experience_requirements or [])] or [0])
-        required_months = max(job_months, round(float(config.min_experience_years) * 12))
+        min_exp = float(getattr(config, "min_experience_years", 0) or 0)
+        required_months = max(job_months, round(min_exp * 12))
         experience_score = min(100.0, candidate_months / required_months * 100) if required_months else 100.0
         experience = ComponentScoreDetail(
             score=round(experience_score, 2), matched_items=[f"{candidate_months} months"],
@@ -58,48 +59,55 @@ class ComponentScoringService:
             explanation=f"Candidate experience is {candidate_months} months against {required_months} required months.",
         )
 
-        required_degree = config.required_degree or (job.degree_requirements[0] if job.degree_requirements else None)
+
+        projects_list = projects if projects is not None else getattr(resume, "projects", [])
+        projects_score = self._projects_score(projects_list, job)
+        education = self._education_component(resume, job, config)
+        certifications = self._certifications_score(resume, job, config)
+        languages = self._languages_score(resume, config)
+
+        return ComponentScores(skills=skills, experience=experience, projects=projects_score, education=education, certifications=certifications, languages=languages)
+
+    def _education_component(self, resume: Any, job: Any, config: Any) -> ComponentScoreDetail:
+        req_deg = getattr(config, "required_degree", None) or (job.degree_requirements[0] if getattr(job, "degree_requirements", None) else None)
         candidate_degrees = [item.get("degree") for item in (resume.education or []) if item.get("degree")]
-        education_score = self._education_score(candidate_degrees, required_degree)
-        education = ComponentScoreDetail(
+        education_score = self._education_score(candidate_degrees, req_deg)
+        return ComponentScoreDetail(
             score=education_score, matched_items=candidate_degrees if education_score == 100 else [],
-            missing_items=[required_degree] if required_degree and education_score < 100 else [],
+            missing_items=[req_deg] if req_deg and education_score < 100 else [],
             explanation="Education meets the configured requirement." if education_score == 100 else "Candidate degree is below or does not match the requirement.",
         )
 
+    def _projects_score(self, projects: list[dict[str, Any]], job: Any) -> ComponentScoreDetail:
         project_terms: list[str] = []
         for project in projects or []:
             project_terms.extend(project.get("technologies") or [])
             if project.get("name"):
                 project_terms.append(project["name"])
-
-        # Project keyword matching strictly against project names and technologies (excluding job titles)
         project_keywords = [k for k in list(job.keywords or []) if k.casefold() not in {t.casefold() for t in DESIGNATIONS}]
-        project_score = self._match(project_terms, project_keywords, "job keywords")
+        return self._match(project_terms, project_keywords, "job keywords")
 
-        req_certs = list(config.required_certifications or [])
+    def _certifications_score(self, resume: Any, job: Any, config: Any) -> ComponentScoreDetail:
+        req_certs = list(getattr(config, "required_certifications", None) or [])
         if req_certs:
-            certifications = self._match(list(resume.certifications or []), req_certs, "required certifications")
-        else:
-            certifications = ComponentScoreDetail(
-                score=100.0,
-                matched_items=[],
-                missing_items=[],
-                explanation="No specific certification requirements configured (N/A).",
-            )
+            return self._match(list(resume.certifications or []), req_certs, "required certifications")
+        return ComponentScoreDetail(
+            score=100.0,
+            matched_items=[],
+            missing_items=[],
+            explanation="No specific certification requirements configured (N/A).",
+        )
 
+    def _languages_score(self, resume: Any, config: Any) -> ComponentScoreDetail:
         req_langs = list(getattr(config, "required_languages", None) or [])
         if req_langs:
-            languages = self._match(list(resume.languages or []), req_langs, "required languages")
-        else:
-            languages = ComponentScoreDetail(
-                score=100.0,
-                matched_items=[],
-                missing_items=[],
-                explanation="No specific language requirements configured (N/A).",
-            )
-
-        return ComponentScores(skills=skills, experience=experience, projects=project_score, education=education, certifications=certifications, languages=languages)
+            return self._match(list(resume.languages or []), req_langs, "required languages")
+        return ComponentScoreDetail(
+            score=100.0,
+            matched_items=[],
+            missing_items=[],
+            explanation="No specific language requirements configured (N/A).",
+        )
 
 
     def _match_groups(self, candidate: list[str], required_items: list[str], label: str) -> ComponentScoreDetail:

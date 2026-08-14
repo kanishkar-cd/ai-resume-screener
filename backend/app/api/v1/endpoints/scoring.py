@@ -9,7 +9,6 @@ from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
-from app.repositories.weight_config_repository import WeightConfigRepository
 from app.schemas.error import ErrorResponsePayload
 from app.schemas.scoring import CandidateScoreResponse, ProjectScoringResponse, ProjectScoresResponse
 from app.services.scoring_service import ScoringEngineFacade
@@ -20,7 +19,7 @@ router = APIRouter()
 def get_scoring_facade(db: DatabaseDependency) -> ScoringEngineFacade:
     return ScoringEngineFacade(
         ProjectRepository(db), DocumentRepository(db), NormalizationRepository(db),
-        ExtractionRepository(db), WeightConfigRepository(db), ScoringRepository(db),
+        ExtractionRepository(db), ScoringRepository(db),
     )
 
 

@@ -50,5 +50,5 @@ def test_stage7_openapi_regression_paths() -> None:
     for path in (
         "/api/v1/projects/{project_id}/rank", "/api/v1/projects/{project_id}/rankings",
         "/api/v1/projects/{project_id}/leaderboard", "/api/v1/projects/{project_id}/statistics",
-        "/api/v1/projects/{project_id}/score", "/api/v1/projects/{project_id}/weight-config",
+        "/api/v1/projects/{project_id}/score",
     ): assert path in paths

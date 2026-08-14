@@ -13,9 +13,11 @@ class PenaltyService:
             except (ValueError, IndexError): deficit_years = 0
             points = min(cls.CAP, deficit_years * 5)
             if points: items.append(AdjustmentItem(rule_name="EXPERIENCE_DEFICIT", delta_points=-round(points, 2), description="5 points per year below required experience."))
-        hard_skill = any(rule.get("rule_type") == "MISSING_MANDATORY_SKILL" and rule.get("enabled", True) for rule in (config.knockout_rules or []))
+        knockout_rules = getattr(config, "knockout_rules", None) or []
+        hard_skill = any(rule.get("rule_type") == "MISSING_MANDATORY_SKILL" and rule.get("enabled", True) for rule in knockout_rules)
         if not hard_skill:
-            mandatory = {value.casefold() for value in config.mandatory_skills}
+            mandatory_skills = getattr(config, "mandatory_skills", None) or []
+            mandatory = {value.casefold() for value in mandatory_skills}
             count = sum(value.casefold() in mandatory for value in components.skills.missing_items)
             if count: items.append(AdjustmentItem(rule_name="MISSING_MANDATORY_SKILL", delta_points=-10.0 * count, description="10 points per missing mandatory skill."))
         total = min(cls.CAP, sum(abs(item.delta_points) for item in items))

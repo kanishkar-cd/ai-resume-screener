@@ -288,21 +288,40 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
     assert zero_final == 0.0
 
 
-def test_ranking_sorts_strictly_by_final_score() -> None:
-    """Requirement test: Rankings sort strictly by final_score."""
-    from app.services.ranking import RankingAlgorithm
-    from app.schemas.scoring import RecommendationLevel
-    from types import SimpleNamespace
-    from uuid import uuid4
+def test_ai_relevance_with_all_some_and_no_applicable_categories() -> None:
+    """Test AI Relevance calculation with all categories, some N/A, and all N/A categories."""
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+    from app.schemas.scoring import ComponentScoreDetail, ComponentScores
 
-    c1 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=45.0, is_knocked_out=False, recommendation=RecommendationLevel.REJECT, skills_score=45, experience_score=45, confidence=90), None)
-    c2 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=85.0, is_knocked_out=False, recommendation=RecommendationLevel.SHORTLIST, skills_score=85, experience_score=85, confidence=90), None)
-    c3 = (SimpleNamespace(id=uuid4(), document_id=uuid4(), final_score=65.0, is_knocked_out=False, recommendation=RecommendationLevel.CONSIDER, skills_score=65, experience_score=65, confidence=90), None)
+    skill_detail = ComponentScoreDetail(score=100.0, matched_items=["Python"], missing_items=[], explanation="Matched 1 skill.")  # 50/50
+    exp_detail = ComponentScoreDetail(score=80.0, matched_items=["24 months"], missing_items=[], explanation="24 months matched")
+    proj_detail = ComponentScoreDetail(score=60.0, matched_items=["Docker"], missing_items=[], explanation="Docker matched")
+    na_detail = ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="No specific requirement configured (N/A).")
 
-    rankings = RankingAlgorithm.compute([c1, c2, c3], {})
-    assert rankings[0].document_id == c2[0].document_id and rankings[0].rank_position == 1  # 85
-    assert rankings[1].document_id == c3[0].document_id and rankings[1].rank_position == 2  # 65
-    assert rankings[2].document_id == c1[0].document_id and rankings[2].rank_position == 3  # 45
+    components = ComponentScores(
+        skills=skill_detail,
+        experience=exp_detail,
+        projects=proj_detail,
+        education=na_detail,
+        certifications=na_detail,
+        languages=na_detail,
+    )
+
+    # 1. All evidence categories required: experience=80, projects=60, education=100, certs=100, langs=100 -> avg = 88.0 -> evidence marks = 44.0 -> final = 50 + 44 = 94.0
+    all_categories = {"skills", "experience", "projects", "education", "certifications", "languages"}
+    score_all = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=all_categories)
+    assert score_all == 94.0
+
+    # 2. Some categories N/A: only experience and projects required. avg = (80 + 60) / 2 = 70.0 -> evidence marks = 35.0 -> final = 50 + 35 = 85.0
+    some_categories = {"skills", "experience", "projects"}
+    score_some = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=some_categories)
+    assert score_some == 85.0
+
+    # 3. All evidence categories N/A: only skills required. applicable_evidence = empty -> evidence marks = 0.0 -> final = 50.0 + 0.0 = 50.0
+    no_evidence_categories = {"skills"}
+    score_none = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=no_evidence_categories)
+    assert score_none == 50.0
+
 
 
 

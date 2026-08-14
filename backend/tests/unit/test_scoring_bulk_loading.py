@@ -35,15 +35,6 @@ async def test_score_project_uses_bulk_loading() -> None:
     mock_extractions.get_resumes_by_document_ids = AsyncMock(return_value=[ext1, ext2])
     mock_extractions.get_resume_by_document_id = AsyncMock()
 
-    mock_weight_configs = MagicMock()
-    mock_weight_configs.get_by_project_id = AsyncMock(
-        return_value=MagicMock(
-            mandatory_skills=[], min_experience_years=0, required_degree=None,
-            required_certifications=[], required_languages=[], preferred_skills=[],
-            knockout_rules=[], version=1, passing_score=70, weights={"skills": 40, "experience": 25, "projects": 15, "education": 10, "certifications": 5, "languages": 5}
-        )
-    )
-
     mock_scores = MagicMock()
     mock_scores.upsert_score = AsyncMock(side_effect=lambda data, *args, **kwargs: MagicMock(id=uuid4(), **data.model_dump()))
 
@@ -52,7 +43,6 @@ async def test_score_project_uses_bulk_loading() -> None:
         documents=mock_documents,
         normalizations=mock_normalizations,
         extractions=mock_extractions,
-        weight_configs=mock_weight_configs,
         scores=mock_scores,
     )
     facade.hybrid_matching.match = AsyncMock(side_effect=RuntimeError("hybrid unavailable"))

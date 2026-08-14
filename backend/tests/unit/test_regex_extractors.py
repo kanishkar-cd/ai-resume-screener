@@ -180,6 +180,7 @@ Strong problem-solving and debugging skills.
 def test_doc_248ef7dc_jd_prose_responsibility() -> None:
     jd_text = """Software Engineer
 
+RESPONSIBILITIES
 Responsibilities include developing software applications, working with embedded systems, building web interfaces, and contributing to IoT-based projects.
 
 BASIC QUALIFICATIONS

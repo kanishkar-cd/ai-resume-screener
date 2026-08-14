@@ -531,7 +531,7 @@ export default function CandidateRanking() {
           const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
           const merged = freshMapped.map((c) => {
             const overrideStatus = existingStatusMap.get(c.id)
-            return overrideStatus ? { ...c, status: overrideStatus } : c
+            return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
           })
           dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
           setFetchError(null)
@@ -543,7 +543,7 @@ export default function CandidateRanking() {
       })
       .finally(() => { if (active) setRankingsLoading(false) })
     return () => { active = false }
-  }, [dispatch, mapRankings, state.projectId, state.candidates.length])
+  }, [dispatch, mapRankings, state.projectId])
 
   // Derived data
   const filtered = candidates

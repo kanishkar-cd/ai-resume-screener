@@ -107,23 +107,25 @@ export default function RecruiterDashboard() {
     dispatch({ type: 'UPDATE_CANDIDATE_STATUS', payload: { id, status } })
 
   // Real stats calculation
-  const totalCandidatesCount = dashboard?.project_summary.total_candidates ?? analytics?.total_candidates ?? candidates.length
-  const screenedCount = analytics
-    ? (analytics.recommendation_distribution?.SHORTLIST || 0)
-    : candidates.filter((c) => c.status === 'screened').length
-  const avgScoreVal = analytics
-    ? Math.round(analytics.average_score)
-    : candidates.length > 0
-      ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
-      : 0
-  const topScoreVal = analytics
-    ? Math.round(analytics.highest_score)
-    : candidates.length > 0
-      ? Math.max(...candidates.map((c) => c.overallScore))
-      : 0
-  const lowestScoreVal = analytics ? Math.round(analytics.lowest_score) : candidates.length ? Math.min(...candidates.map(c=>c.overallScore)) : 0
-  const reviewCount = analytics?.recommendation_distribution?.REVIEW ?? analytics?.recommendation_distribution?.CONSIDER ?? candidates.filter(c=>c.status==='pending').length
-  const rejectedCount = analytics?.recommendation_distribution?.REJECT ?? candidates.filter(c=>c.status==='rejected').length
+  const totalCandidatesCount = candidates.length > 0 ? candidates.length : (dashboard?.project_summary.total_candidates ?? analytics?.total_candidates ?? 0)
+  const screenedCount = candidates.length > 0
+    ? candidates.filter((c) => c.status === 'screened').length
+    : (analytics ? (analytics.recommendation_distribution?.SHORTLIST || 0) : 0)
+  const avgScoreVal = candidates.length > 0
+    ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length)
+    : (analytics ? Math.round(analytics.average_score) : 0)
+  const topScoreVal = candidates.length > 0
+    ? Math.max(...candidates.map((c) => c.overallScore))
+    : (analytics ? Math.round(analytics.highest_score) : 0)
+  const lowestScoreVal = candidates.length > 0
+    ? Math.min(...candidates.map((c) => c.overallScore))
+    : (analytics ? Math.round(analytics.lowest_score) : 0)
+  const reviewCount = candidates.length > 0
+    ? candidates.filter((c) => c.status === 'pending').length
+    : (analytics ? (analytics.recommendation_distribution?.REVIEW ?? analytics.recommendation_distribution?.CONSIDER ?? 0) : 0)
+  const rejectedCount = candidates.length > 0
+    ? candidates.filter((c) => c.status === 'rejected').length
+    : (analytics ? (analytics.recommendation_distribution?.REJECT || 0) : 0)
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="max-w-5xl mx-auto">

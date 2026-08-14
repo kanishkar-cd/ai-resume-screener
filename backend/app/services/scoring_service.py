@@ -11,7 +11,6 @@ from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
-from app.repositories.weight_config_repository import WeightConfigRepository
 from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem, ProjectScoringRead
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
@@ -22,12 +21,6 @@ from app.services.scoring import (
 from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder
 
 logger = structlog.get_logger(__name__)
-
-
-class WeightConfigMissingException(AppException):
-    status_code = 400
-    error_code = "WEIGHT_CONFIG_MISSING"
-    default_message = "The project requires a weight configuration before scoring."
 
 
 class JobDescriptionMissingException(AppException):
@@ -64,18 +57,18 @@ class ScoringEngineFacade:
     def __init__(
         self, projects: ProjectRepository, documents: DocumentRepository,
         normalizations: NormalizationRepository, extractions: ExtractionRepository,
-        weight_configs: WeightConfigRepository, scores: ScoringRepository,
+        scores: ScoringRepository,
         hybrid_matching: HybridMatchingService | None = None,
     ) -> None:
         self.projects, self.documents = projects, documents
         self.normalizations, self.extractions = normalizations, extractions
-        self.weight_configs, self.scores = weight_configs, scores
+        self.scores = scores
         self.components = ComponentScoringService()
         self.hybrid_matching = hybrid_matching or HybridMatchingService()
 
     async def score_project(self, project_id: UUID) -> ProjectScoringRead:
         logger.info("[SCORE] scoring started", project_id=str(project_id))
-        config, job = await self._load_project_context(project_id)
+        job = await self._load_project_context(project_id)
         try:
             resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
         except SQLAlchemyError as exc:
@@ -98,7 +91,7 @@ class ScoringEngineFacade:
 
         results = [
             await self._score(
-                document, config, job,
+                document, job,
                 resume=norm_map.get(document.id),
                 extracted=ext_map.get(document.id),
             )
@@ -112,12 +105,12 @@ class ScoringEngineFacade:
         return ProjectScoringRead(project_id=project_id, total_evaluated=len(results), scores=results)
 
     async def score_document(self, project_id: UUID, document_id: UUID) -> CandidateScoreRead:
-        config, job = await self._load_project_context(project_id)
+        job = await self._load_project_context(project_id)
         document = await self._get_document(document_id)
         if document.project_id != project_id: raise DocumentProjectMismatchException()
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentProjectMismatchException("Only project resumes can be scored.")
-        return await self._score(document, config, job)
+        return await self._score(document, job)
 
     async def get_project_scores(self, project_id: UUID) -> list[CandidateScoreRead]:
         await self._verify_project(project_id)
@@ -132,22 +125,20 @@ class ScoringEngineFacade:
         if model is None: raise CandidateScoreNotFoundException()
         return CandidateScoreRead.model_validate(model)
 
-    async def _load_project_context(self, project_id: UUID) -> tuple[Any, Any]:
+    async def _load_project_context(self, project_id: UUID) -> Any:
         await self._verify_project(project_id)
         try:
-            config = await self.weight_configs.get_by_project_id(project_id)
             job_document = await self.documents.get_job_description_by_project(project_id)
         except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to retrieve scoring configuration.") from exc
-        if config is None: raise WeightConfigMissingException()
+            raise InternalServerException("Unable to retrieve job description document.") from exc
         if job_document is None: raise JobDescriptionMissingException()
         try: job = await self.normalizations.get_job_description_by_document_id(job_document.id)
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve normalized job description.") from exc
         if job is None: raise JobDescriptionMissingException()
-        return config, job
+        return job
 
     async def _score(
-        self, document: DocumentModel, config: Any, job: Any,
+        self, document: DocumentModel, job: Any,
         resume: Any = None, extracted: Any = None,
     ) -> CandidateScoreRead:
         try:
@@ -158,7 +149,7 @@ class ScoringEngineFacade:
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(
-                    job, resume, extracted, config
+                    job, resume, extracted, config=None
                 )
             except Exception as exc:
                 logger.warning(
@@ -168,7 +159,7 @@ class ScoringEngineFacade:
                 )
                 scoring_extracted = extracted
                 try:
-                    requirements = RequirementBuilder.build(job, config)
+                    requirements = RequirementBuilder.build(job, config=None)
                     evidence = EvidenceBuilder.build(extracted)
                     match_verdicts = []
                     for item in requirements:
@@ -177,17 +168,20 @@ class ScoringEngineFacade:
                         match_verdicts.append(verdict)
                 except Exception:
                     match_verdicts = []
-            components = self.components.score(resume, job, config, scoring_extracted.projects)
-            applicable_categories = WeightCalculationService.applicable_categories(job, config)
+            components = self.components.score(resume, job, config=None, projects=scoring_extracted.projects)
+            applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
             weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
-                components, config, applicable_categories
+                components, config=None, applicable_categories=applicable_categories
             )
-            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config)
-            penalty_total, penalties = PenaltyService.calculate(components, config)
-            bonus_total, bonuses = BonusService.calculate(resume, job, config, components)
-            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total, components=components)
+            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
+            penalty_total, penalties = PenaltyService.calculate(components, config=None)
+            bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
+            final_score = WeightCalculationService.final_score(
+                weighted_total, penalty_total, bonus_total,
+                components=components, applicable_categories=applicable_categories
+            )
             confidence = ConfidenceService.calculate(extracted)
-            passing_score = float(config.passing_score)
+            passing_score = 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
             component_values = {
                 name: getattr(components, name).score
@@ -196,7 +190,6 @@ class ScoringEngineFacade:
                     "certifications", "languages",
                 )
             }
-            # Extract top-level summary fields directly from existing component scores
             matched_skills = list(components.skills.matched_items)
             missing_skills = list(components.skills.missing_items)
 
@@ -244,7 +237,7 @@ class ScoringEngineFacade:
                 penalty_summary=penalties, bonus_summary=bonuses,
                 passing_score=passing_score, effective_weights=effective_weights,
                 score_breakdown=score_breakdown,
-                weight_config_version=config.version,
+                weight_config_version=1,
                 matched_skills=matched_skills,
                 missing_skills=missing_skills,
                 strengths=strengths,
@@ -265,7 +258,6 @@ class ScoringEngineFacade:
             logger.exception("candidate_scoring_failed", document_id=str(document.id))
             raise ScoringFailedException() from exc
         return CandidateScoreRead.model_validate(model)
-
 
     async def _verify_project(self, project_id: UUID) -> None:
         try: project = await self.projects.get_by_id(project_id)

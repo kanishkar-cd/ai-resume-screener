@@ -5,22 +5,27 @@ from app.schemas.scoring import ComponentScores, WeightedScores
 
 class WeightCalculationService:
     @staticmethod
-    def applicable_categories(job: Any, config: Any) -> set[str]:
+    def applicable_categories(job: Any, config: Any = None) -> set[str]:
         job_experience = getattr(job, "experience_requirements", None) or []
+        mandatory_skills = getattr(config, "mandatory_skills", None) or []
+        min_exp = float(getattr(config, "min_experience_years", 0) or 0)
+        req_deg = getattr(config, "required_degree", None)
+        req_certs = getattr(config, "required_certifications", None) or []
+        req_langs = getattr(config, "required_languages", None) or []
         return {
             name for name, applies in {
-                "skills": bool((getattr(job, "skills", None) or []) or (getattr(config, "mandatory_skills", None) or [])),
+                "skills": bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills),
                 "experience": bool(
-                    float(getattr(config, "min_experience_years", 0) or 0) > 0
+                    min_exp > 0
                     or any((item.get("minimum_months") or 0) > 0 for item in job_experience)
                 ),
                 "projects": bool(getattr(job, "keywords", None) or []),
                 "education": bool(
-                    getattr(config, "required_degree", None)
+                    req_deg
                     or (getattr(job, "degree_requirements", None) or [])
                 ),
-                "certifications": bool(getattr(config, "required_certifications", None) or []),
-                "languages": bool(getattr(config, "required_languages", None) or []),
+                "certifications": bool(req_certs),
+                "languages": bool(req_langs),
             }.items() if applies
         }
 
@@ -66,28 +71,35 @@ class WeightCalculationService:
         penalty_total: float,
         bonus_total: float,
         components: ComponentScores | None = None,
+        applicable_categories: set[str] | None = None,
     ) -> float:
         """
         Calculates the final candidate score using a strict 50 + 50 hybrid model:
         1. Deterministic Skill Match (0-50 Marks):
            (matched required skills / total required skills) * 50
         2. AI JD Relevance & Evidence (0-50 Marks):
-           LLM evaluation score of resume against actual JD context (0 to 50 marks).
+           Evaluates evidence categories required by the JD. N/A categories (not required by JD) are excluded.
         3. Final Score (0-100 Marks):
            Skill Match (0-50) + AI Relevance (0-50). Strictly sum of the two components.
         """
         if components is not None:
             skill_marks_50 = (components.skills.score / 100.0) * 50.0
 
-            evidence_components = [
-                components.experience.score,
-                components.projects.score,
-                components.education.score,
-                components.certifications.score,
-                components.languages.score,
-            ]
-            avg_evidence_score = sum(evidence_components) / len(evidence_components)
-            evidence_marks_50 = (avg_evidence_score / 100.0) * 50.0
+            evidence_names = {"experience", "projects", "education", "certifications", "languages"}
+            if applicable_categories is not None:
+                applicable_evidence = [name for name in evidence_names if name in applicable_categories]
+            else:
+                # Fall back to inspecting component explanations if applicable_categories is not provided
+                applicable_evidence = [
+                    name for name in evidence_names
+                    if "(n/a)" not in str(getattr(components, name).explanation or "").casefold()
+                ]
+
+            if applicable_evidence:
+                avg_evidence_score = sum(getattr(components, name).score for name in applicable_evidence) / len(applicable_evidence)
+                evidence_marks_50 = (avg_evidence_score / 100.0) * 50.0
+            else:
+                evidence_marks_50 = 0.0
 
             # Pure 50 + 50 model: Final Score = Skill Match (0-50) + AI Relevance (0-50)
             return round(max(0.0, min(100.0, skill_marks_50 + evidence_marks_50)), 2)
@@ -96,10 +108,12 @@ class WeightCalculationService:
 
     @staticmethod
     def knockout(components: ComponentScores, config: Any) -> tuple[bool, str | None]:
-        enabled = {rule.get("rule_type") for rule in (config.knockout_rules or []) if rule.get("enabled", True)}
+        knockout_rules = getattr(config, "knockout_rules", None) or []
+        enabled = {rule.get("rule_type") for rule in knockout_rules if rule.get("enabled", True)}
         reasons = []
         if "MISSING_MANDATORY_SKILL" in enabled and components.skills.missing_items:
-            mandatory = {value.strip().casefold() for value in config.mandatory_skills if value.strip()}
+            mandatory_skills = getattr(config, "mandatory_skills", None) or []
+            mandatory = {value.strip().casefold() for value in mandatory_skills if value.strip()}
             missing = []
             seen: set[str] = set()
             for value in components.skills.missing_items:

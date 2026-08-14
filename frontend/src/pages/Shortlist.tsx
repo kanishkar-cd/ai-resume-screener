@@ -23,11 +23,8 @@ export default function Shortlist() {
   const activeDept = DEPARTMENTS.find((d) => d.id === state.activeDepartmentId) || DEPARTMENTS[0]
   const reqTitle = state.selectedProject?.title || 'Requisition'
 
-  // Filter candidates who are shortlisted
-  const shortlistedIds = state.shortlistedCandidateIds || []
-  const shortlistedCandidates = state.candidates.filter(
-    (c) => shortlistedIds.includes(c.id) || c.recommendation === 'SHORTLIST' || c.recommendation === 'CONSIDER'
-  )
+  // Filter candidates who are currently shortlisted ('screened')
+  const shortlistedCandidates = state.candidates.filter((c) => c.status === 'screened')
 
   const [selectedForAssessment, setSelectedForAssessment] = useState<string[]>(
     shortlistedCandidates.map((c) => c.id)

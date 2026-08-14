@@ -53,12 +53,11 @@ class RankingService:
                 try:
                     from app.repositories.extraction_repository import ExtractionRepository
                     from app.repositories.normalization_repository import NormalizationRepository
-                    from app.repositories.weight_config_repository import WeightConfigRepository
                     from app.services.scoring_service import ScoringEngineFacade
 
                     scoring_facade = ScoringEngineFacade(
                         self.projects, self.documents, NormalizationRepository(self.scores.session),
-                        ExtractionRepository(self.scores.session), WeightConfigRepository(self.scores.session),
+                        ExtractionRepository(self.scores.session),
                         self.scores,
                     )
                     await scoring_facade.score_project(project_id)

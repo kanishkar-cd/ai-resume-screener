@@ -107,6 +107,7 @@ class EvidenceBuilder:
             responsibilities = item.get("responsibilities") or []
             text = " ".join(value for value in [
                 item.get("title") or item.get("designation") or "",
+                item.get("company") or "",
                 item.get("description") or "", *responsibilities,
             ] if value).strip()
             if text:
@@ -114,6 +115,34 @@ class EvidenceBuilder:
                     evidence_id=f"experience:{index}", kind="experience", text=text,
                     canonical_terms=[],
                 ))
+        skills = [s.strip() for s in (getattr(extracted, "skills", None) or []) if str(s).strip()]
+        if skills:
+            result.append(Evidence(
+                evidence_id="skills:1", kind="skills", text=", ".join(skills),
+                canonical_terms=list(skills),
+            ))
+        for index, item in enumerate(getattr(extracted, "education", None) or [], start=1):
+            degree = item.get("degree") or ""
+            field = item.get("field_of_study") or ""
+            inst = item.get("institution") or ""
+            text = " ".join(v for v in [degree, field, inst] if v).strip()
+            if text:
+                result.append(Evidence(
+                    evidence_id=f"education:{index}", kind="education", text=text,
+                    canonical_terms=[v for v in [degree, field] if v],
+                ))
+        certs = [c.strip() for c in (getattr(extracted, "certifications", None) or []) if str(c).strip()]
+        for index, cert in enumerate(certs, start=1):
+            result.append(Evidence(
+                evidence_id=f"certification:{index}", kind="certification", text=cert,
+                canonical_terms=[cert],
+            ))
+        langs = [l.strip() for l in (getattr(extracted, "languages", None) or []) if str(l).strip()]
+        if langs:
+            result.append(Evidence(
+                evidence_id="languages:1", kind="languages", text=", ".join(langs),
+                canonical_terms=list(langs),
+            ))
         return result
 
 
@@ -300,12 +329,14 @@ class GroqMatchEvaluator:
             "model": self.settings.GROQ_MODEL, "temperature": 0,
             "messages": [
                 {"role": "system", "content": (
-                    "Evaluate only supplied contextual responsibility requirements against supplied project/work evidence. "
-                    "Never evaluate candidate skill qualification, education, certifications, languages, years of experience, or hard constraints. "
-                    "Never infer missing facts. Cite only supplied evidence_ids. Return one JSON object with exactly this shape: "
+                    "Evaluate supplied Job Description requirements against supplied candidate resume evidence. "
+                    "Determine status (MATCHED, NO_MATCH, or UNRESOLVED), confidence (0.0 to 1.0), and reasoning. "
+                    "Never infer missing facts or invent evidence. "
+                    "Cite only supplied evidence_ids that directly support your decision. "
+                    "Return one JSON object with exactly this shape: "
                     "{\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|NO_MATCH|UNRESOLVED\","
                     "\"confidence\":0.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}. "
-                    "Do not add fields or markdown."
+                    "Do not add extra fields or markdown."
                 )},
                 {"role": "user", "content": content},
             ],
