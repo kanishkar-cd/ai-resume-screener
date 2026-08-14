@@ -87,7 +87,6 @@ export function CandidateProfile({ normalized, extracted, document }: { normaliz
   const aiRecovery = extracted?.raw_metadata?.ai_recovery === 'merged'
   return <section className="card p-6 space-y-6">
     <div className="flex justify-end"><ProviderStatus document={document} extracted={extracted}/></div>
-    <ProcessingTrace fallbackUsed={profileProvider(document, extracted) === 'local'}/>
     <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Profile ready</p><h3 className="mt-1 text-[18px] font-bold text-slate-900">Final Candidate Profile</h3>{extracted?.candidate_name && <p className="mt-1 text-[13px] font-semibold text-slate-700">{extracted.candidate_name}</p>}<p className="mt-1 text-[12px] text-slate-500">Structured profile · ruleset {normalized.ruleset_version}</p></div>{aiRecovery && <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-semibold text-violet-700">AI-assisted recovery</span>}</div>
     <div className="grid gap-5 md:grid-cols-2">
       <Field label="Contact"><p className="text-[12px] text-slate-700">{normalized.email || 'Email not provided'}</p><p className="mt-1 text-[12px] text-slate-500">{normalized.phone || 'Phone not provided'}</p></Field>

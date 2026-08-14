@@ -2,9 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Folder,
-  Shield,
-  Lightbulb,
-  Check,
   ArrowLeft,
   ArrowRight,
   FileCheck,
@@ -467,26 +464,20 @@ export default function ResumeUpload() {
         variants={fadeUp}
         className="card glow-border-sky mb-5 p-0 overflow-hidden"
       >
-        <div className="flex divide-x divide-slate-100">
+        <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
           {/* Supported Formats */}
           <div className="flex-1 p-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
               Supported Formats
             </p>
-            <div className="flex items-center gap-3">
-              {[
-                { icon: '📄', label: 'PDF', color: 'text-red-500' },
-                { icon: '📝', label: 'DOCX', color: 'text-sky-500' },
-                { icon: '📃', label: 'TXT', color: 'text-slate-400' },
-              ].map((fmt) => (
-                <motion.div
-                  key={fmt.label}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-100"
-                  whileHover={{ scale: 1.04 }}
+            <div className="flex items-center gap-2">
+              {['PDF', 'DOCX', 'TXT'].map((fmt) => (
+                <div
+                  key={fmt}
+                  className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/80 text-[12px] font-semibold text-slate-700"
                 >
-                  <span className="text-[13px]">{fmt.icon}</span>
-                  <span className={`text-[12px] font-bold ${fmt.color}`}>{fmt.label}</span>
-                </motion.div>
+                  {fmt}
+                </div>
               ))}
             </div>
           </div>
@@ -500,19 +491,6 @@ export default function ResumeUpload() {
               <FileCheck size={16} className="text-sky-400" />
               <span className="text-[13px] font-semibold text-slate-700">
                 Max 10 MB per resume
-              </span>
-            </div>
-          </div>
-
-          {/* Security */}
-          <div className="flex-1 p-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-              Security
-            </p>
-            <div className="flex items-center gap-2">
-              <Shield size={16} className="text-sky-400" />
-              <span className="text-[13px] font-semibold text-slate-700">
-                Files are encrypted and secure
               </span>
             </div>
           </div>
@@ -530,6 +508,7 @@ export default function ResumeUpload() {
           multiple={true}
           directory={true}
           files={state.upload.resumes}
+          resumeProcessing={state.resumeProcessing}
           onSelectFiles={handleResumeSelect}
           onRemove={handleRemoveResume}
           disabled={busy}
@@ -537,11 +516,6 @@ export default function ResumeUpload() {
         {isUploading && (
           <p className="mt-2 text-[12px] text-sky-600 text-center font-medium">
             Uploading resumes…
-          </p>
-        )}
-        {isProcessingResumes && !isUploading && (
-          <p className="mt-2 text-[12px] text-sky-600 text-center font-medium">
-            Processing resumes (parse → extract → normalize)…
           </p>
         )}
         {uploadError && (
@@ -552,79 +526,77 @@ export default function ResumeUpload() {
         )}
       </motion.div>
 
-      {state.resumeDocumentIds.length > 0 && <motion.section variants={fadeUp} className="mb-5 space-y-4">
-        <div><h2 className="text-[18px] font-bold text-slate-900">Processed candidate profiles</h2><p className="mt-1 text-[12px] text-slate-500">Each profile is loaded from its document’s backend extraction and normalization records.</p></div>
-        {state.resumeDocumentIds.map((id) => {
-          const file = state.upload.resumes.find((resume: UploadedFile) => resume.id === id)
-          const processing = state.resumeProcessing[id]
-          const profile = profiles[id]
-          return <article key={id} className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><div><p className="text-[12px] font-semibold text-slate-800">{file?.name || 'Resume'}</p><p className="mt-1 text-[10px] text-slate-400">Uploaded → Parsed → Extracted → Normalized → Ready</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${processing?.phase === 'failed' ? 'bg-red-50 text-red-700' : processing?.normalized ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{processing?.phase === 'failed' ? 'Normalization failed' : processing?.normalized ? 'Ready' : processing?.phase || 'Uploaded'}</span></div>
-            {processing?.errorMessage && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">Normalization failed: {processing.errorMessage}</p>}
-            {processing?.normalized && profile?.loading && <div className="card p-6 text-[12px] text-slate-500">Loading final candidate profile…</div>}
-            {processing?.normalized && profile?.error && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{profile.error}</p>}
-            {profile?.normalized && <CandidateProfile normalized={profile.normalized} extracted={profile.extracted} document={profile.document}/>}
-            {!processing?.normalized && processing?.phase !== 'failed' && <div className="rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-500">Normalization pending</div>}
-          </article>
-        })}
-      </motion.section>}
-
-      {/* Bottom Summary Strip & Action Footer */}
-      <motion.div variants={fadeUp} className="card glow-border-sky p-0 overflow-hidden mb-5">
-        <div className="flex divide-x divide-slate-100">
-          {/* Total Resumes */}
-          <div className="p-5 min-w-[180px]">
-            <div className="flex items-center gap-2 mb-2">
-              <Users size={14} className="text-sky-400" />
-              <p className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">
-                Resumes Queued
-              </p>
-            </div>
-            <motion.p
-              key={`${successfulCount}-${normalizedCount}`}
-              className="text-[32px] font-bold text-slate-800 leading-none"
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', stiffness: 300 }}
-            >
-              {successfulCount}
-            </motion.p>
-            <p className="text-[11px] text-slate-400 mt-1">
-              {successfulCount === 0
-                ? busy
-                  ? 'Upload in progress…'
-                  : 'No resumes uploaded yet'
-                : `${normalizedCount}/${successfulCount} normalized`}
-              {failedCount > 0 ? ` · ${failedCount} failed` : ''}
+      {/* Processed Candidate Profiles (only when ready) */}
+      {state.resumeDocumentIds.some((id) => state.resumeProcessing[id]?.normalized) && (
+        <motion.section variants={fadeUp} className="mb-5 space-y-4">
+          <div>
+            <h2 className="text-[18px] font-bold text-slate-900">Processed candidate profiles</h2>
+            <p className="mt-1 text-[12px] text-slate-500">
+              Each profile is loaded from its document’s backend extraction and normalization records.
             </p>
           </div>
+          {state.resumeDocumentIds.map((id) => {
+            const processing = state.resumeProcessing[id]
+            const profile = profiles[id]
+            if (!processing?.normalized) return null
+            return (
+              <article key={id} className="space-y-3">
+                {profile?.loading && (
+                  <div className="card p-6 text-[12px] text-slate-500">Loading final candidate profile…</div>
+                )}
+                {profile?.error && (
+                  <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{profile.error}</p>
+                )}
+                {profile?.normalized && (
+                  <CandidateProfile
+                    normalized={profile.normalized}
+                    extracted={profile.extracted}
+                    document={profile.document}
+                  />
+                )}
+              </article>
+            )
+          })}
+        </motion.section>
+      )}
 
-          {/* Tips */}
-          <div className="flex-1 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Lightbulb size={14} className="text-sky-400" />
-              <p className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">
-                Upload Tips
-              </p>
+      {/* Resumes Queued Status Card (Upload Tips removed) */}
+      <motion.div variants={fadeUp} className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-50/80 text-blue-600 flex items-center justify-center shrink-0 shadow-xs border border-blue-100/60">
+              <Users size={22} />
             </div>
-            <ul className="space-y-1.5">
-              {[
-                'Ensure candidate resumes are clearly formatted and text-searchable.',
-                'Multiple files or whole folders can be selected at once.',
-                'System automatically removes duplicates and standardizes fields.',
-              ].map((tip, i) => (
-                <motion.li
-                  key={i}
-                  className="flex items-start gap-2 text-[12px] text-slate-500"
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 + i * 0.07 }}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Resumes Queued</p>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <motion.p
+                  key={`${successfulCount}-${normalizedCount}`}
+                  className="text-2.5xl font-extrabold text-slate-900 leading-none"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
                 >
-                  <Check size={13} className="text-sky-400 flex-shrink-0 mt-0.5" />
-                  {tip}
-                </motion.li>
-              ))}
-            </ul>
+                  {successfulCount}
+                </motion.p>
+                <span className="text-xs text-slate-400 font-medium">candidates</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-500">Normalized:</span>
+              <span className="text-xs font-bold text-emerald-600">
+                {normalizedCount} / {successfulCount}
+              </span>
+            </div>
+            {failedCount > 0 && (
+              <div className="px-3.5 py-2 rounded-xl bg-red-50 border border-red-200/80 flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-red-600">Failed:</span>
+                <span className="text-xs font-bold text-red-700">{failedCount}</span>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>

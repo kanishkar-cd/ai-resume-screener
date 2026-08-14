@@ -1,7 +1,7 @@
 import { useCallback, useState, useRef, ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, X, FileText, CheckCircle2 } from 'lucide-react'
-import { UploadedFile } from '@/types'
+import { Upload, X, FileText, CheckCircle2, Loader2 } from 'lucide-react'
+import { UploadedFile, ResumeProcessingState } from '@/types'
 
 interface UploadCardProps {
   title: string
@@ -12,6 +12,8 @@ interface UploadCardProps {
   icon?: ReactNode
   color?: 'blue' | 'red'
   files: UploadedFile[]
+  /** Optional per-resume processing map for inline progress tracking */
+  resumeProcessing?: Record<string, ResumeProcessingState>
   /** Local/fake upload path (used by resume flow). Ignored when onSelectFiles is set. */
   onUpload?: (files: UploadedFile[]) => void
   /** Raw File selection — parent owns API upload (JD flow). */
@@ -53,6 +55,7 @@ export default function UploadCard({
   icon,
   color = 'blue',
   files,
+  resumeProcessing,
   onUpload,
   onSelectFiles,
   onRemove,
@@ -204,52 +207,152 @@ export default function UploadCard({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <div className="border-t border-slate-100 pt-3">
-              {files.map((file) => (
-                <motion.div
-                  key={file.id}
-                  className="flex items-center gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-100 mb-1.5 group"
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 8 }}
-                  layout
-                >
-                  <CheckCircle2
-                    size={14}
-                    className={`flex-shrink-0 ${
-                      file.status === 'error'
-                        ? 'text-red-400'
-                        : file.status === 'uploading' || file.status === 'processing'
-                          ? 'text-slate-300'
-                          : 'text-sky-500'
-                    }`}
-                  />
-                  <FileText size={13} className="text-slate-400 flex-shrink-0" />
-                  <span className="text-[12px] text-slate-600 truncate flex-1 font-medium">
-                    {file.name}
-                  </span>
-                  <span
-                    className={`text-[11px] flex-shrink-0 max-w-[140px] truncate ${
-                      file.status === 'error' ? 'text-red-400' : 'text-slate-400'
-                    }`}
-                    title={file.errorMessage || file.statusLabel}
+            <div className="border-t border-slate-100 pt-3 space-y-2.5">
+              {files.map((file) => {
+                const proc = resumeProcessing?.[file.id]
+                const isReady = proc?.normalized || (file.status === 'done' && !proc)
+                const isFailed = file.status === 'error' || proc?.phase === 'failed'
+
+                // Determine 3-step states
+                let parsingState: 'pending' | 'in_progress' | 'completed' = 'pending'
+                let extractionState: 'pending' | 'in_progress' | 'completed' = 'pending'
+                let normalizationState: 'pending' | 'in_progress' | 'completed' = 'pending'
+
+                if (proc) {
+                  if (proc.phase === 'uploaded' || proc.phase === 'parsing' || file.status === 'uploading') {
+                    parsingState = 'in_progress'
+                  } else if (proc.phase === 'extracting') {
+                    parsingState = 'completed'
+                    extractionState = 'in_progress'
+                  } else if (proc.phase === 'normalizing') {
+                    parsingState = 'completed'
+                    extractionState = 'completed'
+                    normalizationState = 'in_progress'
+                  } else if (proc.phase === 'normalized' || proc.normalized) {
+                    parsingState = 'completed'
+                    extractionState = 'completed'
+                    normalizationState = 'completed'
+                  }
+                } else if (file.status === 'processing' || file.status === 'uploading') {
+                  parsingState = 'in_progress'
+                }
+
+                return (
+                  <motion.div
+                    key={file.id}
+                    className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 group transition-all text-left"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 8 }}
+                    layout
                   >
-                    {file.status === 'uploading' || file.status === 'processing'
-                      ? file.statusLabel ||
-                        (file.status === 'processing' ? 'Processing…' : 'Uploading…')
-                      : file.status === 'error'
-                        ? file.errorMessage || 'Failed'
-                        : formatSize(file.size)}
-                  </span>
-                  <button
-                    onClick={() => onRemove(file.id)}
-                    disabled={disabled || file.status === 'uploading' || file.status === 'processing'}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 ml-1 disabled:opacity-30"
-                  >
-                    <X size={13} />
-                  </button>
-                </motion.div>
-              ))}
+                    {/* Top file row */}
+                    <div className="flex items-center gap-2.5">
+                      <FileText size={15} className="text-slate-400 shrink-0" />
+                      <span className="text-[12px] text-slate-800 truncate flex-1 font-semibold">
+                        {file.name}
+                      </span>
+                      {isReady && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shrink-0">
+                          <CheckCircle2 size={12} className="text-emerald-600" />
+                          Ready
+                        </span>
+                      )}
+                      {isFailed && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200/80 shrink-0">
+                          {file.errorMessage || proc?.errorMessage || 'Failed'}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                        {formatSize(file.size)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(file.id)}
+                        disabled={disabled || file.status === 'uploading'}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-500 ml-1 p-1 rounded-md hover:bg-red-50 disabled:opacity-30 cursor-pointer shrink-0"
+                        title="Remove file"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+
+                    {/* Inline 3-Step processing status while in-progress */}
+                    {!isReady && !isFailed && (
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {/* 1. Parsing */}
+                        <div
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            parsingState === 'completed'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                              : parsingState === 'in_progress'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200/70 ring-1 ring-blue-400/20'
+                                : 'bg-slate-100/70 text-slate-400 border-slate-200/60'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {parsingState === 'completed' ? (
+                              <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                            ) : parsingState === 'in_progress' ? (
+                              <Loader2 size={12} className="animate-spin text-blue-600 shrink-0" />
+                            ) : null}
+                            <span>Parsing</span>
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wider font-semibold opacity-90">
+                            {parsingState === 'completed' ? 'Completed' : parsingState === 'in_progress' ? 'In Progress' : 'Pending'}
+                          </span>
+                        </div>
+
+                        {/* 2. Extraction */}
+                        <div
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            extractionState === 'completed'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                              : extractionState === 'in_progress'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200/70 ring-1 ring-blue-400/20'
+                                : 'bg-slate-100/70 text-slate-400 border-slate-200/60'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {extractionState === 'completed' ? (
+                              <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                            ) : extractionState === 'in_progress' ? (
+                              <Loader2 size={12} className="animate-spin text-blue-600 shrink-0" />
+                            ) : null}
+                            <span>Extraction</span>
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wider font-semibold opacity-90">
+                            {extractionState === 'completed' ? 'Completed' : extractionState === 'in_progress' ? 'In Progress' : 'Pending'}
+                          </span>
+                        </div>
+
+                        {/* 3. Normalization */}
+                        <div
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                            normalizationState === 'completed'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                              : normalizationState === 'in_progress'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200/70 ring-1 ring-blue-400/20'
+                                : 'bg-slate-100/70 text-slate-400 border-slate-200/60'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {normalizationState === 'completed' ? (
+                              <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                            ) : normalizationState === 'in_progress' ? (
+                              <Loader2 size={12} className="animate-spin text-blue-600 shrink-0" />
+                            ) : null}
+                            <span>Normalization</span>
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wider font-semibold opacity-90">
+                            {normalizationState === 'completed' ? 'Completed' : normalizationState === 'in_progress' ? 'In Progress' : 'Pending'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                )
+              })}
             </div>
           </motion.div>
         )}
