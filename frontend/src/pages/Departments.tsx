@@ -13,7 +13,6 @@ import {
   Search,
   Building2,
   AlertCircle,
-  Clock,
   ChevronRight,
   FolderKanban,
 } from 'lucide-react'
@@ -204,7 +203,7 @@ export default function Departments() {
 
               {/* Bottom Metrics & Action */}
               <div className="mt-5 pt-4 border-t border-slate-100/80 space-y-3">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center text-xs">
                   <div className="flex items-center gap-1.5 text-slate-500">
                     <FolderKanban size={13} className="text-blue-500" />
                     <span className="font-semibold text-slate-700">
@@ -214,15 +213,6 @@ export default function Departments() {
                       {activeCount === 1 ? 'requisition' : 'requisitions'}
                     </span>
                   </div>
-
-                  {metrics.lastUpdated ? (
-                    <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title={`Updated ${new Date(metrics.lastUpdated).toLocaleString()}`}>
-                      <Clock size={11} className="text-slate-400" />
-                      <span>{new Date(metrics.lastUpdated).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                    </div>
-                  ) : (
-                    <span className="text-[10px] text-slate-400 italic">No reqs yet</span>
-                  )}
                 </div>
 
                 <button
