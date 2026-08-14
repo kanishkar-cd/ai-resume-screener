@@ -2,6 +2,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import structlog
 
 from app.services.pipeline.canonical_dictionaries import RULESET_VERSION

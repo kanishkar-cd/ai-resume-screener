@@ -5,8 +5,7 @@ import { api } from '@/api'
 
 const tabs = [
   ['Overview', 'overview'], ['Job Description', 'job-description'], ['Resumes', 'resumes'],
-  ['Weightage', 'weightage'], ['Processing', 'processing'], ['Candidates', 'candidates'],
-  ['Rankings', 'rankings'], ['Reports', 'reports'],
+  ['Candidates', 'candidates'], ['Rankings', 'rankings'], ['Reports', 'reports'],
 ]
 
 export default function ProjectHeader() {
