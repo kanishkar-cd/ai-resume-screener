@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   FileText,
@@ -44,9 +44,16 @@ export default function CreateRequisition() {
   // JD Upload State
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [isProcessingJd, setIsProcessingJd] = useState(false)
+  const [processingStatusMessage, setProcessingStatusMessage] = useState('Reading JD data…')
   const [jdError, setJdError] = useState<string | null>(null)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [extractedJd, setExtractedJd] = useState<ExtractedJobDescription | null>(null)
+
+  // In-flight and cached processing refs
+  const inFlightPromiseRef = useRef<Promise<void> | null>(null)
+  const processedFileRef = useRef<File | null>(null)
+  const extractedJdRef = useRef<ExtractedJobDescription | null>(null)
+  const projectIdRef = useRef<string | null>(null)
 
   // Threshold State — weights are kept for backend compatibility but not shown in UI
   const [passingScore, setPassingScore] = useState(30.0)
@@ -55,66 +62,119 @@ export default function CreateRequisition() {
   // Default weights sent to backend unchanged (hidden from UI per product decision)
   const defaultWeights = { skills: 40, projects: 40, education: 10, certifications: 5, languages: 5, experience: 0 }
 
-  // Step 2 → Step 3: Parse and extract real JD data if file uploaded
-  const handleProceedToStep3 = async () => {
-    if (!jdFile) return
+  // Background JD upload, parse, extract, and normalize pipeline
+  const startJdProcessing = useCallback((file: File) => {
+    // If already processed for this file, return existing resolution
+    if (processedFileRef.current === file && extractedJdRef.current) {
+      return Promise.resolve()
+    }
+
+    // If an in-flight promise is already running for this file, return it
+    if (inFlightPromiseRef.current) {
+      return inFlightPromiseRef.current
+    }
+
     setIsProcessingJd(true)
     setJdError(null)
+    setProcessingStatusMessage('Reading JD data...')
 
-    try {
-      let projId = createdProjectId
-      if (!projId) {
-        const proj = await api.createProject({
-          title: `${reqRef} - ${jobTitle}`,
-          target_role: jobTitle,
-          department: department.name,
-          description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
-        })
-        projId = proj.id
-        setCreatedProjectId(projId)
-        dispatch({
-          type: 'SELECT_PROJECT',
-          payload: {
-            id: proj.id,
-            title: proj.title,
-            target_role: proj.target_role,
-            department: proj.department,
-            description: proj.description,
-            status: proj.status,
-            created_at: proj.created_at,
-            updated_at: proj.updated_at,
-          },
-        })
-      }
-
-      // Upload and extract
-      const uploadRes = await api.uploadJobDescription(projId, jdFile)
-      const docId = uploadRes.document_id
-      dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
-      await api.parseDocument(docId)
-      await api.extractDocument(docId)
-      await api.normalizeDocument(docId)
-      dispatch({
-        type: 'SET_JD_PROCESSING',
-        payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
-      })
-
-      // Fetch actual extracted JSON
+    const promise = (async () => {
       try {
-        const ext = await api.getExtractedDocument(docId)
-        if ('required_skills' in ext || 'skills' in ext) {
-          setExtractedJd(ext as ExtractedJobDescription)
+        let projId = projectIdRef.current || createdProjectId
+        if (!projId) {
+          const proj = await api.createProject({
+            title: `${reqRef} - ${jobTitle}`,
+            target_role: jobTitle,
+            department: department.name,
+            description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
+          })
+          projId = proj.id
+          projectIdRef.current = projId
+          setCreatedProjectId(projId)
+          dispatch({
+            type: 'SELECT_PROJECT',
+            payload: {
+              id: proj.id,
+              title: proj.title,
+              target_role: proj.target_role,
+              department: proj.department,
+              description: proj.description,
+              status: proj.status,
+              created_at: proj.created_at,
+              updated_at: proj.updated_at,
+            },
+          })
         }
-      } catch {
-        // Extraction data optional fallback
-      }
 
-      setCurrentStep(3)
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to process Job Description'
-      setJdError(msg)
-    } finally {
-      setIsProcessingJd(false)
+        // Upload & Parse
+        const uploadRes = await api.uploadJobDescription(projId, file)
+        const docId = uploadRes.document_id
+        dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
+
+        await api.parseDocument(docId)
+
+        // Extract
+        setProcessingStatusMessage('Analyzing job requirements...')
+        await api.extractDocument(docId)
+
+        // Normalize
+        setProcessingStatusMessage('Preparing screening criteria...')
+        await api.normalizeDocument(docId)
+        dispatch({
+          type: 'SET_JD_PROCESSING',
+          payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+        })
+
+        // Fetch actual extracted JSON
+        setProcessingStatusMessage('Almost ready...')
+        try {
+          const ext = await api.getExtractedDocument(docId)
+          if ('required_skills' in ext || 'skills' in ext) {
+            setExtractedJd(ext as ExtractedJobDescription)
+            extractedJdRef.current = ext as ExtractedJobDescription
+          }
+        } catch {
+          // Extraction data optional fallback
+        }
+
+        setProcessingStatusMessage('Screening criteria ready')
+        processedFileRef.current = file
+      } catch (err) {
+        processedFileRef.current = null
+        extractedJdRef.current = null
+        const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to process Job Description'
+        setJdError(msg)
+        throw err
+      } finally {
+        inFlightPromiseRef.current = null
+        setIsProcessingJd(false)
+      }
+    })()
+
+    inFlightPromiseRef.current = promise
+    return promise
+  }, [createdProjectId, reqRef, jobTitle, department.name, expLevel, dispatch])
+
+  const handleFileChange = (file: File) => {
+    if (processedFileRef.current !== file) {
+      processedFileRef.current = null
+      extractedJdRef.current = null
+      setExtractedJd(null)
+    }
+    setJdFile(file)
+    setJdError(null)
+    // Non-blocking background processing starts as soon as the file is selected
+    startJdProcessing(file).catch(() => {
+      // Error is caught and surfaced in jdError state
+    })
+  }
+
+  // Step 2 → Step 3: Navigate immediately to screening criteria without blocking
+  const handleProceedToStep3 = () => {
+    if (!jdFile) return
+    setCurrentStep(3)
+    if (!processedFileRef.current || processedFileRef.current !== jdFile) {
+      startJdProcessing(jdFile).catch(() => {})
     }
   }
 
@@ -340,7 +400,7 @@ export default function CreateRequisition() {
                 accept=".pdf,.docx,.txt"
                 onChange={(e) => {
                   if (e.target.files && e.target.files[0]) {
-                    setJdFile(e.target.files[0])
+                    handleFileChange(e.target.files[0])
                   }
                 }}
                 className="hidden"
@@ -358,6 +418,13 @@ export default function CreateRequisition() {
                   <span>{jdFile.name}</span>
                 </div>
               )}
+
+              {jdError && (
+                <div className="mt-4 p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2 text-left">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{jdError}</span>
+                </div>
+              )}
             </div>
 
             <div className="pt-4 border-t border-slate-100 flex justify-between">
@@ -371,21 +438,12 @@ export default function CreateRequisition() {
               </button>
               <button
                 type="button"
-                onClick={() => void handleProceedToStep3()}
-                disabled={!jdFile || isProcessingJd}
+                onClick={handleProceedToStep3}
+                disabled={!jdFile}
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
-                {isProcessingJd ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" />
-                    <span>Processing JD...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Next: Screening Criteria</span>
-                    <ArrowRight size={15} />
-                  </>
-                )}
+                <span>Next: Screening Criteria</span>
+                <ArrowRight size={15} />
               </button>
             </div>
           </div>
@@ -395,7 +453,7 @@ export default function CreateRequisition() {
         {currentStep === 3 && (
           <div className="space-y-6">
 
-            {/* ─ Recommendation Threshold ─ */}
+            {/* ─ Recommendation Threshold (Always visible) ─ */}
             <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -423,7 +481,7 @@ export default function CreateRequisition() {
               </div>
             </div>
 
-            {/* ─ JD Requirements Preview ─ */}
+            {/* ─ JD Requirements Section / Processing Status ─ */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Extracted JD Requirements</h4>
@@ -432,126 +490,170 @@ export default function CreateRequisition() {
                 </span>
               </div>
 
-              {/* Experience */}
-              <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                <Briefcase size={15} className="text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Experience</p>
-                  <p className="text-xs font-semibold text-slate-800">
-                    {extractedJd?.experience && extractedJd.experience.length > 0
-                      ? extractedJd.experience.join(' · ')
-                      : 'Not specified in JD'}
-                  </p>
+              {isProcessingJd ? (
+                <div className="py-10 px-6 bg-slate-50/60 border border-slate-200/80 rounded-2xl text-center space-y-4 animate-in fade-in duration-150">
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+                    <Loader2 size={22} className="animate-spin text-blue-600" />
+                  </div>
+                  <div className="space-y-1 max-w-sm mx-auto">
+                    <h3 className="text-sm font-bold text-slate-900">Preparing Screening Criteria…</h3>
+                    <p className="text-xs text-slate-500">Extracting structured role requirements from your Job Description</p>
+                  </div>
+                  <div className="max-w-xs mx-auto pt-1">
+                    <div className="inline-flex items-center gap-2 text-xs font-bold text-blue-700 bg-blue-50/90 border border-blue-200/80 px-3.5 py-1.5 rounded-xl shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                      <span>{processingStatusMessage}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : jdError ? (
+                <div className="p-6 bg-red-50/80 border border-red-200/80 rounded-2xl text-center space-y-3 animate-in fade-in duration-150">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center mx-auto shadow-xs">
+                    <AlertCircle size={20} />
+                  </div>
+                  <div className="space-y-1 max-w-md mx-auto">
+                    <h4 className="text-xs font-bold text-slate-900">Failed to extract screening criteria</h4>
+                    <p className="text-xs text-red-600 leading-relaxed">{jdError}</p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(2)}
+                      className="px-3.5 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      Back to Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (jdFile) {
+                          setJdError(null)
+                          startJdProcessing(jdFile).catch(() => {})
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Experience */}
+                  <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                    <Briefcase size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Experience</p>
+                      <p className="text-xs font-semibold text-slate-800">
+                        {extractedJd?.experience && extractedJd.experience.length > 0
+                          ? extractedJd.experience.join(' · ')
+                          : 'Not specified in JD'}
+                      </p>
+                    </div>
+                  </div>
 
-              {/* Education & Disciplines */}
-              {((extractedJd?.education && extractedJd.education.length > 0) ||
-                (extractedJd?.education_disciplines && extractedJd.education_disciplines.length > 0)) && (
-                <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                  <GraduationCap size={15} className="text-purple-500 shrink-0 mt-0.5" />
-                  <div className="space-y-1.5 w-full">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Education</p>
-                    {extractedJd?.education && extractedJd.education.length > 0 && (
-                      <p className="text-xs font-semibold text-slate-800">{extractedJd.education.join(', ')}</p>
-                    )}
-                    {extractedJd?.education_disciplines && extractedJd.education_disciplines.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {extractedJd.education_disciplines.map((d) => (
-                          <span key={d} className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">{d}</span>
-                        ))}
+                  {/* Education & Disciplines */}
+                  {((extractedJd?.education && extractedJd.education.length > 0) ||
+                    (extractedJd?.education_disciplines && extractedJd.education_disciplines.length > 0)) && (
+                    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                      <GraduationCap size={15} className="text-purple-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 w-full">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Education</p>
+                        {extractedJd?.education && extractedJd.education.length > 0 && (
+                          <p className="text-xs font-semibold text-slate-800">{extractedJd.education.join(', ')}</p>
+                        )}
+                        {extractedJd?.education_disciplines && extractedJd.education_disciplines.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {extractedJd.education_disciplines.map((d) => (
+                              <span key={d} className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">{d}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Required Skills */}
-              {((extractedJd?.required_skills && extractedJd.required_skills.length > 0) ||
-                (extractedJd?.skills && extractedJd.skills.length > 0)) && (
-                <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                  <Cpu size={15} className="text-blue-500 shrink-0 mt-0.5" />
-                  <div className="space-y-1.5 w-full">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Required Skills</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(extractedJd?.required_skills?.length
-                        ? extractedJd.required_skills
-                        : extractedJd?.skills || []
-                      ).map((s) => (
-                        <span key={s} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
-                      ))}
                     </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {/* Preferred Skills */}
-              {extractedJd?.preferred_skills && extractedJd.preferred_skills.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                  <SlidersHorizontal size={15} className="text-indigo-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1.5 w-full">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preferred Skills</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {extractedJd.preferred_skills.map((ps) => (
-                        <span key={ps} className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold border border-indigo-100">{ps}</span>
-                      ))}
+                  {/* Required Skills */}
+                  {((extractedJd?.required_skills && extractedJd.required_skills.length > 0) ||
+                    (extractedJd?.skills && extractedJd.skills.length > 0)) && (
+                    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                      <Cpu size={15} className="text-blue-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 w-full">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Required Skills</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(extractedJd?.required_skills?.length
+                            ? extractedJd.required_skills
+                            : extractedJd?.skills || []
+                          ).map((s) => (
+                            <span key={s} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {/* Role Responsibilities — collapsed by default */}
-              {extractedJd?.responsibilities && extractedJd.responsibilities.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                  <ListChecks size={15} className="text-emerald-500 shrink-0 mt-0.5" />
-                  <div className="space-y-1.5 w-full">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Role Responsibilities</p>
-                      {extractedJd.responsibilities.length > 3 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllResponsibilities((v) => !v)}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors"
-                        >
-                          {showAllResponsibilities ? 'Show less ↑' : `+${extractedJd.responsibilities.length - 3} more ↓`}
-                        </button>
-                      )}
+                  {/* Preferred Skills */}
+                  {extractedJd?.preferred_skills && extractedJd.preferred_skills.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                      <SlidersHorizontal size={15} className="text-indigo-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 w-full">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preferred Skills</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {extractedJd.preferred_skills.map((ps) => (
+                            <span key={ps} className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold border border-indigo-100">{ps}</span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <ul className="space-y-1">
-                      {(showAllResponsibilities
-                        ? extractedJd.responsibilities
-                        : extractedJd.responsibilities.slice(0, 3)
-                      ).map((r) => (
-                        <li key={r} className="flex items-start gap-2 text-xs text-slate-600">
-                          <span className="w-1 h-1 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
-                          {r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {/* Empty state */}
-              {(!extractedJd ||
-                (!extractedJd.education?.length &&
-                  !extractedJd.required_skills?.length &&
-                  !extractedJd.skills?.length &&
-                  !extractedJd.preferred_skills?.length &&
-                  !extractedJd.responsibilities?.length)) && (
-                <div className="p-5 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-1">
-                  <p className="text-xs font-semibold text-slate-600">No structured requirements extracted from JD</p>
-                  <p className="text-[11px] text-slate-400">The screening engine will evaluate candidates against the full JD text.</p>
-                </div>
+                  {/* Role Responsibilities — collapsed by default */}
+                  {extractedJd?.responsibilities && extractedJd.responsibilities.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                      <ListChecks size={15} className="text-emerald-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 w-full">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Role Responsibilities</p>
+                          {extractedJd.responsibilities.length > 3 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllResponsibilities((v) => !v)}
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                            >
+                              {showAllResponsibilities ? 'Show less ↑' : `+${extractedJd.responsibilities.length - 3} more ↓`}
+                            </button>
+                          )}
+                        </div>
+                        <ul className="space-y-1">
+                          {(showAllResponsibilities
+                            ? extractedJd.responsibilities
+                            : extractedJd.responsibilities.slice(0, 3)
+                          ).map((r) => (
+                            <li key={r} className="flex items-start gap-2 text-xs text-slate-600">
+                              <span className="w-1 h-1 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {(!extractedJd ||
+                    (!extractedJd.education?.length &&
+                      !extractedJd.required_skills?.length &&
+                      !extractedJd.skills?.length &&
+                      !extractedJd.preferred_skills?.length &&
+                      !extractedJd.responsibilities?.length)) && (
+                    <div className="p-5 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-1">
+                      <p className="text-xs font-semibold text-slate-600">No structured requirements extracted from JD</p>
+                      <p className="text-[11px] text-slate-400">The screening engine will evaluate candidates against the full JD text.</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-
-            {jdError && (
-              <div className="p-4 bg-red-50 text-red-700 rounded-xl text-xs font-semibold flex items-center gap-2">
-                <AlertCircle size={16} />
-                {jdError}
-              </div>
-            )}
 
             <div className="pt-4 border-t border-slate-100 flex justify-between">
               <button
@@ -565,7 +667,8 @@ export default function CreateRequisition() {
               <button
                 type="button"
                 onClick={handleContinueToReview}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700"
+                disabled={isProcessingJd || Boolean(jdError)}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 Continue to Review
                 <ArrowRight size={15} />
