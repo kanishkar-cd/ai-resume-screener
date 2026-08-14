@@ -13,7 +13,6 @@ import {
   Search,
   Building2,
   AlertCircle,
-  Clock,
   ChevronRight,
   FolderKanban,
 } from 'lucide-react'
@@ -181,14 +180,11 @@ export default function Departments() {
               className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-300/80 transition-all cursor-pointer flex flex-col justify-between"
             >
               <div className="space-y-3">
-                {/* Header Badge */}
+                {/* Header Icon */}
                 <div className="flex items-center justify-between">
                   <div className={`p-2.5 rounded-xl ${dept.badgeBg} transition-transform group-hover:scale-105`}>
                     <Icon size={18} className={dept.badgeText} />
                   </div>
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono tracking-wide bg-slate-100 text-slate-600 border border-slate-200/60">
-                    {dept.code}
-                  </span>
                 </div>
 
                 {/* Title & Description */}
@@ -204,7 +200,7 @@ export default function Departments() {
 
               {/* Bottom Metrics & Action */}
               <div className="mt-5 pt-4 border-t border-slate-100/80 space-y-3">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center text-xs">
                   <div className="flex items-center gap-1.5 text-slate-500">
                     <FolderKanban size={13} className="text-blue-500" />
                     <span className="font-semibold text-slate-700">
@@ -214,15 +210,6 @@ export default function Departments() {
                       {activeCount === 1 ? 'requisition' : 'requisitions'}
                     </span>
                   </div>
-
-                  {metrics.lastUpdated ? (
-                    <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium" title={`Updated ${new Date(metrics.lastUpdated).toLocaleString()}`}>
-                      <Clock size={11} className="text-slate-400" />
-                      <span>{new Date(metrics.lastUpdated).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                    </div>
-                  ) : (
-                    <span className="text-[10px] text-slate-400 italic">No reqs yet</span>
-                  )}
                 </div>
 
                 <button

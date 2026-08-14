@@ -183,11 +183,8 @@ export default function DepartmentDashboard() {
               <Icon size={18} className={department.badgeText} />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-                <span>{department.name}</span>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-slate-100 text-slate-600">
-                  {department.code}
-                </span>
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                {department.name}
               </h1>
               <p className="text-xs text-slate-500 mt-0.5 font-medium line-clamp-1">
                 {department.description}
