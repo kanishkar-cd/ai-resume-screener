@@ -30,7 +30,7 @@ export default function Projects() {
 
   const open = (project: Project) => {
     dispatch({ type: 'SELECT_PROJECT', payload: project })
-    navigate(`/projects/${project.id}/overview`)
+    navigate(`/projects/${project.id}/rankings`)
   }
 
   const remove = async (project: Project) => {

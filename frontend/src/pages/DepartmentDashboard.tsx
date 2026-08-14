@@ -344,12 +344,12 @@ export default function DepartmentDashboard() {
                                 updated_at: proj.updated_at,
                               },
                             })
-                            navigate(`/projects/${proj.id}/resumes`)
+                            navigate(`/projects/${proj.id}/candidates`)
                           }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                         >
-                          <Upload size={13} />
-                          <span>Resumes</span>
+                          <Users size={13} />
+                          <span>Candidates</span>
                         </button>
                         <button
                           type="button"
