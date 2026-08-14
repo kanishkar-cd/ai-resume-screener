@@ -10,6 +10,7 @@ from app.schemas.extracted_info import (
     ExtractedJobDescriptionCreate,
     ExtractedResumeCreate,
 )
+from app.schemas.extracted_jd import ExtractedJDCreate
 
 
 class ExtractionRepository:
@@ -17,6 +18,19 @@ class ExtractionRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def upsert(
+        self, data: Any, *, commit: bool = True, refresh: bool = True
+    ) -> Any:
+        if isinstance(data, ExtractedJobDescriptionCreate) or getattr(data, "job_title", None) is not None:
+            return await self.create_or_update_job_description(data, commit=commit, refresh=refresh)
+        return await self.create_or_update_resume(data, commit=commit, refresh=refresh)
+
+    async def get_by_document_id(self, document_id: UUID) -> Any:
+        jd = await self.get_job_description_by_document_id(document_id)
+        if jd is not None:
+            return jd
+        return await self.get_resume_by_document_id(document_id)
 
     async def create_or_update_resume(
         self, data: ExtractedResumeCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True
@@ -35,10 +49,13 @@ class ExtractionRepository:
         return model
 
     async def create_or_update_job_description(
-        self, data: ExtractedJobDescriptionCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True
+        self, data: ExtractedJobDescriptionCreate | ExtractedJDCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True
     ) -> ExtractedJDModel:
-        payload = ExtractedJobDescriptionCreate.model_validate(data).model_dump(mode="json")
-        document_id = UUID(payload["document_id"])
+        if isinstance(data, dict):
+            payload = data
+        else:
+            payload = data.model_dump(mode="json")
+        document_id = UUID(str(payload["document_id"]))
         payload["document_id"] = document_id
         model = await self.get_job_description_by_document_id(document_id)
         model = self._apply(model, ExtractedJDModel, payload)

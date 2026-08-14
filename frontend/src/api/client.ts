@@ -1,6 +1,6 @@
 import type { ApiDataEnvelope, ApiErrorBody } from './types'
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8000/api/v1'
+const DEFAULT_BASE_URL = '/api/v1'
 
 export function getApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
@@ -40,7 +40,8 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 
 function buildUrl(path: string, query?: Record<string, string | number | boolean | undefined | null>): string {
   const base = getApiBaseUrl()
-  const url = new URL(path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`)
+  const rawPath = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`
+  const url = rawPath.startsWith('http') ? new URL(rawPath) : new URL(rawPath, window.location.origin)
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined || value === null) continue

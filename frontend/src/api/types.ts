@@ -431,6 +431,27 @@ export interface AdjustmentItem {
   description: string
 }
 
+export type MatchVerdictStatus = 'MATCHED' | 'NO_MATCH' | 'UNRESOLVED'
+
+export type MatchVerdictMethod = 'exact' | 'alias' | 'taxonomy' | 'llm_confirmed' | 'llm_rejected' | 'llm_unresolved'
+
+export interface MatchVerdict {
+  requirement_id: string
+  status: MatchVerdictStatus
+  confidence: number
+  evidence_ids: string[]
+  reasoning: string
+  method: MatchVerdictMethod | null
+}
+
+export interface CategoryBreakdownItem {
+  category: string
+  component_score: number
+  effective_weight: number
+  contribution: number
+  is_applicable: boolean
+}
+
 export interface CandidateScore {
   id: string
   document_id: string
@@ -453,12 +474,14 @@ export interface CandidateScore {
   missing_skills: string[]
   strengths: string[]
   weaknesses: string[]
+  match_verdicts: MatchVerdict[]
+  passing_score?: number
+  effective_weights?: Record<string, number>
+  score_breakdown?: CategoryBreakdownItem[]
   skills_score: number
   experience_score: number
   projects_score: number
   education_score: number
-  certifications_score: number
-  languages_score: number
   created_at: string
   updated_at: string
 }

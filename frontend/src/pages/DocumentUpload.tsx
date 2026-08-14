@@ -293,38 +293,6 @@ export default function DocumentUpload() {
           status: 'error',
           errorMessage: message,
         },
-      })
-      dispatch({ type: 'SET_PROCESSING', payload: false })
-    }
-  }
-
-  const handleRemoveJD = () => {
-    if (busy) return
-    setFlowError(null)
-    setFlowPhase('idle')
-    dispatch({ type: 'SET_JD', payload: null })
-    dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: null })
-    updateJdProcessing({ status: null, stage: null, normalized: false })
-  }
-
-  const handleContinue = () => {
-    if (!canProceedJD) return
-    completeAndAdvance()
-    navigate(`/projects/${state.projectId}/weightage`)
-  }
-
-  const jdCount = state.jdNormalized && state.jdDocumentId ? 1 : 0
-  const statusText = processingLabel(
-    state.jdProcessingStage,
-    state.jdProcessingStatus,
-    state.jdNormalized,
-    busy,
-  )
-
-  return (
-    <motion.div
-      variants={container}
-      initial="hidden"
       animate="show"
       className="max-w-5xl mx-auto"
     >

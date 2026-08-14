@@ -110,6 +110,19 @@ export interface CandidateScore {
   explanation?: string
 }
 
+export type MatchVerdictStatus = 'MATCHED' | 'NO_MATCH' | 'UNRESOLVED'
+
+export type MatchVerdictMethod = 'exact' | 'alias' | 'taxonomy' | 'llm_confirmed' | 'llm_rejected' | 'llm_unresolved'
+
+export interface MatchVerdict {
+  requirement_id: string
+  status: MatchVerdictStatus
+  confidence: number
+  evidence_ids: string[]
+  reasoning: string
+  method: MatchVerdictMethod | null
+}
+
 export interface Candidate {
   id: string
   name: string
@@ -130,9 +143,13 @@ export interface Candidate {
   status: ScreeningStatus
   extractedFields: ExtractedField[]
   scores: CandidateScore[]
+  matchVerdicts?: MatchVerdict[]
   aiExplanation?: string
   keyStrengths?: string[]
   keyWeaknesses?: string[]
+  passingScore?: number
+  effectiveWeights?: Record<string, number>
+  scoreBreakdown?: import('../api/types').CategoryBreakdownItem[]
   extractedAt?: Date
   scoredAt?: Date
 }
@@ -178,6 +195,45 @@ export interface ResumeProcessingState {
   stage: DocumentProcessingStage | null
   normalized: boolean
   errorMessage?: string
+}
+
+// ─── Pipeline State ───────────────────────────────────────────
+export interface PipelineState {
+  currentStep: number
+  completedSteps: number[]
+  /** Backend project UUID from POST /projects (JD upload flow). */
+  projectId: string | null
+  selectedProject: {
+    id: string
+    title: string
+    target_role: string
+    department: string | null
+    description: string | null
+    status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+    created_at: string
+    updated_at: string
+  } | null
+  /** Backend JD document UUID from POST /projects/{id}/job-description. */
+  jdDocumentId: string | null
+  /** Latest backend processing_status for the JD document. */
+  jdProcessingStatus: JdProcessingStatus | null
+  /** Latest backend processing_stage for the JD document. */
+  jdProcessingStage: JdProcessingStage | null
+  /** True only after POST /documents/{id}/normalize succeeds for the JD. */
+  jdNormalized: boolean
+  /** True after POST /projects/{id}/weight-config succeeds for the current weights. */
+  weightConfigSaved: boolean
+  /** Backend weight-config UUID from the last successful save. */
+  weightConfigId: string | null
+  /** Backend document UUIDs for successfully batch-uploaded resumes. */
+  resumeDocumentIds: string[]
+  /** Per-resume parse → extract → normalize tracking keyed by document id. */
+  resumeProcessing: Record<string, ResumeProcessingState>
+  /** True after POST /projects/{id}/score succeeds. */
+  scoringComplete: boolean
+  /** Last scoring API error message, if any. */
+  extractedAt?: Date
+  scoredAt?: Date
 }
 
 // ─── Pipeline State ───────────────────────────────────────────
@@ -262,22 +318,38 @@ export interface PipelineState {
       updated_at: string
     }>
   } | null
-  upload: UploadState
+  upload: any
   weights: WeightCriterion[]
   candidates: Candidate[]
   scoringRunAt?: Date
   isProcessing: boolean
-  aiPipelineStep: number   // 0 = not started, 1–7 = current AI stage, 8 = complete
+  aiPipelineStep: number
   aiPipelineComplete: boolean
+  activeDepartmentId?: string | null
+  shortlistedCandidateIds?: string[]
+  assessmentCandidates?: AssessmentCandidate[]
 }
 
-// ─── Navigation ───────────────────────────────────────────────
+export interface AssessmentCandidate {
+  id: string
+  candidateName: string
+  email: string
+  currentTitle?: string
+  reqRef: string
+  meritScore: number
+  rank: number
+  status: 'Sent' | 'Pending' | 'Completed'
+  sentAt: string
+  techScore?: number
+  codingScore?: number
+  overallResult?: 'PASSED' | 'UNDER_REVIEW' | 'FAILED'
+}
+
 export interface BreadcrumbItem {
   label: string
   href?: string
 }
 
-// ─── User ─────────────────────────────────────────────────────
 export interface AppUser {
   name: string
   role: string

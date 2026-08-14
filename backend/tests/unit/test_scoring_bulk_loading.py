@@ -45,7 +45,7 @@ async def test_score_project_uses_bulk_loading() -> None:
     )
 
     mock_scores = MagicMock()
-    mock_scores.upsert_score = AsyncMock(side_effect=lambda data: MagicMock(id=uuid4(), **data.model_dump()))
+    mock_scores.upsert_score = AsyncMock(side_effect=lambda data, *args, **kwargs: MagicMock(id=uuid4(), **data.model_dump()))
 
     facade = ScoringEngineFacade(
         projects=mock_projects,
@@ -55,6 +55,7 @@ async def test_score_project_uses_bulk_loading() -> None:
         weight_configs=mock_weight_configs,
         scores=mock_scores,
     )
+    facade.hybrid_matching.match = AsyncMock(side_effect=RuntimeError("hybrid unavailable"))
 
     result = await facade.score_project(project_id)
 
@@ -65,3 +66,4 @@ async def test_score_project_uses_bulk_loading() -> None:
     # Per-document single getters MUST NOT be called during score_project
     mock_normalizations.get_resume_by_document_id.assert_not_called()
     mock_extractions.get_resume_by_document_id.assert_not_called()
+    assert all(score.match_verdicts == [] for score in result.scores)

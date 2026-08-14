@@ -12,13 +12,14 @@ from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
 from app.repositories.weight_config_repository import WeightConfigRepository
-from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, ProjectScoringRead
+from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem, ProjectScoringRead
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
 from app.services.scoring import (
     BonusService, ComponentScoringService, ConfidenceService, PenaltyService,
     RecommendationService, WeightCalculationService,
 )
+from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -64,11 +65,13 @@ class ScoringEngineFacade:
         self, projects: ProjectRepository, documents: DocumentRepository,
         normalizations: NormalizationRepository, extractions: ExtractionRepository,
         weight_configs: WeightConfigRepository, scores: ScoringRepository,
+        hybrid_matching: HybridMatchingService | None = None,
     ) -> None:
         self.projects, self.documents = projects, documents
         self.normalizations, self.extractions = normalizations, extractions
         self.weight_configs, self.scores = weight_configs, scores
         self.components = ComponentScoringService()
+        self.hybrid_matching = hybrid_matching or HybridMatchingService()
 
     async def score_project(self, project_id: UUID) -> ProjectScoringRead:
         logger.info("[SCORE] scoring started", project_id=str(project_id))
@@ -153,17 +156,39 @@ class ScoringEngineFacade:
             if extracted is None:
                 extracted = await self.extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
-            components = self.components.score(resume, job, config, extracted.projects)
+            try:
+                scoring_extracted, match_verdicts = await self.hybrid_matching.match(
+                    job, resume, extracted, config
+                )
+            except Exception as exc:
+                logger.warning(
+                    "hybrid_matching_fallback",
+                    document_id=str(document.id),
+                    error_type=type(exc).__name__,
+                )
+                scoring_extracted = extracted
+                try:
+                    requirements = RequirementBuilder.build(job, config)
+                    evidence = EvidenceBuilder.build(extracted)
+                    match_verdicts = []
+                    for item in requirements:
+                        verdict = self.hybrid_matching.matcher.match(item, resume, evidence)
+                        verdict.reasoning = f"{verdict.reasoning} (AI review unavailable)."
+                        match_verdicts.append(verdict)
+                except Exception:
+                    match_verdicts = []
+            components = self.components.score(resume, job, config, scoring_extracted.projects)
             applicable_categories = WeightCalculationService.applicable_categories(job, config)
-            weighted, raw_total, weighted_total = WeightCalculationService.calculate(
+            weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
                 components, config, applicable_categories
             )
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config)
             penalty_total, penalties = PenaltyService.calculate(components, config)
             bonus_total, bonuses = BonusService.calculate(resume, job, config, components)
-            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total)
+            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total, components=components)
             confidence = ConfidenceService.calculate(extracted)
-            recommendation = RecommendationService.recommend(final_score, float(config.passing_score), knocked_out)
+            passing_score = float(config.passing_score)
+            recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
             component_values = {
                 name: getattr(components, name).score
                 for name in (
@@ -198,6 +223,17 @@ class ScoringEngineFacade:
                     if b.delta_points > 0:
                         strengths.append(f"Bonus: {b.description}")
 
+            score_breakdown = [
+                CategoryBreakdownItem(
+                    category=name,
+                    component_score=getattr(components, name).score,
+                    effective_weight=effective_weights.get(name, 0.0),
+                    contribution=getattr(weighted, name, 0.0),
+                    is_applicable=name in applicable_categories,
+                )
+                for name in ("skills", "experience", "projects", "education", "certifications", "languages")
+            ]
+
             model = await self.scores.upsert_score(CandidateScoreCreate(
                 document_id=document.id, project_id=document.project_id,
                 component_scores=components, weighted_scores=weighted,
@@ -206,12 +242,15 @@ class ScoringEngineFacade:
                 confidence=confidence, recommendation=recommendation,
                 is_knocked_out=knocked_out, knockout_reason=knockout_reason,
                 penalty_summary=penalties, bonus_summary=bonuses,
+                passing_score=passing_score, effective_weights=effective_weights,
+                score_breakdown=score_breakdown,
                 weight_config_version=config.version,
                 matched_skills=matched_skills,
                 missing_skills=missing_skills,
                 strengths=strengths,
                 weaknesses=weaknesses,
-            ))
+                match_verdicts=match_verdicts,
+            ), commit=False, refresh=False)
             logger.info(
                 "[SCORE] candidate scored",
                 project_id=str(document.project_id),

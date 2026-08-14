@@ -7,7 +7,7 @@ class RecommendationService:
         final_score: float,
         passing_score: float = 70.0,
         is_knocked_out: bool = False,
-        use_absolute_thresholds: bool = True,
+        use_absolute_thresholds: bool = False,
     ) -> RecommendationLevel:
         if is_knocked_out:
             return RecommendationLevel.REJECT
@@ -21,12 +21,12 @@ class RecommendationService:
                 return RecommendationLevel.CONSIDER
             return RecommendationLevel.REJECT
 
-        if final_score < passing_score - 15:
-            return RecommendationLevel.REJECT
         if final_score < passing_score:
-            return RecommendationLevel.CONSIDER
-        if final_score < passing_score + 15:
+            return RecommendationLevel.REJECT
+        if final_score >= passing_score + 15:
+            return RecommendationLevel.SHORTLIST
+        if final_score >= passing_score + 5:
             return RecommendationLevel.REVIEW
-        return RecommendationLevel.SHORTLIST
+        return RecommendationLevel.CONSIDER
 
 

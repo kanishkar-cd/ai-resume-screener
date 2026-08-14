@@ -61,15 +61,16 @@ class RecommendationGenerator:
             reason = score.knockout_reason or "unspecified mandatory requirement"
             return f"REJECT because a mandatory requirement was not satisfied: {reason}."
         final_score = float(score.final_score)
+        threshold = float(getattr(score, "passing_score", None) or 50.0)
         recommendation = score.recommendation.value
         if recommendation == "SHORTLIST":
-            rule = "is 85 or above"
+            rule = f"exceeds recommendation threshold ({threshold:.2f}) by 15+ points"
         elif recommendation == "REVIEW":
-            rule = "falls within the current 70–84.99 recommendation band"
+            rule = f"exceeds recommendation threshold ({threshold:.2f}) by 5+ points"
         elif recommendation == "CONSIDER":
-            rule = "falls within the current 50–69.99 recommendation band"
+            rule = f"meets the current recommendation threshold of {threshold:.2f}"
         else:
-            rule = "falls below the current recommendation threshold of 50"
+            rule = f"falls below the current recommendation threshold of {threshold:.2f}"
         return f"{recommendation} because the final score of {final_score:.2f} {rule}."
 
 

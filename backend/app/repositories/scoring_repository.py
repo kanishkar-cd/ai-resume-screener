@@ -13,7 +13,7 @@ class ScoringRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def upsert_score(self, score_data: CandidateScoreCreate | dict[str, Any]) -> CandidateScoreModel:
+    async def upsert_score(self, score_data: CandidateScoreCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True) -> CandidateScoreModel:
         score = CandidateScoreCreate.model_validate(score_data)
         values = score.model_dump(mode="json")
         values["document_id"] = UUID(values["document_id"])
@@ -40,11 +40,15 @@ class ScoringRepository:
                 setattr(model, field, value)
 
         try:
-            await self.session.commit()
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
         except SQLAlchemyError:
             await self.session.rollback()
             raise
-        await self.session.refresh(model)
+        if refresh:
+            await self.session.refresh(model)
         return model
 
     async def get_project_scores(self, project_id: UUID) -> list[CandidateScoreModel]:

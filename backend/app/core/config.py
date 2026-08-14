@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
 
+    ENABLE_HYBRID_MATCHING: bool = True
+    HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD: float = Field(default=0.80, ge=0, le=1)
+    HYBRID_MATCHING_KEYWORD_OVERLAP_THRESHOLD: float = Field(default=0.15, ge=0, le=1)
+    HYBRID_MATCHING_MAX_EVIDENCE_PER_REQUIREMENT: int = Field(default=5, ge=1, le=50)
+    HYBRID_MATCHING_CACHE_SIZE: int = Field(default=512, ge=1, le=10000)
+
     AFFINDA_API_KEY: str | None = None
     AFFINDA_API_BASE_URL: str = "https://api.affinda.com"
     AFFINDA_WORKSPACE_ID: str | None = None

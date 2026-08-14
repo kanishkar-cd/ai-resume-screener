@@ -1,0 +1,18 @@
+import asyncio, time  
+from uuid import uuid4  
+from app.db.session import AsyncSessionLocal  
+from app.repositories.project_repository import ProjectRepository  
+from app.repositories.document_repository import DocumentRepository  
+from app.repositories.extraction_repository import ExtractionRepository  
+from app.repositories.normalization_repository import NormalizationRepository  
+from app.repositories.weight_config_repository import WeightConfigRepository  
+from app.repositories.scoring_repository import ScoringRepository  
+from app.repositories.ranking_repository import RankingRepository  
+from app.services.project_service import ProjectService  
+from app.services.document_service import DocumentService  
+from app.services.parsing_service import ParsingService  
+from app.services.extraction_service import ExtractionService  
+from app.services.normalization_service import NormalizationService  
+from app.services.scoring_service import ScoringEngineFacade  
+from app.services.ranking_service import RankingService  
+print('Modules imported successfully')  

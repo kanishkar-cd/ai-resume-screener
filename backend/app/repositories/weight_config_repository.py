@@ -67,16 +67,27 @@ class WeightConfigRepository:
             return None
 
         update_dict = payload.model_dump(exclude_unset=True)
+        changed = False
+
         if "weights" in update_dict and update_dict["weights"] is not None:
-            existing.weights = update_dict.pop("weights")
+            new_weights = update_dict.pop("weights")
+            if existing.weights != new_weights:
+                existing.weights = new_weights
+                changed = True
+
         if "knockout_rules" in update_dict and update_dict["knockout_rules"] is not None:
-            existing.knockout_rules = update_dict.pop("knockout_rules")
+            new_rules = update_dict.pop("knockout_rules")
+            if existing.knockout_rules != new_rules:
+                existing.knockout_rules = new_rules
+                changed = True
 
         for key, value in update_dict.items():
-            if value is not None:
+            if value is not None and getattr(existing, key, None) != value:
                 setattr(existing, key, value)
+                changed = True
 
-        existing.version += 1
+        if changed:
+            existing.version += 1
 
         if commit:
             await self.session.commit()

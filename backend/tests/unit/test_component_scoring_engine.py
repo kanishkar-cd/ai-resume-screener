@@ -127,7 +127,7 @@ def test_stage5_deterministic_scoring_matching_and_bounds() -> None:
     assert scores.education.score == 100.0
 
     # 3. Weighted total score calculation using project weight configuration
-    weighted_scores, raw_total, weighted_total = WeightCalculationService.calculate(scores, config)
+    weighted_scores, raw_total, weighted_total, _ = WeightCalculationService.calculate(scores, config)
     assert 0 <= raw_total <= 100
     assert 0 <= weighted_total <= 100
 
