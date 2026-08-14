@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, Plus, UserRound } from 'lucide-react'
+import { Home, UserRound } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 
 const ROUTE_LABEL: Record<string, string> = {
@@ -14,7 +14,7 @@ const ROUTE_LABEL: Record<string, string> = {
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { state, startNewScreening } = usePipeline()
+  const { state } = usePipeline()
   const routeParts = location.pathname.split('/').filter(Boolean)
   const routeSection = routeParts[routeParts.length - 1]?.replace(/-/g, ' ')
   const currentLabel = ROUTE_LABEL[location.pathname] ?? (routeSection ? routeSection.replace(/\b\w/g, (letter: string) => letter.toUpperCase()) : 'Overview')
@@ -48,19 +48,6 @@ export default function Header() {
 
       {/* ── Right Controls ── */}
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            startNewScreening()
-            navigate('/projects/new')
-          }}
-          className="btn-outline flex items-center gap-2 px-3 py-1.5 text-[12px]"
-        >
-          <Plus size={14} />
-          <span className="hidden sm:inline">Create Project</span>
-        </button>
-
-        <div className="w-px h-6 bg-slate-200" />
         <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-600"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100"><UserRound size={15}/></span><span className="hidden sm:inline">Recruiter</span></div>
       </div>
     </motion.header>

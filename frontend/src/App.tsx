@@ -31,7 +31,7 @@ function AppRoutes() {
         <Route path="/departments/:deptId" element={<DepartmentDashboard />} />
         <Route path="/departments/:deptId/requisitions/new" element={<CreateRequisition />} />
         <Route path="/projects" element={<Projects />} />
-        <Route path="/projects/new" element={<CreateProject />} />
+        <Route path="/projects/new" element={<CreateRequisition />} />
         <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
         <Route path="/projects/:projectId/overview" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
         <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
