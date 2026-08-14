@@ -169,15 +169,13 @@ BULLET_PATTERN = re.compile(r"^[\s]*[-•*►▸▶·‣⁃◆○●✦✧★☆
 NUMBERED_PATTERN = re.compile(r"^[\s]*\d+[.)]\s+", re.MULTILINE)
 
 SECTION_HEADINGS = {
-    "job description": "description",
-    "key responsibilities": "responsibilities", "responsibilities": "responsibilities",
-    "required skills": "required_skills", "technical skills": "required_skills",
-    "required qualifications": "required_skills",
-    "preferred skills": "preferred_skills", "nice to have": "preferred_skills",
-    "preferred qualifications": "preferred_skills",
-    "education": "education", "education requirements": "education",
-    "qualifications": "education",
-    "experience": "experience", "experience required": "experience",
+    "job description": "description", "overview": "description", "summary": "description", "role overview": "description",
+    "key responsibilities": "responsibilities", "responsibilities": "responsibilities", "duties": "responsibilities", "job responsibilities": "responsibilities", "core responsibilities": "responsibilities", "key duties": "responsibilities",
+    "required skills": "required_skills", "technical skills": "required_skills", "required qualifications": "required_skills", "requirements": "required_skills", "key requirements": "required_skills", "core skills": "required_skills", "skills required": "required_skills", "qualifications": "required_skills", "basic qualifications": "required_skills",
+    "preferred skills": "preferred_skills", "nice to have": "preferred_skills", "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills", "bonus skills": "preferred_skills", "good to have": "preferred_skills", "additional qualifications": "preferred_skills",
+    "education": "education", "education requirements": "education", "educational qualifications": "education", "academic background": "education",
+    "experience": "experience", "experience required": "experience", "work experience": "experience",
+    "certifications": "certifications", "licenses": "certifications", "credentials": "certifications",
     "keywords": "keywords",
 }
 
@@ -225,22 +223,61 @@ def _split_sections(text: str) -> dict[str, str]:
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
-_FILLER_PHRASES = [
-    re.compile(r"\b(?:or\s+a\s+similar\s+(?:programming\s+)?language|or\s+equivalent|is\s+an?\s+advantage|is\s+a\s+plus|preferred|good\s+to\s+have|exposure\s+to|basic\s+knowledge\s+of|understanding\s+of|strong\s+knowledge\s+of|hands[-\s]on\s+experience\s+with)\b", re.I),
-    re.compile(r"^(?:or|and|is|an|a|the|with|in|of|to|for|from|by|on|at|as)\b", re.I),
-    re.compile(r"\b(?:is\s+an?\s+advantage|is\s+a\s+plus|an?\s+advantage\.?|\badvantage\.?)$", re.I),
-]
+_FILLER_TRAILERS = re.compile(
+    r"\b(?:is\s+an?\s+advantage|is\s+a\s+plus|an?\s+advantage|good\s+to\s+have|preferred|or\s+equivalent)\b\.?",
+    re.I,
+)
+_FILLER_LEADERS = re.compile(
+    r"^(?:(?:strong|solid|deep|basic|general|good)\s+)?(?:exposure\s+to|knowledge\s+of|understanding\s+of|experience\s+with|proficiency\s+in|hands[-\s]on\s+experience\s+with|ability\s+to)\s+",
+    re.I,
+)
 
-_STOP_WORDS = {"or", "and", "is", "an", "a", "the", "with", "in", "of", "to", "for", "from", "by", "on", "at", "as", "basic", "exposure", "understanding", "advantage"}
+_GRAMMATICAL_FRAGMENTS = re.compile(
+    r"^(?:or|and|is|an|a|the|concepts?|language|frameworks?|tools?|systems?|methods?)\.?$",
+    re.I,
+)
+
 
 def _clean_skill_term(term: str) -> str:
     cleaned = term.strip()
-    for pat in _FILLER_PHRASES:
-        cleaned = pat.sub("", cleaned).strip()
-    # Strip leading/trailing punctuation and sentence fragments
-    cleaned = re.sub(r"^[^\w\+\#]+|[^\w\+\#]+$", "", cleaned).strip()
+    cleaned = _FILLER_TRAILERS.sub("", cleaned).strip()
+    cleaned = _FILLER_LEADERS.sub("", cleaned).strip()
+    # Remove leading or trailing OR/AND or punctuation
+    cleaned = re.sub(r"^(?:or|and|with|in|of|to)\s+", "", cleaned, flags=re.I).strip()
+    cleaned = re.sub(r"\s+(?:or\s+similar|or\s+equivalent|or\s+related)$", "", cleaned, flags=re.I).strip()
+    cleaned = re.sub(r"^[^\w\+\#]+|[^\w\+\#\.]+$", "", cleaned).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned
+
+
+def _split_sentence_into_skills(sentence: str) -> list[str]:
+    """
+    Parse requirement sentences structurally:
+    - Splits across clause/sentence period boundaries.
+    - Strips grammatical noise.
+    - Preserves meaningful phrase concepts without fragmenting.
+    """
+    results: list[str] = []
+    clauses = [c.strip() for c in re.split(r"\.\s+", sentence) if c.strip()]
+    for clause in clauses:
+        clause_clean = clause.rstrip(".")
+        stripped_clause = _FILLER_LEADERS.sub("", clause_clean).strip()
+        stripped_clause = _FILLER_TRAILERS.sub("", stripped_clause).strip()
+
+        # If line contains comma or semicolon list, split on comma boundaries
+        if "," in stripped_clause or ";" in stripped_clause:
+            items = re.split(r"[,;]\s*", stripped_clause)
+            for item in items:
+                item_clean = _clean_skill_term(item)
+                if item_clean and not _GRAMMATICAL_FRAGMENTS.match(item_clean) and len(item_clean) > 1:
+                    results.append(item_clean)
+        else:
+            # Single phrase/clause without commas
+            item_clean = _clean_skill_term(stripped_clause)
+            if item_clean and not _GRAMMATICAL_FRAGMENTS.match(item_clean) and len(item_clean) > 1:
+                results.append(item_clean)
+    return results
+
 
 def _canonical_skills(text: str) -> list[str]:
     """Extract atomic skills directly from section text items without fragmenting natural sentences."""
@@ -249,7 +286,7 @@ def _canonical_skills(text: str) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
 
-    # Split lines first to preserve bullet points and sentence boundaries
+    # Process line by line
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for line in lines:
         cleaned_line = BULLET_PATTERN.sub("", line)
@@ -257,17 +294,12 @@ def _canonical_skills(text: str) -> list[str]:
         if not cleaned_line or re.match(r"^(?:required|preferred|technical)\s+skills?:?$", cleaned_line, re.I):
             continue
 
-        # Split line by commas, semicolons, or slashes if it contains multiple items
-        parts = re.split(r"[,;]\s*", cleaned_line)
-        for part in parts:
-            part_cleaned = _clean_skill_term(part)
-            if not part_cleaned or part_cleaned.casefold() in _STOP_WORDS or len(part_cleaned) <= 1:
-                continue
-            if len(part_cleaned) <= 60:
-                key = part_cleaned.casefold()
-                if key not in seen:
-                    seen.add(key)
-                    terms.append(part_cleaned)
+        extracted = _split_sentence_into_skills(cleaned_line)
+        for skill in extracted:
+            key = skill.casefold()
+            if key not in seen and len(skill) <= 60:
+                seen.add(key)
+                terms.append(skill)
     return terms
 
 
