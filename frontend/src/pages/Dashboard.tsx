@@ -18,6 +18,25 @@ import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
 import { api, Project } from '@/api'
 
+function getExperienceLevel(proj: Project): 'Fresher' | 'Experienced' {
+  if (proj.metadata_json && typeof proj.metadata_json.experience_level === 'string') {
+    const level = proj.metadata_json.experience_level.toLowerCase()
+    if (level.includes('experienced')) return 'Experienced'
+    if (level.includes('fresher')) return 'Fresher'
+  }
+  if (proj.description) {
+    const desc = proj.description.toLowerCase()
+    if (desc.includes('experienced')) return 'Experienced'
+    if (desc.includes('fresher')) return 'Fresher'
+  }
+  if (proj.title) {
+    const title = proj.title.toLowerCase()
+    if (title.includes('experienced')) return 'Experienced'
+    if (title.includes('fresher')) return 'Fresher'
+  }
+  return 'Fresher'
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const { dispatch } = usePipeline()
@@ -280,6 +299,7 @@ export default function Dashboard() {
                   <th className="py-3 px-4.5">Title</th>
                   <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Target Role</th>
+                  <th className="py-3 px-4 text-center">Level</th>
                   <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4.5 text-right">Actions</th>
                 </tr>
@@ -300,6 +320,17 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-700 font-semibold">{proj.target_role || '—'}</td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                          getExperienceLevel(proj) === 'Fresher'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200/70'
+                            : 'bg-indigo-50 text-indigo-700 border-indigo-200/70'
+                        }`}
+                      >
+                        {getExperienceLevel(proj)}
+                      </span>
+                    </td>
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />

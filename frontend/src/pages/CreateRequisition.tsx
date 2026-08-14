@@ -44,7 +44,7 @@ export default function CreateRequisition() {
   // JD Upload State
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [isProcessingJd, setIsProcessingJd] = useState(false)
-  const [processingStatusMessage, setProcessingStatusMessage] = useState('Reading JD data…')
+  const [processingStatusMessage, setProcessingStatusMessage] = useState('Reading JD data')
   const [jdError, setJdError] = useState<string | null>(null)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [extractedJd, setExtractedJd] = useState<ExtractedJobDescription | null>(null)
@@ -76,7 +76,7 @@ export default function CreateRequisition() {
 
     setIsProcessingJd(true)
     setJdError(null)
-    setProcessingStatusMessage('Reading JD data...')
+    setProcessingStatusMessage('Reading JD data')
 
     const promise = (async () => {
       try {
@@ -87,6 +87,7 @@ export default function CreateRequisition() {
             target_role: jobTitle,
             department: department.name,
             description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
+            metadata_json: { experience_level: expLevel, req_ref: reqRef },
           })
           projId = proj.id
           projectIdRef.current = projId
@@ -114,11 +115,11 @@ export default function CreateRequisition() {
         await api.parseDocument(docId)
 
         // Extract
-        setProcessingStatusMessage('Analyzing job requirements...')
+        setProcessingStatusMessage('Analyzing job requirements')
         await api.extractDocument(docId)
 
         // Normalize
-        setProcessingStatusMessage('Preparing screening criteria...')
+        setProcessingStatusMessage('Preparing screening criteria')
         await api.normalizeDocument(docId)
         dispatch({
           type: 'SET_JD_PROCESSING',
@@ -126,7 +127,7 @@ export default function CreateRequisition() {
         })
 
         // Fetch actual extracted JSON
-        setProcessingStatusMessage('Almost ready...')
+        setProcessingStatusMessage('Almost ready')
         try {
           const ext = await api.getExtractedDocument(docId)
           if ('required_skills' in ext || 'skills' in ext) {
@@ -137,7 +138,7 @@ export default function CreateRequisition() {
           // Extraction data optional fallback
         }
 
-        setProcessingStatusMessage('Screening criteria ready')
+        setProcessingStatusMessage('Almost ready')
         processedFileRef.current = file
       } catch (err) {
         processedFileRef.current = null
@@ -198,6 +199,7 @@ export default function CreateRequisition() {
           target_role: jobTitle,
           department: department.name,
           description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
+          metadata_json: { experience_level: expLevel, req_ref: reqRef },
         })
         targetProjId = proj.id
         setCreatedProjectId(targetProjId)
@@ -492,16 +494,38 @@ export default function CreateRequisition() {
 
               {isProcessingJd ? (
                 <div className="py-10 px-6 bg-slate-50/60 border border-slate-200/80 rounded-2xl text-center space-y-4 animate-in fade-in duration-150">
-                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
-                    <Loader2 size={22} className="animate-spin text-blue-600" />
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center mx-auto shadow-xs transition-colors ${
+                      processingStatusMessage === 'Almost ready'
+                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
+                        : 'bg-blue-50 text-blue-600'
+                    }`}
+                  >
+                    {processingStatusMessage === 'Almost ready' ? (
+                      <CheckCircle2 size={22} className="text-emerald-600" />
+                    ) : (
+                      <Loader2 size={22} className="animate-spin text-blue-600" />
+                    )}
                   </div>
                   <div className="space-y-1 max-w-sm mx-auto">
-                    <h3 className="text-sm font-bold text-slate-900">Preparing Screening Criteria…</h3>
+                    <h3 className="text-sm font-bold text-slate-900">Preparing Screening Criteria</h3>
                     <p className="text-xs text-slate-500">Extracting structured role requirements from your Job Description</p>
                   </div>
                   <div className="max-w-xs mx-auto pt-1">
-                    <div className="inline-flex items-center gap-2 text-xs font-bold text-blue-700 bg-blue-50/90 border border-blue-200/80 px-3.5 py-1.5 rounded-xl shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                    <div
+                      className={`inline-flex items-center gap-2 text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-xs border transition-colors ${
+                        processingStatusMessage === 'Almost ready'
+                          ? 'text-emerald-700 bg-emerald-50/90 border-emerald-200/80'
+                          : 'text-blue-700 bg-blue-50/90 border-blue-200/80'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          processingStatusMessage === 'Almost ready'
+                            ? 'bg-emerald-500'
+                            : 'bg-blue-600 animate-pulse'
+                        }`}
+                      />
                       <span>{processingStatusMessage}</span>
                     </div>
                   </div>
