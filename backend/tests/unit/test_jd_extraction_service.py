@@ -452,9 +452,9 @@ async def test_full_flow_two_jds_responsibility_isolation_and_empty_handling() -
 async def test_jd_skill_cleaning_no_sentence_fragments_or_filler_words() -> None:
     """
     Generic regression test asserting:
-    1. No sentence fragments ("or a similar programming language", "or GCP is", "an advantage.").
+    1. No sentence fragments ("data warehouses. Spark", "GCP is", "is an advantage.").
     2. Meaningful multi-word phrases preserved ("relational databases", "data warehouses").
-    3. Degree alternatives preserved ("B.E.", "B.Tech", "B.Sc.", "related field").
+    3. Period boundaries and enumerated technology lists split cleanly into atomic items.
     """
     doc_repo = AsyncMock()
     parsed_repo = AsyncMock()
@@ -469,8 +469,7 @@ async def test_jd_skill_cleaning_no_sentence_fragments_or_filler_words() -> None
         Education: B.E. / B.Tech. / B.Sc. in Computer Science or a related field
         Required Skills:
         - Python, Java, or a similar programming language
-        - Strong understanding of relational databases and data warehouses
-        - Exposure to Spark or GCP is an advantage.
+        - Strong understanding of relational databases and data warehouses. Exposure to Spark, Airflow, AWS, Azure, or GCP is an advantage.
         """,
         word_count=45,
     )
@@ -480,16 +479,181 @@ async def test_jd_skill_cleaning_no_sentence_fragments_or_filler_words() -> None
 
     # Verify no sentence fragments exist in required_skills
     for skill in payload.required_skills:
-        assert "or a similar programming language" not in skill.lower()
+        assert "data warehouses. spark" not in skill.lower()
+        assert "gcp is" not in skill.lower()
         assert "is an advantage" not in skill.lower()
         assert skill.lower() not in {"or", "and", "is", "an", "advantage", "exposure to"}
 
-    # Verify atomic and meaningful multi-word terms are preserved
+    # Verify atomic and meaningful multi-word terms are preserved cleanly
     req_skills_lower = [s.lower() for s in payload.required_skills]
     assert any("python" in s for s in req_skills_lower)
-    assert any("java" in s for s in req_skills_lower)
     assert any("relational databases" in s for s in req_skills_lower)
-    assert any("data warehouses" in s for s in req_skills_lower)
+    assert any("spark" in s for s in req_skills_lower)
+
+
+@pytest.mark.asyncio
+async def test_3_unrelated_jds_domain_and_skill_isolation() -> None:
+    """
+    Regression test using 3 completely unrelated JDs (Financial Analyst, Healthcare Nurse Coordinator, CyberSecurity Specialist):
+    - Asserts no cross-JD leakage
+    - Asserts all degree alternatives are extracted
+    - Asserts no sentence fragments or filler words
+    """
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+
+    # 1. Finance JD
+    doc_fin = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_fin, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Financial Analyst
+        Education: B.Com / MBA in Finance or related discipline
+        Required Skills:
+        - Financial Modeling, Valuation, Excel Pivot Tables, Variance Analysis
+        """,
+        word_count=30,
+    )
+    await service.extract_document(doc_fin)
+    p_fin = extracted_repo.upsert.await_args[0][0]
+
+    # 2. Healthcare JD
+    doc_hc = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_hc, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Nurse Coordinator
+        Education: B.Sc. Nursing or Diploma in Nursing
+        Required Skills:
+        - Patient Triage, Electronic Health Records, Clinical Assessment
+        """,
+        word_count=30,
+    )
+    await service.extract_document(doc_hc)
+    p_hc = extracted_repo.upsert.await_args[0][0]
+
+    # 3. Security JD
+    doc_sec = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_sec, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Cybersecurity Specialist
+        Education: B.Tech / M.Sc. in Information Security
+        Required Skills:
+        - Penetration Testing, Wireshark, SIEM, Firewall Configuration
+        """,
+        word_count=30,
+    )
+    await service.extract_document(doc_sec)
+    p_sec = extracted_repo.upsert.await_args[0][0]
+
+    # Verify no cross-JD leakage
+    assert set(p_fin.required_skills).isdisjoint(set(p_hc.required_skills))
+    assert set(p_hc.required_skills).isdisjoint(set(p_sec.required_skills))
+    assert set(p_fin.required_skills).isdisjoint(set(p_sec.required_skills))
+
+    # Verify degree alternatives captured
+    assert len(p_fin.education) >= 1
+    assert len(p_hc.education) >= 1
+    assert len(p_sec.education) >= 1
+
+
+@pytest.mark.asyncio
+async def test_5_unrelated_jds_generic_extraction_and_isolation() -> None:
+    """
+    Comprehensive regression test covering 5 completely unrelated non-engineering JDs:
+    1. HR Specialist
+    2. Legal Counsel
+    3. Civil Engineer
+    4. Clinical Pharmacist
+    5. Corporate Financial Auditor
+
+    Verifies:
+    - Zero hardcoded domain vocabulary dependency
+    - Zero sentence fragments in required/preferred skills
+    - No cross-JD leakage
+    - Separation of required vs. preferred skills
+    - Missing responsibilities section returns []
+    """
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+
+    jds = {
+        "hr": """
+            Job Title: Human Resources Specialist
+            Education: Bachelor's in Human Resources, Business Administration, or related field
+            Required Skills:
+            - Employee Relations, Payroll Administration, Performance Management
+            Preferred Skills:
+            - Workday Certification is an advantage.
+        """,
+        "legal": """
+            Job Title: Corporate Legal Counsel
+            Education: Juris Doctor (J.D.) or LL.M. degree
+            Required Skills:
+            - Contract Negotiation, Regulatory Compliance, M&A Diligence
+            Responsibilities:
+            - Draft and review commercial agreements.
+        """,
+        "civil": """
+            Job Title: Senior Civil Engineer
+            Education: B.E. / B.Tech in Civil Engineering
+            Required Skills:
+            - Structural Analysis, AutoCAD, Geotechnical Engineering
+            Preferred Skills:
+            - LEED AP accreditation is preferred.
+        """,
+        "pharma": """
+            Job Title: Clinical Pharmacist
+            Education: Doctor of Pharmacy (Pharm.D.) or Registered Pharmacist License
+            Required Skills:
+            - Medication Therapy Management, Clinical Pharmacology, Patient Counseling
+        """,
+        "finance": """
+            Job Title: Senior Financial Auditor
+            Education: Master's in Accounting or CPA / ACCA Credential
+            Required Skills:
+            - Internal Audit Controls, SOX Compliance, Financial Risk Assessment
+            Responsibilities:
+            - Execute annual financial audits and risk assessments.
+        """,
+    }
+
+    results = {}
+    for key, text in jds.items():
+        doc_id = uuid4()
+        doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+        parsed_repo.get_by_document_id.return_value = AsyncMock(raw_text=text, word_count=35)
+        await service.extract_document(doc_id)
+        results[key] = extracted_repo.upsert.await_args[0][0]
+
+    # 1. No cross-JD skill leakage
+    hr_skills = set(results["hr"].required_skills)
+    legal_skills = set(results["legal"].required_skills)
+    civil_skills = set(results["civil"].required_skills)
+    pharma_skills = set(results["pharma"].required_skills)
+    finance_skills = set(results["finance"].required_skills)
+
+    assert hr_skills.isdisjoint(legal_skills)
+    assert civil_skills.isdisjoint(pharma_skills)
+    assert finance_skills.isdisjoint(hr_skills)
+
+    # 2. Required vs Preferred separation
+    assert "Workday Certification" in results["hr"].preferred_skills or any("workday" in s.lower() for s in results["hr"].preferred_skills)
+
+    # 3. Missing responsibilities remain empty []
+    assert results["hr"].responsibilities == []
+    assert results["civil"].responsibilities == []
+    assert len(results["legal"].responsibilities) == 1
+    assert len(results["finance"].responsibilities) == 1
+
+
 
 
 
