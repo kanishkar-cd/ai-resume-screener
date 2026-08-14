@@ -24,7 +24,7 @@ def test_weights_penalty_bonus_caps_and_final_formula() -> None:
         required_degree="Bachelor of Engineering",
     )
     components = _components(80, ["Python", "SQL", "Docker", "AWS"], ["120 months"])
-    weighted, raw, total = WeightCalculationService.calculate(components, config)
+    weighted, raw, total, _ = WeightCalculationService.calculate(components, config)
     penalties, _ = PenaltyService.calculate(components, config)
     resume = SimpleNamespace(skills=[f"S{i}" for i in range(10)], experience=[{"duration_months": 200}], education=[{"degree": "Master of Science"}])
     job = SimpleNamespace(skills=[], experience_requirements=[{"minimum_months": 120}], degree_requirements=[])
@@ -40,10 +40,10 @@ def test_knockout_confidence_and_recommendation_thresholds() -> None:
     assert knocked and "Python" in reason
     extracted = SimpleNamespace(**{name: "x" for name in ConfidenceService.FIELDS})
     assert ConfidenceService.calculate(extracted) == 100
-    assert RecommendationService.recommend(90, 70) == RecommendationLevel.SHORTLIST
-    assert RecommendationService.recommend(75, 70) == RecommendationLevel.REVIEW
-    assert RecommendationService.recommend(60, 70) == RecommendationLevel.CONSIDER
-    assert RecommendationService.recommend(40, 70) == RecommendationLevel.REJECT
+    assert RecommendationService.recommend(90, 70, use_absolute_thresholds=True) == RecommendationLevel.SHORTLIST
+    assert RecommendationService.recommend(75, 70, use_absolute_thresholds=True) == RecommendationLevel.REVIEW
+    assert RecommendationService.recommend(60, 70, use_absolute_thresholds=True) == RecommendationLevel.CONSIDER
+    assert RecommendationService.recommend(40, 70, use_absolute_thresholds=True) == RecommendationLevel.REJECT
 
     assert RecommendationService.recommend(100, 70, True) == RecommendationLevel.REJECT
 
@@ -66,7 +66,7 @@ def test_na_categories_redistribute_weight_to_applicable_criteria() -> None:
         education_weight=10, certifications_weight=5, languages_weight=5,
     )
     components = _components(80)
-    weighted, raw, total = WeightCalculationService.calculate(
+    weighted, raw, total, _ = WeightCalculationService.calculate(
         components, config, {"skills", "projects", "education"}
     )
     assert raw == 80

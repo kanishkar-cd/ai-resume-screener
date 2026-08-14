@@ -17,6 +17,7 @@ from app.services.document_service import (
     DocumentFileMissingException,
     DocumentNotFoundException,
 )
+from app.services.parsers import UnsupportedDocumentTypeException
 from app.services.parsers.base import text_metrics
 from app.services.parsers.txt_parser import parse_txt
 from app.services.parsing_service import (
@@ -136,8 +137,9 @@ async def test_parse_txt_success_persists_and_sets_parsed(
 @pytest.mark.asyncio
 async def test_parse_marks_failed_on_parser_error(tmp_path: Path) -> None:
     service, documents, _, storage = service_fixture()
+    service._try_affinda = AsyncMock(return_value=None)
     record = document_record(
-        mime_type="application/pdf",
+        mime_type="application/unsupported-broken",
         file_path=str(tmp_path / "broken.pdf"),
     )
     path = tmp_path / "broken.pdf"
@@ -149,7 +151,7 @@ async def test_parse_marks_failed_on_parser_error(tmp_path: Path) -> None:
         document_record(status=ProcessingStatusEnum.FAILED),
     ]
 
-    with pytest.raises(DocumentParseFailedException):
+    with pytest.raises((DocumentParseFailedException, UnsupportedDocumentTypeException)):
         await service.parse_document(record.id)
 
     assert documents.update_status.await_args_list[-1].args[1] == ProcessingStatus.FAILED

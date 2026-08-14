@@ -58,4 +58,4 @@ def test_not_applicable_components_are_not_strengths_or_weaknesses() -> None:
     assert "Experience: No JD requirement" in insight.score_explanation
     assert "Certifications: No JD requirement" in insight.score_explanation
     assert "Languages: No JD requirement" in insight.score_explanation
-    assert "50–69.99 recommendation band" in insight.recommendation_reason
+    assert "recommendation threshold of 50.00" in insight.recommendation_reason

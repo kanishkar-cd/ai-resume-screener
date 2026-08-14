@@ -185,7 +185,7 @@ class ScoringEngineFacade:
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config)
             penalty_total, penalties = PenaltyService.calculate(components, config)
             bonus_total, bonuses = BonusService.calculate(resume, job, config, components)
-            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total)
+            final_score = WeightCalculationService.final_score(weighted_total, penalty_total, bonus_total, components=components)
             confidence = ConfidenceService.calculate(extracted)
             passing_score = float(config.passing_score)
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
@@ -250,7 +250,7 @@ class ScoringEngineFacade:
                 strengths=strengths,
                 weaknesses=weaknesses,
                 match_verdicts=match_verdicts,
-            ))
+            ), commit=False, refresh=False)
             logger.info(
                 "[SCORE] candidate scored",
                 project_id=str(document.project_id),

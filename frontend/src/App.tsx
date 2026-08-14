@@ -13,6 +13,11 @@ import CreateProject from '@/pages/CreateProject'
 import ProjectOverview from '@/pages/ProjectOverview'
 import Processing from '@/pages/Processing'
 import Reports from '@/pages/Reports'
+import Departments from '@/pages/Departments'
+import DepartmentDashboard from '@/pages/DepartmentDashboard'
+import CreateRequisition from '@/pages/CreateRequisition'
+import Shortlist from '@/pages/Shortlist'
+import Assessment from '@/pages/Assessment'
 import ProjectRoute from '@/components/layout/ProjectRoute'
 
 function AppRoutes() {
@@ -22,6 +27,9 @@ function AppRoutes() {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/departments" element={<Departments />} />
+        <Route path="/departments/:deptId" element={<DepartmentDashboard />} />
+        <Route path="/departments/:deptId/requisitions/new" element={<CreateRequisition />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/new" element={<CreateProject />} />
         <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
@@ -32,6 +40,8 @@ function AppRoutes() {
         <Route path="/projects/:projectId/processing" element={<ProjectRoute><Processing /></ProjectRoute>} />
         <Route path="/projects/:projectId/candidates" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
         <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
+        <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
+        <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />
         <Route path="/projects/:projectId/reports" element={<ProjectRoute><Reports /></ProjectRoute>} />
         <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

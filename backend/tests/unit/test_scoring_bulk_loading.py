@@ -45,7 +45,7 @@ async def test_score_project_uses_bulk_loading() -> None:
     )
 
     mock_scores = MagicMock()
-    mock_scores.upsert_score = AsyncMock(side_effect=lambda data: MagicMock(id=uuid4(), **data.model_dump()))
+    mock_scores.upsert_score = AsyncMock(side_effect=lambda data, *args, **kwargs: MagicMock(id=uuid4(), **data.model_dump()))
 
     facade = ScoringEngineFacade(
         projects=mock_projects,

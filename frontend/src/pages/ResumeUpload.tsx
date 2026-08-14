@@ -75,7 +75,7 @@ export default function ResumeUpload() {
   const normalizedCount = state.resumeDocumentIds.filter(
     (id) => state.resumeProcessing[id]?.normalized,
   ).length
-  const failedCount = state.upload.resumes.filter((r) => r.status === 'error').length
+  const failedCount = state.upload.resumes.filter((r: UploadedFile) => r.status === 'error').length
   const busy = isUploading || isProcessingResumes
 
   const refreshResumes = useCallback(async () => {
@@ -421,14 +421,28 @@ export default function ResumeUpload() {
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
 
-  const handleContinue = () => {
-    if (!canProceedResumes) return
-    completeAndAdvance()
-    navigate(`/projects/${state.projectId}/rankings`)
+  const [isScoringAndRanking, setIsScoringAndRanking] = useState(false)
+
+  const handleContinue = async () => {
+    if (!canProceedResumes || !state.projectId || busy || isScoringAndRanking) return
+    try {
+      setIsScoringAndRanking(true)
+      setUploadError(null)
+      // 1. Score candidates via existing backend endpoint
+      await api.scoreProject(state.projectId)
+      // 2. Rank candidates via existing backend endpoint
+      await api.rankProject(state.projectId)
+      completeAndAdvance()
+      navigate(`/projects/${state.projectId}/rankings`)
+    } catch (err) {
+      setUploadError(errorMessage(err, 'Failed to score and rank candidates'))
+    } finally {
+      setIsScoringAndRanking(false)
+    }
   }
 
   const handleBack = () => {
-    navigate(`/projects/${state.projectId}/weightage`)
+    navigate(`/projects/${state.projectId}/job-description`)
   }
 
   return (
@@ -541,7 +555,7 @@ export default function ResumeUpload() {
       {state.resumeDocumentIds.length > 0 && <motion.section variants={fadeUp} className="mb-5 space-y-4">
         <div><h2 className="text-[18px] font-bold text-slate-900">Processed candidate profiles</h2><p className="mt-1 text-[12px] text-slate-500">Each profile is loaded from its document’s backend extraction and normalization records.</p></div>
         {state.resumeDocumentIds.map((id) => {
-          const file = state.upload.resumes.find((resume) => resume.id === id)
+          const file = state.upload.resumes.find((resume: UploadedFile) => resume.id === id)
           const processing = state.resumeProcessing[id]
           const profile = profiles[id]
           return <article key={id} className="space-y-3">
@@ -639,21 +653,21 @@ export default function ResumeUpload() {
             className="btn-outline flex-1 sm:flex-initial py-2.5 px-5 text-[13px] flex items-center justify-center gap-2 font-medium"
           >
             <ArrowLeft size={15} />
-            Back to Weightage
+            Back to Job Description
           </motion.button>
 
           <motion.button
-            onClick={handleContinue}
-            disabled={!canProceedResumes || busy}
-            whileHover={canProceedResumes && !busy ? { scale: 1.02 } : undefined}
-            whileTap={canProceedResumes && !busy ? { scale: 0.98 } : undefined}
+            onClick={() => void handleContinue()}
+            disabled={!canProceedResumes || busy || isScoringAndRanking}
+            whileHover={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 1.02 } : undefined}
+            whileTap={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 0.98 } : undefined}
             className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-              canProceedResumes && !busy
+              canProceedResumes && !busy && !isScoringAndRanking
                 ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
             }`}
           >
-            Continue to Candidate Ranking
+            {isScoringAndRanking ? 'Scoring & Ranking Candidate Resumes…' : 'Continue to Candidate Ranking'}
             <ArrowRight size={15} />
           </motion.button>
         </div>

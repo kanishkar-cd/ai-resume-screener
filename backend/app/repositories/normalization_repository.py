@@ -16,6 +16,17 @@ class NormalizationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def upsert(self, data: Any, *, commit: bool = True, refresh: bool = True) -> Any:
+        if isinstance(data, NormalizedJobDescriptionCreate) or getattr(data, "job_title", None) is not None or "extracted_job_description_id" in (data if isinstance(data, dict) else data.__dict__):
+            return await self.create_or_update_job_description(data, commit=commit, refresh=refresh)
+        return await self.create_or_update_resume(data, commit=commit, refresh=refresh)
+
+    async def get_by_document_id(self, document_id: UUID) -> Any:
+        jd = await self.get_job_description_by_document_id(document_id)
+        if jd is not None:
+            return jd
+        return await self.get_resume_by_document_id(document_id)
+
     async def create_or_update_resume(self, data: NormalizedResumeCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True) -> NormalizedResumeModel:
         payload = NormalizedResumeCreate.model_validate(data).model_dump(mode="json")
         payload["document_id"] = UUID(payload["document_id"])
@@ -34,10 +45,13 @@ class NormalizationRepository:
             await self.session.refresh(model)
         return model
 
-    async def create_or_update_job_description(self, data: NormalizedJobDescriptionCreate | dict[str, Any], *, commit: bool = True, refresh: bool = True) -> NormalizedJDModel:
-        payload = NormalizedJobDescriptionCreate.model_validate(data).model_dump(mode="json")
-        payload["document_id"] = UUID(payload["document_id"])
-        payload["extracted_job_description_id"] = UUID(payload["extracted_job_description_id"])
+    async def create_or_update_job_description(self, data: Any, *, commit: bool = True, refresh: bool = True) -> NormalizedJDModel:
+        if isinstance(data, dict):
+            payload = data
+        else:
+            payload = data.model_dump(mode="json")
+        payload["document_id"] = UUID(str(payload["document_id"]))
+        payload["extracted_job_description_id"] = UUID(str(payload["extracted_job_description_id"]))
         model = await self.get_job_description_by_document_id(payload["document_id"])
         model = self._apply(model, NormalizedJDModel, payload)
         try:

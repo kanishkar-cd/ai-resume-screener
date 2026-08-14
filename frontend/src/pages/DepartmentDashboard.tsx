@@ -1,24 +1,42 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  FolderKanban,
-  Building2,
-  AlertCircle,
   Plus,
+  Building2,
   ChevronRight,
   Search,
+  AlertCircle,
   Briefcase,
-  Wifi,
   Trash2,
   Loader2,
   X,
-  ArrowRight,
+  ListOrdered,
+  Upload,
+  Cpu,
+  LayoutGrid,
+  Sparkles,
+  TrendingUp,
+  Shield,
+  Users,
+  CheckCircle2,
 } from 'lucide-react'
-import { DEPARTMENTS } from '@/constants/departments'
+import { DEPARTMENTS, Department } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
 import { api, Project } from '@/api'
 
-export default function Dashboard() {
+const ICON_MAP: Record<string, any> = {
+  Cpu,
+  LayoutGrid,
+  Sparkles,
+  TrendingUp,
+  Shield,
+  Users,
+  Briefcase,
+  CheckCircle2,
+}
+
+export default function DepartmentDashboard() {
+  const { deptId } = useParams<{ deptId: string }>()
   const navigate = useNavigate()
   const { dispatch } = usePipeline()
   const [projects, setProjects] = useState<Project[]>([])
@@ -31,35 +49,29 @@ export default function Dashboard() {
   const [confirmDeleteProject, setConfirmDeleteProject] = useState<Project | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const fetchProjects = useCallback(() => {
-    setLoading(true)
-    api.listProjects()
-      .then((res) => {
-        setProjects(res.items || [])
-        setError(null)
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Unable to connect to backend service')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [])
+  const department: Department =
+    DEPARTMENTS.find((d) => d.id === deptId) || DEPARTMENTS[0]
+
+  const fetchDeptProjects = useCallback(async () => {
+    try {
+      setLoading(true)
+      const res = await api.listProjects()
+      const deptItems = (res.items || []).filter((p) => p.department === department.name)
+      setProjects(deptItems)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load department requisitions')
+    } finally {
+      setLoading(false)
+    }
+  }, [department.name])
 
   useEffect(() => {
-    fetchProjects()
-  }, [fetchProjects])
+    dispatch({ type: 'SET_DEPARTMENT_ID', payload: department.id })
+    fetchDeptProjects()
+  }, [department.id, fetchDeptProjects, dispatch])
 
-  const handleSelectDepartmentClick = () => {
-    dispatch({ type: 'SET_DEPARTMENT_ID', payload: null as any })
-    navigate('/departments')
-  }
-
-  const handleRequisitionClick = (proj: Project) => {
-    const dept = DEPARTMENTS.find((d) => d.name === proj.department)
-    if (dept) {
-      dispatch({ type: 'SET_DEPARTMENT_ID', payload: dept.id })
-    }
+  const handleSelectRequisition = (proj: Project) => {
     dispatch({
       type: 'SELECT_PROJECT',
       payload: {
@@ -90,7 +102,7 @@ export default function Dashboard() {
     try {
       await api.deleteProject(targetId)
       setConfirmDeleteProject(null)
-      fetchProjects()
+      fetchDeptProjects()
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete requisition. Please try again.')
     } finally {
@@ -102,35 +114,44 @@ export default function Dashboard() {
     return projects.filter(
       (p) =>
         p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.department && p.department.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (p.target_role && p.target_role.toLowerCase().includes(searchTerm.toLowerCase()))
     )
   }, [projects, searchTerm])
 
+  const Icon = ICON_MAP[department.iconName] || Building2
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-7">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/60 pb-6">
-        <div>
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
-            <Briefcase size={13} className="text-blue-600" />
-            <span className="text-slate-700 font-bold">Recruiter Portal</span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-            Recruiter Dashboard
-          </h1>
+      {/* Clean ATS Header with Breadcrumbs & Name */}
+      <div className="border-b border-slate-200/60 pb-6">
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
+          <button
+            type="button"
+            onClick={() => navigate('/departments')}
+            className="text-slate-500 hover:text-blue-600 transition-colors font-medium"
+          >
+            Departments
+          </button>
+          <span>/</span>
+          <span className="text-blue-600 font-bold">{department.name}</span>
         </div>
 
-        {/* Precise Compact Select Department CTA */}
-        <button
-          type="button"
-          onClick={handleSelectDepartmentClick}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs hover:shadow-md transition-all cursor-pointer self-start md:self-auto"
-        >
-          <Building2 size={15} />
-          <span>Select Department</span>
-          <ArrowRight size={14} />
-        </button>
+        <div className="flex items-center gap-3 mt-1">
+          <div className={`w-9 h-9 rounded-xl ${department.badgeBg} flex items-center justify-center shrink-0`}>
+            <Icon size={18} className={department.badgeText} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
+              <span>{department.name}</span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-slate-100 text-slate-600">
+                {department.code}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5 font-medium line-clamp-1">
+              {department.description}
+            </p>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -143,52 +164,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modern KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Active Requisitions */}
-        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Requisitions</p>
-            <div className="flex items-baseline gap-2 mt-1">
-              <p className="text-2.5xl font-extrabold text-slate-900">{loading ? '...' : projects.length}</p>
-              <span className="text-[11px] text-slate-400 font-medium">campaigns</span>
-            </div>
-          </div>
-          <div className="w-11 h-11 rounded-xl bg-blue-50/80 group-hover:bg-blue-600 text-blue-600 group-hover:text-white flex items-center justify-center transition-colors">
-            <FolderKanban size={20} />
-          </div>
-        </div>
-
-        {/* Company Departments */}
-        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Company Departments</p>
-            <div className="flex items-baseline gap-2 mt-1">
-              <p className="text-2.5xl font-extrabold text-slate-900">{DEPARTMENTS.length}</p>
-              <span className="text-[11px] text-slate-400 font-medium">active units</span>
-            </div>
-          </div>
-          <div className="w-11 h-11 rounded-xl bg-indigo-50/80 group-hover:bg-indigo-600 text-indigo-600 group-hover:text-white flex items-center justify-center transition-colors">
-            <Building2 size={20} />
-          </div>
-        </div>
-
-        {/* Backend Connection Status */}
-        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-emerald-200 transition-all flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Backend Service</p>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${error ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`} />
-              <p className="text-base font-extrabold text-slate-900">{error ? 'Offline' : 'Connected'}</p>
-            </div>
-          </div>
-          <div className="w-11 h-11 rounded-xl bg-emerald-50/80 group-hover:bg-emerald-600 text-emerald-600 group-hover:text-white flex items-center justify-center transition-colors">
-            <Wifi size={20} />
-          </div>
-        </div>
-      </div>
-
-      {/* Active Requisitions Table Section */}
+      {/* Main Focus: Requisitions Table Section */}
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
         {/* Table Header & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
@@ -207,7 +183,7 @@ export default function Dashboard() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Filter by title, department, or role..."
+              placeholder="Search by title or target role..."
               className="w-full pl-8 pr-3.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-all"
             />
           </div>
@@ -216,23 +192,23 @@ export default function Dashboard() {
         {loading ? (
           <div className="py-16 text-center text-xs text-slate-400 font-medium flex items-center justify-center gap-2">
             <Loader2 size={16} className="animate-spin text-blue-600" />
-            <span>Loading active requisitions from database...</span>
+            <span>Loading department requisitions...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="py-16 text-center space-y-3">
-            <FolderKanban size={32} className="mx-auto text-slate-300" />
-            <p className="text-sm font-semibold text-slate-700">No requisitions found</p>
+            <Building2 size={32} className="mx-auto text-slate-300" />
+            <p className="text-sm font-semibold text-slate-700">No requisitions found for {department.name}</p>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              {searchTerm ? 'No requisitions match your filter criteria.' : 'No active requisitions created yet.'}
+              {searchTerm ? 'No requisitions match your search criteria.' : 'Launch your first screening campaign for this department.'}
             </p>
             {!searchTerm && (
               <button
                 type="button"
-                onClick={handleSelectDepartmentClick}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-all shadow-xs"
+                onClick={() => navigate(`/departments/${department.id}/requisitions/new`)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs"
               >
-                <Building2 size={15} />
-                <span>Select Department & Launch</span>
+                <Plus size={14} />
+                <span>Create Requisition</span>
               </button>
             )}
           </div>
@@ -242,7 +218,6 @@ export default function Dashboard() {
               <thead>
                 <tr className="bg-slate-50/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
                   <th className="py-3 px-4.5">Title</th>
-                  <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Target Role</th>
                   <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4.5 text-right">Actions</th>
@@ -252,16 +227,11 @@ export default function Dashboard() {
                 {filteredProjects.map((proj) => (
                   <tr
                     key={proj.id}
-                    onClick={() => handleRequisitionClick(proj)}
+                    onClick={() => handleSelectRequisition(proj)}
                     className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
                   >
                     <td className="py-3.5 px-4.5 font-bold text-slate-900">
                       <p className="group-hover:text-blue-600 transition-colors line-clamp-1">{proj.title}</p>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="inline-block px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold font-mono tracking-tight">
-                        {proj.department || 'General'}
-                      </span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-700 font-semibold">{proj.target_role || '—'}</td>
                     <td className="py-3.5 px-4 text-center">
@@ -271,14 +241,37 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4.5 text-right shrink-0">
-                      <div className="inline-flex items-center justify-end gap-2 shrink-0 min-w-[150px]" onClick={(e) => e.stopPropagation()}>
+                      <div className="inline-flex items-center justify-end gap-2.5 shrink-0 min-w-[200px]" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => handleRequisitionClick(proj)}
-                          className="text-blue-600 hover:text-blue-800 font-semibold text-xs inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform whitespace-nowrap"
+                          onClick={() => handleSelectRequisition(proj)}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition-colors"
                         >
-                          <span>View Requisition</span>
-                          <ChevronRight size={13} />
+                          <ListOrdered size={13} />
+                          <span>Rankings</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            dispatch({
+                              type: 'SELECT_PROJECT',
+                              payload: {
+                                id: proj.id,
+                                title: proj.title,
+                                target_role: proj.target_role,
+                                department: proj.department,
+                                description: proj.description,
+                                status: proj.status,
+                                created_at: proj.created_at,
+                                updated_at: proj.updated_at,
+                              },
+                            })
+                            navigate(`/projects/${proj.id}/resumes`)
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
+                        >
+                          <Upload size={13} />
+                          <span>Resumes</span>
                         </button>
                         <button
                           type="button"

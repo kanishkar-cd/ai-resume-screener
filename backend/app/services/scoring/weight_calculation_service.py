@@ -61,8 +61,38 @@ class WeightCalculationService:
         return WeightedScores(**weighted), raw_total, round(sum(weighted.values()), 2), {name: round(val, 2) for name, val in effective_weights.items()}
 
     @staticmethod
-    def final_score(weighted_total: float, penalty_total: float, bonus_total: float) -> float:
-        return round(max(0, min(100, weighted_total - penalty_total + bonus_total)), 2)
+    def final_score(
+        weighted_total: float,
+        penalty_total: float,
+        bonus_total: float,
+        components: ComponentScores | None = None,
+    ) -> float:
+        """
+        Calculates the final candidate score using a strict 50 + 50 hybrid model:
+        1. Deterministic Skill Match (0-50 Marks):
+           (matched required skills / total required skills) * 50
+        2. AI JD Relevance & Evidence (0-50 Marks):
+           LLM evaluation score of resume against actual JD context (0 to 50 marks).
+        3. Final Score (0-100 Marks):
+           Skill Match (0-50) + AI Relevance (0-50). Strictly sum of the two components.
+        """
+        if components is not None:
+            skill_marks_50 = (components.skills.score / 100.0) * 50.0
+
+            evidence_components = [
+                components.experience.score,
+                components.projects.score,
+                components.education.score,
+                components.certifications.score,
+                components.languages.score,
+            ]
+            avg_evidence_score = sum(evidence_components) / len(evidence_components)
+            evidence_marks_50 = (avg_evidence_score / 100.0) * 50.0
+
+            # Pure 50 + 50 model: Final Score = Skill Match (0-50) + AI Relevance (0-50)
+            return round(max(0.0, min(100.0, skill_marks_50 + evidence_marks_50)), 2)
+
+        return round(max(0.0, min(100.0, weighted_total)), 2)
 
     @staticmethod
     def knockout(components: ComponentScores, config: Any) -> tuple[bool, str | None]:

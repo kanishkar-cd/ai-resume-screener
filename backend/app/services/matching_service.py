@@ -203,9 +203,16 @@ class EvidencePrefilter:
 
 class GroqMatchEvaluator:
     _cache: OrderedDict[str, list[MatchVerdict]] = OrderedDict()
+    _client: httpx.AsyncClient | None = None
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+
+    @classmethod
+    def _get_client(cls, timeout: float) -> httpx.AsyncClient:
+        if cls._client is None or cls._client.is_closed:
+            cls._client = httpx.AsyncClient(timeout=timeout)
+        return cls._client
 
     @property
     def enabled(self) -> bool:
@@ -230,14 +237,14 @@ class GroqMatchEvaluator:
 
         payload = self._payload(requirements, evidence)
         parsed: LLMVerdictBatch | None = None
+        client = self._get_client(self.settings.AI_EXTRACTION_TIMEOUT_SECONDS)
         for attempt in range(2):
             try:
-                async with httpx.AsyncClient(timeout=self.settings.AI_EXTRACTION_TIMEOUT_SECONDS) as client:
-                    response = await client.post(
-                        f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
-                        headers={"Authorization": f"Bearer {self.settings.GROQ_API_KEY}"}, json=payload,
-                    )
-                    response.raise_for_status()
+                response = await client.post(
+                    f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.GROQ_API_KEY}"}, json=payload,
+                )
+                response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
                 parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
                 break

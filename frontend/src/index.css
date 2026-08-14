@@ -76,6 +76,11 @@ h1, h2, h3, h4, h5, h6 {
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--header-height) 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.3s ease;
+}
+
+.app-layout.sidebar-collapsed {
+  grid-template-columns: 64px 1fr;
 }
 
 .app-sidebar {
