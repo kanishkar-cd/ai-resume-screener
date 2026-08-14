@@ -180,14 +180,11 @@ export default function Departments() {
               className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-300/80 transition-all cursor-pointer flex flex-col justify-between"
             >
               <div className="space-y-3">
-                {/* Header Badge */}
+                {/* Header Icon */}
                 <div className="flex items-center justify-between">
                   <div className={`p-2.5 rounded-xl ${dept.badgeBg} transition-transform group-hover:scale-105`}>
                     <Icon size={18} className={dept.badgeText} />
                   </div>
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono tracking-wide bg-slate-100 text-slate-600 border border-slate-200/60">
-                    {dept.code}
-                  </span>
                 </div>
 
                 {/* Title & Description */}
