@@ -168,7 +168,8 @@ class ScoringEngineFacade:
                         match_verdicts.append(verdict)
                 except Exception:
                     match_verdicts = []
-            components = self.components.score(resume, job, config=None, projects=scoring_extracted.projects)
+            projects_for_scoring = getattr(scoring_extracted, "projects", None) or getattr(resume, "projects", None) or getattr(extracted, "projects", None)
+            components = self.components.score(resume, job, config=None, projects=projects_for_scoring)
             applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
             weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
                 components, config=None, applicable_categories=applicable_categories
@@ -176,10 +177,12 @@ class ScoringEngineFacade:
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
             penalty_total, penalties = PenaltyService.calculate(components, config=None)
             bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
-            final_score = WeightCalculationService.final_score(
-                weighted_total, penalty_total, bonus_total,
-                components=components, applicable_categories=applicable_categories
-            )
+            final_score = getattr(scoring_extracted, "final_match_score", None)
+            if final_score is None:
+                final_score = WeightCalculationService.final_score(
+                    weighted_total, penalty_total, bonus_total,
+                    components=components, applicable_categories=applicable_categories
+                )
             confidence = ConfidenceService.calculate(extracted)
             passing_score = 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)

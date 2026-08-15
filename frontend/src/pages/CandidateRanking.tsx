@@ -41,117 +41,37 @@ import { CandidateProfile } from '@/components/ui/DocumentProfiles'
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } }
 
-// ─── Recommendation helpers ───────────────────────────────────────────────────
-function getRecommendationConfig(candidate: Candidate): {
+// ─── Recommendation / Screening helpers ─────────────────────────────────────────
+function getScreeningStatusConfig(isScreened: boolean): {
   label: string
-  shortLabel: string
   cls: string
   iconColor: string
   Icon: typeof CheckCircle2
 } {
-  if (candidate.status === 'rejected' || candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
+  if (isScreened) {
     return {
-      label: 'Not Relevant',
-      shortLabel: 'Reject',
-      cls: 'bg-red-50 text-red-700 border border-red-200',
-      iconColor: 'text-red-400',
-      Icon: ThumbsDown,
-    }
-  }
-  if (candidate.status === 'screened' || candidate.recommendation === 'SHORTLIST') {
-    return {
-      label: 'Strong Match',
-      shortLabel: 'Shortlist',
+      label: 'SCREENED',
       cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
       iconColor: 'text-emerald-500',
       Icon: CheckCircle2,
     }
   }
   return {
-    label: 'Relevant',
-    shortLabel: 'Consider',
-    cls: 'bg-amber-50 text-amber-700 border border-amber-200',
-    iconColor: 'text-amber-500',
-    Icon: HelpCircle,
+    label: 'NOT SCREENED',
+    cls: 'bg-slate-100 text-slate-600 border border-slate-200',
+    iconColor: 'text-slate-400',
+    Icon: ThumbsDown,
   }
 }
 
-function getScoreColor(score: number) {
-  if (score >= 60) return 'text-emerald-600'
-  if (score >= 35) return 'text-amber-500'
-  return 'text-red-500'
+function getScoreColor(score: number, threshold: number) {
+  if (score >= threshold) return 'text-emerald-600'
+  return 'text-slate-600'
 }
 
-function getScoreBg(score: number) {
-  if (score >= 60) return 'bg-emerald-50 border-emerald-200'
-  if (score >= 35) return 'bg-amber-50 border-amber-200'
-  return 'bg-red-50 border-red-200'
-}
-
-function recommendationToStatus(recommendation: string, knockedOut: boolean): ScreeningStatus {
-  if (knockedOut || recommendation === 'REJECT') return 'rejected'
-  if (recommendation === 'SHORTLIST') return 'screened'
-  return 'pending'
-}
-
-// ─── Score Breakdown helpers (kept for drawer) ────────────────────────────────
-function getScoreClass(score: number) {
-  if (score >= 80) return 'score-high'
-  if (score >= 60) return 'score-med'
-  return 'score-low'
-}
-
-// ─── Requirement verdicts & evidence (for drawer) ─────────────────────────────
-type EvidenceDisplay = { label: string; source: string; snippet: string }
-
-function truncateEvidence(text: string, max = 180) {
-  const compact = text.replace(/\s+/g, ' ').trim()
-  return compact.length > max ? `${compact.slice(0, max - 1)}...` : compact
-}
-
-function addRequirementLabels(map: Map<string, string>, prefix: string, values: Array<string | null | undefined>) {
-  values.filter(Boolean).forEach((value, index) => { map.set(`${prefix}:${index + 1}`, value as string) })
-}
-
-function buildRequirementLabelMap(jd: NormalizedJobDescription | null) {
-  const map = new Map<string, string>()
-  if (!jd) return map
-  addRequirementLabels(map, 'skill', jd.skills)
-  addRequirementLabels(map, 'degree', jd.degree_requirements)
-  addRequirementLabels(map, 'responsibility', jd.responsibilities)
-  addRequirementLabels(map, 'certification', jd.certifications)
-  addRequirementLabels(map, 'experience', jd.experience_requirements.map((req) => req.display_value))
-  return map
-}
-
-function buildEvidenceMap(profile: { normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null) {
-  const map = new Map<string, EvidenceDisplay>()
-  const extracted = profile?.extracted
-  if (!extracted) return map
-  extracted.experience.forEach((item, index) => {
-    const title = item.title || item.designation || 'Work experience'
-    const source = [title, item.company].filter(Boolean).join(' at ')
-    const text = [item.description, ...(item.responsibilities || [])].filter(Boolean).join(' ')
-    map.set(`experience:${index + 1}`, { label: source, source: 'Work experience', snippet: truncateEvidence(text || item.duration || source) })
-  })
-  extracted.projects.forEach((item, index) => {
-    const technologies = item.technologies?.length ? ` Technologies: ${item.technologies.join(', ')}.` : ''
-    const text = `${item.description || ''}${technologies}`.trim()
-    map.set(`project:${index + 1}`, { label: item.name || `Project ${index + 1}`, source: 'Project', snippet: truncateEvidence(text || item.name || `Project ${index + 1}`) })
-  })
-  return map
-}
-
-function verdictStatusClass(status: MatchVerdict['status']) {
-  if (status === 'MATCHED') return 'border-green-200 bg-green-50 text-green-700'
-  if (status === 'NO_MATCH') return 'border-red-200 bg-red-50 text-red-700'
-  return 'border-amber-200 bg-amber-50 text-amber-700'
-}
-
-function verdictStatusLabel(status: MatchVerdict['status']) {
-  if (status === 'MATCHED') return 'Matched'
-  if (status === 'NO_MATCH') return 'Not Matched'
-  return 'Unclear'
+function getScoreBg(score: number, threshold: number) {
+  if (score >= threshold) return 'bg-emerald-50 border-emerald-200'
+  return 'bg-slate-50 border-slate-200'
 }
 
 // ─── Explanation Drawer ───────────────────────────────────────────────────────
@@ -159,10 +79,11 @@ interface ExplanationDrawerProps {
   candidate: Candidate | null
   projectId: string | null
   jdDocumentId: string | null
+  screeningThreshold: number
   onClose: () => void
 }
 
-function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: ExplanationDrawerProps) {
+function ExplanationDrawer({ candidate, projectId, jdDocumentId, screeningThreshold, onClose }: ExplanationDrawerProps) {
   const [insights, setInsights] = useState<CandidateInsights | null>(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null>(null)
@@ -217,13 +138,13 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
     return () => { active = false }
   }, [candidate, jdDocumentId, projectId])
 
-  const aiSummaryText = insights?.summary || candidate?.aiExplanation || 'AI screening explanation will appear here once the screening pipeline has processed this candidate.'
+  const aiSummaryText = insights?.summary || candidate?.aiExplanation || 'Match evaluation derived from normalized candidate resume features against job requirements.'
   const displayStrengths = insights?.strengths?.length ? insights.strengths : candidate?.keyStrengths || []
   const displayWeaknesses = insights?.weaknesses?.length ? insights.weaknesses : candidate?.keyWeaknesses || []
-  const requirementLabels = buildRequirementLabelMap(normalizedJd)
-  const evidenceMap = buildEvidenceMap(resumeProfile)
 
-  const recConfig = candidate ? getRecommendationConfig(candidate) : null
+  const score = candidate?.overallScore ?? 0
+  const isScreened = score >= screeningThreshold
+  const statusConfig = getScreeningStatusConfig(isScreened)
 
   return (
     <AnimatePresence>
@@ -256,8 +177,8 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                 </div>
               </div>
               <div className="flex items-center gap-2.5">
-                <div className={`px-3 py-1.5 rounded-xl text-[13px] font-extrabold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
-                  {candidate.overallScore} / 100
+                <div className={`px-3 py-1.5 rounded-xl text-[13px] font-extrabold border ${getScoreBg(score, screeningThreshold)} ${getScoreColor(score, screeningThreshold)}`}>
+                  {score.toFixed(1)} / 100
                 </div>
                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
                   <X size={16} />
@@ -265,54 +186,29 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
               </div>
             </div>
 
-            {/* Recommendation banner */}
-            {recConfig && (
-              <div className={`px-6 py-3 flex items-center gap-2.5 border-b text-[12px] font-bold ${recConfig.cls}`}>
-                <recConfig.Icon size={14} className={recConfig.iconColor} />
-                <span>{recConfig.label} — {recConfig.shortLabel}</span>
-                <span className="ml-auto font-normal text-[11px] opacity-70">Rank #{candidate.rank}</span>
-              </div>
-            )}
+            {/* Status banner */}
+            <div className={`px-6 py-3 flex items-center gap-2.5 border-b text-[12px] font-bold ${statusConfig.cls}`}>
+              <statusConfig.Icon size={14} className={statusConfig.iconColor} />
+              <span>Status: {statusConfig.label}</span>
+              <span className="ml-auto font-normal text-[11px] opacity-70">Rank #{candidate.rank} (Threshold: {screeningThreshold})</span>
+            </div>
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-              {/* Candidate profile (from backend, if available) */}
+              {/* Candidate profile */}
               {loadingProfile && <div className="rounded-xl border border-slate-200 p-4 text-[12px] text-slate-500">Loading candidate profile…</div>}
               {profileError && <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-[12px] text-amber-700">Profile unavailable: {profileError}</div>}
               {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted} document={resumeProfile.document} />}
 
-              {/* Knockout notice */}
-              {candidate.isKnockedOut && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-1">
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-red-700">Mandatory Requirement Not Met</p>
-                  <p className="text-[13px] font-semibold text-slate-800 mt-1">Candidate does not qualify for this role</p>
-                  <p className="text-[12px] text-red-700 mt-1">{candidate.knockoutReason || insights?.recommendation_reason || 'A configured knockout rule was triggered.'}</p>
-                </div>
-              )}
-
-              {/* Below threshold notice */}
-              {!candidate.isKnockedOut && candidate.recommendation === 'REJECT' && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-1">
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Below Screening Threshold</p>
-                  <p className="text-[12px] text-amber-800 mt-1">{insights?.recommendation_reason || 'The candidate\'s match score did not meet the minimum threshold for this requisition.'}</p>
-                  <p className="border-t border-amber-200 pt-2 mt-2 text-[12px] text-slate-600">
-                    Match Score <span className="font-bold text-slate-800">{candidate.overallScore} / 100</span>
-                  </p>
-                </div>
-              )}
-
-              {/* Why this candidate matches */}
+              {/* Match Evaluation Overview */}
               <div className="rounded-xl bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 p-5">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles size={14} className="text-blue-500" />
                   <p className="text-[11px] font-bold text-blue-600 uppercase tracking-widest">
-                    Why this candidate {loadingInsights ? '(Loading...)' : ''}
+                    Match Explanation {loadingInsights ? '(Loading...)' : ''}
                   </p>
                 </div>
                 <p className="text-[13px] text-slate-700 leading-relaxed">{aiSummaryText}</p>
-                {insights?.score_explanation && (
-                  <p className="mt-2 text-[12px] text-slate-500 italic">{insights.score_explanation}</p>
-                )}
               </div>
 
               {/* Key matched requirements */}
@@ -320,7 +216,7 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <TrendingUp size={13} className="text-emerald-500" />
-                    <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">Key Matched Requirements</p>
+                    <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">Key Matched Strengths</p>
                   </div>
                   <ul className="space-y-1.5">
                     {displayStrengths.map((s, i) => (
@@ -353,93 +249,25 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                 </div>
               )}
 
-              {/* 50 + 50 Score Model Breakdown */}
-              <div>
-                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Evaluation Score Breakdown (50 + 50 Model)</p>
-                
-                {(() => {
-                  const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
-                  const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
-                  const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills')
-                  const avgNonSkill = nonSkillScores.length
-                    ? nonSkillScores.reduce((acc, curr) => acc + curr.score, 0) / nonSkillScores.length
-                    : candidate.overallScore
-                  const aiRelevance50 = Math.round((avgNonSkill / 100) * 50)
-
-                  return (
-                    <div className="space-y-3">
-                      {/* Skill Match (50) */}
-                      <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] text-slate-800 font-bold">1. Deterministic Skill Match</span>
-                          <span className="text-[13px] font-extrabold text-blue-700">{skillScore50} / 50 Marks</span>
-                        </div>
-                        <div className="w-full h-2 bg-blue-100 rounded-full overflow-hidden">
-                          <motion.div
-                            className="h-full rounded-full bg-blue-600"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(skillScore50 / 50) * 100}%` }}
-                            transition={{ duration: 0.5 }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500">Calculated from matched required skills against JD requirements.</p>
-                      </div>
-
-                      {/* AI Relevance (50) */}
-                      <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] text-slate-800 font-bold">2. AI JD Relevance & Evidence</span>
-                          <span className="text-[13px] font-extrabold text-emerald-700">{aiRelevance50} / 50 Marks</span>
-                        </div>
-                        <div className="w-full h-2 bg-emerald-100 rounded-full overflow-hidden">
-                          <motion.div
-                            className="h-full rounded-full bg-emerald-600"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(aiRelevance50 / 50) * 100}%` }}
-                            transition={{ duration: 0.5, delay: 0.1 }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500">LLM evaluation of candidate projects, experience, education, and evidence against JD context.</p>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Final score */}
-                <div className="mt-3 rounded-xl bg-slate-900 text-white p-4 flex items-center justify-between shadow-sm">
+              {/* Final Score Details */}
+              <div className="rounded-xl bg-slate-900 text-white p-5 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[12px] font-bold text-slate-300">Final Score</p>
-                    <p className="text-[10px] text-slate-400">Skill Match (50) + AI Relevance (50)</p>
+                    <p className="text-[12px] font-bold text-slate-300">Final Match Score</p>
+                    <p className="text-[10px] text-slate-400">Step 4 Weighted Score (0–100)</p>
                   </div>
-                  <p className="text-[26px] font-extrabold text-white">
-                    {candidate.overallScore}
+                  <p className="text-[28px] font-extrabold text-white">
+                    {score.toFixed(1)}
                     <span className="text-[13px] font-normal text-slate-400 ml-1">/ 100</span>
                   </p>
                 </div>
-              </div>
-
-              {/* Requirement-level verdicts (collapsed section) */}
-              {(candidate.matchVerdicts?.length ?? 0) > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Requirement Matches</p>
-                  <div className="space-y-2">
-                    {candidate.matchVerdicts!.filter(v => v.status === 'MATCHED').map((verdict) => (
-                      <div key={verdict.requirement_id} className={`rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3 ${verdictStatusClass(verdict.status)}`}>
-                        <p className="text-[12px] font-medium">{requirementLabels.get(verdict.requirement_id) || verdict.requirement_id}</p>
-                        <span className="shrink-0 text-[10px] font-bold uppercase">{verdictStatusLabel(verdict.status)}</span>
-                      </div>
-                    ))}
-                    {candidate.matchVerdicts!.filter(v => v.status === 'NO_MATCH').map((verdict) => (
-                      <div key={verdict.requirement_id} className={`rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3 ${verdictStatusClass(verdict.status)}`}>
-                        <p className="text-[12px] font-medium">{requirementLabels.get(verdict.requirement_id) || verdict.requirement_id}</p>
-                        <span className="shrink-0 text-[10px] font-bold uppercase">{verdictStatusLabel(verdict.status)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {jdError && <p className="mt-2 text-[11px] text-amber-600">JD details unavailable: {jdError}</p>}
-                  {(loadingJd || loadingProfile) && <p className="mt-2 text-[11px] text-slate-400">Loading requirements…</p>}
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Configured Threshold: <strong className="text-white">{screeningThreshold}</strong></span>
+                  <span className={`px-2 py-0.5 rounded font-extrabold ${isScreened ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-400'}`}>
+                    {isScreened ? 'SCREENED' : 'NOT SCREENED'}
+                  </span>
                 </div>
-              )}
+              </div>
             </div>
           </motion.div>
         </>
@@ -455,7 +283,8 @@ export default function CandidateRanking() {
   const location = useLocation()
 
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
+  const [screeningThreshold, setScreeningThreshold] = useState<number>(70)
+  const [filterStatus, setFilterStatus] = useState<'all' | 'screened' | 'not_screened'>('all')
   const [sortBy, setSortBy] = useState<'rank' | 'score'>('rank')
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null)
   const [rankingsLoading, setRankingsLoading] = useState(true)
@@ -478,7 +307,6 @@ export default function CandidateRanking() {
     ] as const
     return rankings.map((ranking) => {
       const persistedScore = scoresByDocument.get(ranking.document_id)
-      if (!persistedScore) throw new Error(`Score data missing for ${ranking.document_id}.`)
       return {
         id: ranking.document_id,
         documentId: ranking.document_id,
@@ -492,25 +320,22 @@ export default function CandidateRanking() {
         recommendation: ranking.recommendation,
         isKnockedOut: ranking.is_knocked_out,
         knockoutReason: ranking.knockout_reason,
-        rejectionReason: ranking.is_knocked_out ? 'knockout' : ranking.recommendation === 'REJECT' ? 'below_recommendation_threshold' : undefined,
-        status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out),
+        status: 'pending',
         extractedFields: [],
-        scores: components.map(([key, label]) => {
+        scores: persistedScore ? components.map(([key, label]) => {
           const detail = persistedScore.component_scores[key]
-          const explanation = detail.explanation
-          const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
           return {
             criterionId: key, label,
             score: detail.score,
             weight: (persistedScore.effective_weights && persistedScore.effective_weights[key] !== undefined) ? persistedScore.effective_weights[key] : config.weights[key],
             weightedScore: persistedScore.weighted_scores[key],
-            isApplicable, explanation,
+            isApplicable: true, explanation: detail.explanation,
           }
-        }),
-        matchVerdicts: persistedScore.match_verdicts || [],
-        passingScore: persistedScore.passing_score ?? config.passing_score,
-        effectiveWeights: persistedScore.effective_weights,
-        scoreBreakdown: persistedScore.score_breakdown || [],
+        }) : [],
+        matchVerdicts: persistedScore?.match_verdicts || [],
+        passingScore: persistedScore?.passing_score ?? config.passing_score,
+        effectiveWeights: persistedScore?.effective_weights,
+        scoreBreakdown: persistedScore?.score_breakdown || [],
         scoredAt: new Date(ranking.created_at),
       }
     })
@@ -528,12 +353,7 @@ export default function CandidateRanking() {
       .then(([response, scores]) => {
         if (active) {
           const freshMapped = mapRankings(response.items, scores, dummyConfig)
-          const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
-          const merged = freshMapped.map((c) => {
-            const overrideStatus = existingStatusMap.get(c.id)
-            return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
-          })
-          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
+          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: freshMapped })
           setFetchError(null)
         }
       })
@@ -545,23 +365,22 @@ export default function CandidateRanking() {
     return () => { active = false }
   }, [dispatch, mapRankings, state.projectId])
 
-  // Derived data
+  // Derived filtered data
   const filtered = candidates
     .filter((c) => {
       const q = search.toLowerCase()
       const matchSearch = c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)
-      const matchStatus = filterStatus === 'all' || c.status === filterStatus
+      const isScreened = (c.overallScore ?? 0) >= screeningThreshold
+      const matchStatus =
+        filterStatus === 'all' ||
+        (filterStatus === 'screened' && isScreened) ||
+        (filterStatus === 'not_screened' && !isScreened)
       return matchSearch && matchStatus
     })
-    .sort((a, b) => sortBy === 'rank' ? a.rank - b.rank : b.overallScore - a.overallScore)
+    .sort((a, b) => (sortBy === 'rank' ? a.rank - b.rank : (b.overallScore ?? 0) - (a.overallScore ?? 0)))
 
-  const shortlisted = candidates.filter((c) => c.status === 'screened').length
-  const needsReview = candidates.filter((c) => c.status === 'pending').length
-  const rejected = candidates.filter((c) => c.status === 'rejected').length
-  const avgScore = candidates.length ? Math.round(candidates.reduce((s, c) => s + c.overallScore, 0) / candidates.length) : 0
-
-  const updateStatus = (id: string, status: ScreeningStatus) =>
-    dispatch({ type: 'UPDATE_CANDIDATE_STATUS', payload: { id, status } })
+  const totalScreened = candidates.filter((c) => (c.overallScore ?? 0) >= screeningThreshold).length
+  const totalNotScreened = candidates.length - totalScreened
 
   const handleGoToShortlist = () => {
     if (state.projectId) {
@@ -578,6 +397,7 @@ export default function CandidateRanking() {
         candidate={selectedCandidate}
         projectId={state.projectId}
         jdDocumentId={state.jdDocumentId}
+        screeningThreshold={screeningThreshold}
         onClose={() => setSelectedCandidate(null)}
       />
 
@@ -588,51 +408,29 @@ export default function CandidateRanking() {
           <div>
             <h1 className="text-[28px] font-bold tracking-tight text-slate-900 mb-1">Candidate Rankings</h1>
             <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-              Candidates have been evaluated against the job requirements and ranked by relevance. Click any candidate to view the detailed match explanation.
+              Candidates are evaluated against job requirements and ranked by Final Match Score. Configure your screening threshold to view screened candidates.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <select
-              className="text-[12px] border border-slate-200 rounded-lg px-3 py-2 text-slate-600 outline-none bg-white font-medium hover:border-blue-300 transition-colors"
-              onChange={async (e) => {
-                const val = e.target.value as 'csv' | 'excel' | 'json' | ''
-                if (!val || !state.projectId) return
-                try {
-                  const blob = await api.exportProjectData(state.projectId, val as any)
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `rankings_${state.projectId}.${val === 'excel' ? 'xlsx' : val}`
-                  a.click()
-                  URL.revokeObjectURL(url)
-                } catch { /* mock mode — export silently fails */ }
-                e.target.value = ''
-              }}
-              defaultValue=""
-            >
-              <option value="" disabled>Export...</option>
-              <option value="csv">Export CSV</option>
-              <option value="excel">Export Excel</option>
-              <option value="json">Export JSON</option>
-            </select>
             <motion.button
               onClick={handleGoToShortlist}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-[12px] font-bold hover:bg-blue-700 transition-colors shadow-sm"
               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             >
               <UserCheck size={14} />
-              Go to Shortlist
+              View Shortlist
               <ArrowRight size={13} />
             </motion.button>
           </div>
         </motion.div>
 
-        {/* ── Candidate Table ── */}
+        {/* ── Candidate Table Container ── */}
         <motion.div variants={fadeUp} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
 
           {/* Toolbar */}
-          <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/40">
-            <div className="flex items-center gap-2 flex-1 bg-white rounded-xl px-3 py-2 border border-slate-200">
+          <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/40">
+            {/* Search */}
+            <div className="flex items-center gap-2 flex-1 min-w-[200px] bg-white rounded-xl px-3 py-2 border border-slate-200">
               <Search size={13} className="text-slate-400 flex-shrink-0" />
               <input
                 type="text"
@@ -643,17 +441,35 @@ export default function CandidateRanking() {
               />
             </div>
 
+            {/* Threshold Control */}
+            <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-1.5 border border-slate-200">
+              <span className="text-[11px] font-bold text-slate-600">Threshold:</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={screeningThreshold}
+                onChange={(e) => {
+                  const val = Math.min(100, Math.max(0, Number(e.target.value) || 0))
+                  setScreeningThreshold(val)
+                }}
+                className="w-14 text-center font-extrabold text-[12px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg py-0.5 outline-none"
+              />
+              <span className="text-[11px] text-slate-400 font-medium">/ 100</span>
+            </div>
+
+            {/* Status Filter */}
             <select
-              className="text-[12px] border border-slate-200 rounded-xl px-3 py-2 text-slate-600 outline-none bg-white"
+              className="text-[12px] border border-slate-200 rounded-xl px-3 py-2 text-slate-600 outline-none bg-white font-medium"
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as ScreeningStatus | 'all')}
+              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'screened' | 'not_screened')}
             >
               <option value="all">All Candidates</option>
-              <option value="screened">Shortlisted</option>
-              <option value="pending">Needs Review</option>
-              <option value="rejected">Not Relevant</option>
+              <option value="screened">SCREENED (≥ {screeningThreshold})</option>
+              <option value="not_screened">NOT SCREENED (&lt; {screeningThreshold})</option>
             </select>
 
+            {/* Sort Toggle */}
             <button
               onClick={() => setSortBy((s) => (s === 'rank' ? 'score' : 'rank'))}
               className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-blue-600 px-3 py-2 rounded-xl hover:bg-blue-50 border border-slate-200 transition-colors font-medium"
@@ -662,7 +478,7 @@ export default function CandidateRanking() {
               Sort: {sortBy === 'rank' ? 'By Rank' : 'By Score'}
             </button>
 
-            <div className="text-[11px] text-slate-400 font-medium px-2">
+            <div className="text-[11px] text-slate-400 font-medium px-1">
               {filtered.length} of {candidates.length} candidates
             </div>
           </div>
@@ -674,14 +490,6 @@ export default function CandidateRanking() {
               <span>{fetchError}</span>
             </div>
           )}
-
-          {/* Hint strip */}
-          <div className="flex items-center gap-2 px-5 py-2.5 bg-blue-50/40 border-b border-blue-100/60">
-            <Sparkles size={12} className="text-blue-400" />
-            <p className="text-[11px] text-blue-600 font-medium">
-              Click any candidate row to view the full match explanation and score breakdown.
-            </p>
-          </div>
 
           {/* Table */}
           {rankingsLoading ? (
@@ -695,29 +503,19 @@ export default function CandidateRanking() {
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-left">
-                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">Rank</th>
+                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-16">Rank</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-28">Final Score</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recommendation</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Skill Match</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">AI Relevance</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-36">Final Match Score</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-36">Screening Status</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-24">Action</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-20">Explain</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   <AnimatePresence>
                     {filtered.map((candidate, idx) => {
-                      const rec = getRecommendationConfig(candidate)
-                      const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
-                      const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
-
-                      // Calculate AI relevance (50 marks max) from non-skill categories
-                      const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills')
-                      const avgNonSkill = nonSkillScores.length
-                        ? nonSkillScores.reduce((acc, curr) => acc + curr.score, 0) / nonSkillScores.length
-                        : candidate.overallScore
-                      const aiRelevance50 = Math.round((avgNonSkill / 100) * 50)
+                      const score = candidate.overallScore ?? 0
+                      const isScreened = score >= screeningThreshold
+                      const statusConfig = getScreeningStatusConfig(isScreened)
 
                       return (
                         <motion.tr
@@ -763,52 +561,22 @@ export default function CandidateRanking() {
                             </div>
                           </td>
 
-                          {/* Final Score */}
+                          {/* Final Match Score */}
                           <td className="px-4 py-3.5 text-center">
-                            <span className={`inline-block px-2.5 py-1 rounded-lg text-[13px] font-extrabold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
-                              {candidate.overallScore} / 100
+                            <span className={`inline-block px-3 py-1.5 rounded-xl text-[13.5px] font-extrabold border ${getScoreBg(score, screeningThreshold)} ${getScoreColor(score, screeningThreshold)}`}>
+                              {score.toFixed(1)} / 100
                             </span>
                           </td>
 
-                          {/* Recommendation */}
-                          <td className="px-4 py-3.5">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold ${rec.cls}`}>
-                              <rec.Icon size={11} className={rec.iconColor} />
-                              {rec.label}
-                            </span>
-                          </td>
-
-                          {/* Skill Match Score (50 Marks) */}
+                          {/* Screening Status Badge */}
                           <td className="px-4 py-3.5 text-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[11.5px] font-extrabold border border-blue-100">
-                              {skillScore50} / 50
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-extrabold ${statusConfig.cls}`}>
+                              <statusConfig.Icon size={12} className={statusConfig.iconColor} />
+                              {statusConfig.label}
                             </span>
                           </td>
 
-                          {/* AI Relevance Score (50 Marks) */}
-                          <td className="px-4 py-3.5 text-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11.5px] font-extrabold border border-emerald-100">
-                              {aiRelevance50} / 50
-                            </span>
-                          </td>
-
-                          {/* Action (status change) */}
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                            <select
-                              className="text-[11px] border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 outline-none bg-white hover:border-blue-300 transition-colors font-medium"
-                              value={candidate.status}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                updateStatus(candidate.id, e.target.value as ScreeningStatus)
-                              }}
-                            >
-                              <option value="screened">Shortlist</option>
-                              <option value="pending">Review</option>
-                              <option value="rejected">Reject</option>
-                            </select>
-                          </td>
-
-                          {/* Explain */}
+                          {/* Action / Explain */}
                           <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                             <motion.button
                               className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-blue-100 transition-colors"
@@ -842,33 +610,17 @@ export default function CandidateRanking() {
             </div>
           )}
 
-          {/* Table footer: summary */}
+          {/* Summary footer */}
           {candidates.length > 0 && (
-            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-[11px] text-slate-500">
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-[11px] text-slate-500 font-medium">
               <span>
-                {shortlisted} shortlisted · {needsReview} pending review · {rejected} not relevant
+                <strong className="text-emerald-700">{totalScreened} SCREENED</strong> (Score ≥ {screeningThreshold}) · <strong className="text-slate-600">{totalNotScreened} NOT SCREENED</strong>
               </span>
               <span>
-                {candidates.length} total candidates evaluated
+                {candidates.length} total candidates ranked by Final Match Score
               </span>
             </div>
           )}
-        </motion.div>
-
-        {/* ── CTA Footer ── */}
-        <motion.div variants={fadeUp} className="flex items-center justify-between">
-          <p className="text-[12px] text-slate-400">
-            Review candidates, then proceed to the Shortlist to confirm your selections.
-          </p>
-          <motion.button
-            onClick={handleGoToShortlist}
-            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[12px] font-bold hover:bg-blue-700 transition-colors shadow-sm"
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          >
-            <UserCheck size={14} />
-            Proceed to Shortlist
-            <ChevronRight size={13} />
-          </motion.button>
         </motion.div>
 
       </motion.div>

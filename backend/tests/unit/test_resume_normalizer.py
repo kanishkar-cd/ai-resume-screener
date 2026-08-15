@@ -140,3 +140,111 @@ def test_stage4_acceptance_criteria() -> None:
     # Acceptance 3: Country code = IN
     assert result["locations"][0]["country_code"] == "IN"
 
+
+def test_projects_and_experience_details_normalization() -> None:
+    extracted = SimpleNamespace(
+        skills=["Python"],
+        education=[],
+        companies=[],
+        designation=None,
+        experience=[
+            {
+                "company": "Tech Corp",
+                "title": "Backend Engineer",
+                "start_date": "01/2022",
+                "end_date": "12/2023",
+                "description": "Architected cloud microservices.",
+                "responsibilities": ["Developed REST APIs in FastAPI.", "Optimized PostgreSQL queries."],
+            }
+        ],
+        projects=[
+            {
+                "name": " E-Commerce Platform ",
+                "technologies": ["reactjs", "PYTHON", "Postgres"],
+                "description": "Built scalable shopping cart service.",
+            }
+        ],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    )
+    result = ResumeNormalizer().normalize(extracted)
+
+    # 1. Experience details (responsibilities & description)
+    exp = result["experience"][0]
+    assert exp["description"] == "Architected cloud microservices."
+    assert exp["responsibilities"] == [
+        "Developed REST APIs in FastAPI.",
+        "Optimized PostgreSQL queries.",
+    ]
+
+    # 2. Projects normalization (name, technologies canonicalization, description)
+    assert len(result["projects"]) == 1
+    proj = result["projects"][0]
+    assert proj["name"] == "E-Commerce Platform"
+    assert proj["technologies"] == ["React", "Python", "PostgreSQL"]
+    assert proj["description"] == "Built scalable shopping cart service."
+
+
+def test_overlapping_experience_and_candidate_level_cases() -> None:
+    norm = ResumeNormalizer()
+
+    # CASE 1: One job (Jan 2022 -> Dec 2022) -> 12 months -> FRESHER
+    case1 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None,
+        experience=[{"company": "A", "start_date": "2022-01", "end_date": "2022-12"}],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case1["total_experience_months"] == 12
+    assert case1["candidate_level"] == "FRESHER"
+
+    # CASE 2: Two sequential jobs (Jan 2022 -> Dec 2022, Jan 2023 -> Dec 2023) -> 24 months -> EXPERIENCED
+    case2 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None,
+        experience=[
+            {"company": "A", "start_date": "2022-01", "end_date": "2022-12"},
+            {"company": "B", "start_date": "2023-01", "end_date": "2023-12"},
+        ],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case2["total_experience_months"] == 24
+    assert case2["candidate_level"] == "EXPERIENCED"
+
+    # CASE 3: Two overlapping jobs (Jan 2022 -> Dec 2023, Jun 2023 -> Jun 2024) -> 30 unique months (not 37) -> EXPERIENCED
+    case3 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None,
+        experience=[
+            {"company": "A", "start_date": "2022-01", "end_date": "2023-12"},  # 24 months
+            {"company": "B", "start_date": "2023-06", "end_date": "2024-06"},  # 13 months
+        ],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case3["total_experience_months"] == 30
+    assert case3["candidate_level"] == "EXPERIENCED"
+
+    # CASE 4: No experience -> 0 months -> FRESHER
+    case4 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None, experience=[],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case4["total_experience_months"] == 0
+    assert case4["candidate_level"] == "FRESHER"
+
+    # CASE 5: Exactly 12 months -> 12 months -> FRESHER
+    case5 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None,
+        experience=[{"company": "A", "start_date": "2023-01", "end_date": "2023-12"}],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case5["total_experience_months"] == 12
+    assert case5["candidate_level"] == "FRESHER"
+
+    # CASE 6: 13 months -> 13 months -> EXPERIENCED
+    case6 = norm.normalize(SimpleNamespace(
+        skills=[], education=[], companies=[], designation=None,
+        experience=[{"company": "A", "start_date": "2023-01", "end_date": "2024-01"}],
+        phone=None, email=None, location=None, languages=[], certifications=[],
+    ))
+    assert case6["total_experience_months"] == 13
+    assert case6["candidate_level"] == "EXPERIENCED"
+
+
+

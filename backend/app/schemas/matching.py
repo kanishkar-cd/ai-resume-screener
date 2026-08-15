@@ -1,6 +1,7 @@
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any
 
 
 class RequirementKind(str, Enum):
@@ -78,3 +79,40 @@ class LLMVerdict(BaseModel):
 class LLMVerdictBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     verdicts: list[LLMVerdict] = Field(default_factory=list)
+
+
+class CandidateMatchingProfile(BaseModel):
+    candidate_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    resume_job_title: str | None = None
+    jd_job_title: str | None = None
+    total_experience_months: int = 0
+    candidate_level: str = "FRESHER"
+    jd_required_level: str = "FRESHER"
+    education: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ResponsibilityMatchDetail(BaseModel):
+    responsibility: str
+    status: MatchStatus
+    confidence: float
+    evidence_ids: list[str] = Field(default_factory=list)
+    reasoning: str = ""
+    method: MatchMethod | None = None
+
+
+class NormalizedMatchResult(BaseModel):
+    profile: CandidateMatchingProfile
+    required_skills_score: float = Field(ge=0, le=100)
+    responsibility_score: float = Field(ge=0, le=100)
+    preferred_skills_score: float = Field(ge=0, le=100)
+    job_title_score: float = Field(ge=0, le=100)
+    relevant_experience_score: float | None = None
+    final_match_score: float = Field(default=0.0, ge=0, le=100)
+    matched_required_skills: list[str] = Field(default_factory=list)
+    missing_required_skills: list[str] = Field(default_factory=list)
+    matched_preferred_skills: list[str] = Field(default_factory=list)
+    missing_preferred_skills: list[str] = Field(default_factory=list)
+    responsibility_details: list[ResponsibilityMatchDetail] = Field(default_factory=list)
+    short_relevance_explanation: str = ""

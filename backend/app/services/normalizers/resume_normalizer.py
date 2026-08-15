@@ -7,7 +7,7 @@ from app.services.pipeline.canonical_dictionaries import (
 )
 from app.services.pipeline.normalization_rules import (
     NormalizationAudit, canonicalize, clean_text, duration_between, format_duration,
-    normalize_company, normalize_date, normalize_list, normalize_phone, stable_unique,
+    merge_experience_intervals, normalize_company, normalize_date, normalize_list, normalize_phone, stable_unique,
 )
 
 
@@ -17,22 +17,30 @@ class ResumeNormalizer:
         skills = normalize_list(list(extracted.skills or []), SKILL_ALIASES, "skills", audit)
         education = [self._education(item, audit) for item in (extracted.education or [])]
         experience = [self._experience(item, audit) for item in (extracted.experience or [])]
+        projects = [self._project(item, audit) for item in (getattr(extracted, "projects", None) or [])]
         companies = [company for value in (extracted.companies or []) if (company := normalize_company(value, audit))]
-        companies.extend(item["company"] for item in experience if item["company"])
-        designation = canonicalize(extracted.designation, TITLE_ALIASES, "job_titles", audit)
-        job_titles = ([designation] if designation else []) + [item["job_title"] for item in experience if item["job_title"]]
-        location = self._location(extracted.location, audit)
+        companies.extend(item["company"] for item in experience if item.get("company"))
+        designation = canonicalize(getattr(extracted, "designation", None), TITLE_ALIASES, "job_titles", audit)
+        job_titles = ([designation] if designation else []) + [item["job_title"] for item in experience if item.get("job_title")]
+        location = self._location(getattr(extracted, "location", None), audit)
+
+        total_experience_months = merge_experience_intervals(experience)
+        candidate_level = "FRESHER" if total_experience_months <= 12 else "EXPERIENCED"
+
         return {
             "skills": skills,
             "education": education,
             "companies": stable_unique(companies),
             "job_titles": stable_unique(job_titles),
             "experience": experience,
-            "phone": normalize_phone(extracted.phone, audit),
-            "email": self._email(extracted.email, audit),
+            "projects": projects,
+            "total_experience_months": total_experience_months,
+            "candidate_level": candidate_level,
+            "phone": normalize_phone(getattr(extracted, "phone", None), audit),
+            "email": self._email(getattr(extracted, "email", None), audit),
             "locations": [location] if location else [],
-            "languages": normalize_list(list(extracted.languages or []), LANGUAGE_ALIASES, "languages", audit),
-            "certifications": normalize_list(list(extracted.certifications or []), CERTIFICATION_ALIASES, "certifications", audit),
+            "languages": normalize_list(list(getattr(extracted, "languages", None) or []), LANGUAGE_ALIASES, "languages", audit),
+            "certifications": normalize_list(list(getattr(extracted, "certifications", None) or []), CERTIFICATION_ALIASES, "certifications", audit),
             "normalization_metadata": audit.metadata(),
             "ruleset_version": RULESET_VERSION,
         }
@@ -96,25 +104,39 @@ class ResumeNormalizer:
             "display_name": source,
         }
 
-
-
     @staticmethod
-    def _education(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, str | None]:
-        date, _ = normalize_date(item.get("year"), "education.graduation_date", audit)
+    def _education(item: Any, audit: NormalizationAudit) -> dict[str, str | None]:
+        obj = item if isinstance(item, dict) else (getattr(item, "__dict__", {}) or {})
+        date, _ = normalize_date(obj.get("year"), "education.graduation_date", audit)
         return {
-            "degree": canonicalize(item.get("degree"), DEGREE_ALIASES, "education.degree", audit),
-            "field_of_study": clean_text(item["field_of_study"]) if item.get("field_of_study") else None,
-            "institution": clean_text(item["institution"]) if item.get("institution") else None,
+            "degree": canonicalize(obj.get("degree"), DEGREE_ALIASES, "education.degree", audit),
+            "field_of_study": clean_text(obj["field_of_study"]) if obj.get("field_of_study") else None,
+            "institution": clean_text(obj["institution"]) if obj.get("institution") else None,
             "graduation_date": date,
         }
 
     @staticmethod
-    def _experience(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, Any]:
-        start_source = item.get("start_date")
-        end_source = item.get("end_date")
+    def _project(item: Any, audit: NormalizationAudit) -> dict[str, Any]:
+        obj = item if isinstance(item, dict) else (getattr(item, "__dict__", {}) or {})
+        name = clean_text(str(obj.get("name"))) if obj.get("name") else None
+        raw_tech = list(obj.get("technologies") or [])
+        technologies = normalize_list(raw_tech, SKILL_ALIASES, "project.technologies", audit)
+        desc = obj.get("description")
+        description = clean_text(str(desc)) if desc else None
+        return {
+            "name": name,
+            "technologies": technologies,
+            "description": description,
+        }
+
+    @staticmethod
+    def _experience(item: Any, audit: NormalizationAudit) -> dict[str, Any]:
+        obj = item if isinstance(item, dict) else (getattr(item, "__dict__", {}) or {})
+        start_source = obj.get("start_date")
+        end_source = obj.get("end_date")
 
         if not start_source and not end_source:
-            duration = clean_text(item.get("duration") or "")
+            duration = clean_text(str(obj.get("duration") or ""))
             parts = re.split(r"\s+(?:-|–|—|to)\s+", duration, maxsplit=1, flags=re.I) if duration else []
             start_source = parts[0] if parts else None
             end_source = parts[1] if len(parts) == 2 else None
@@ -122,11 +144,19 @@ class ResumeNormalizer:
         start, _ = normalize_date(start_source, "experience.start_date", audit)
         end, current = normalize_date(end_source, "experience.end_date", audit)
         months = duration_between(start, end, current)
-        company = normalize_company(item.get("company"), audit)
-        title = canonicalize(item.get("title") or item.get("designation"), TITLE_ALIASES, "job_titles", audit)
+        company = normalize_company(obj.get("company"), audit)
+        title = canonicalize(obj.get("title") or obj.get("designation"), TITLE_ALIASES, "job_titles", audit)
+
+        raw_resp = list(obj.get("responsibilities") or [])
+        responsibilities = [clean_text(str(r)) for r in raw_resp if clean_text(str(r))]
+        desc_val = obj.get("description")
+        description = clean_text(str(desc_val)) if desc_val else None
+
         return {
             "company": company, "job_title": title, "start_date": start,
             "end_date": end, "is_current": current, "duration_months": months,
             "duration_display": format_duration(months),
+            "description": description,
+            "responsibilities": responsibilities,
         }
 

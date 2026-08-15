@@ -200,6 +200,62 @@ def duration_between(start: str | None, end: str | None, current: bool) -> int |
     return months if months >= 0 else None
 
 
+def _to_month_index(value: str | None, *, is_end: bool = False) -> int | None:
+    if not value or not isinstance(value, str):
+        return None
+    match = re.search(r"(\d{4})(?:-(\d{2}))?", value)
+    if not match:
+        return None
+    year = int(match.group(1))
+    month = int(match.group(2)) if match.group(2) else (12 if is_end else 1)
+    return year * 12 + month
+
+
+def merge_experience_intervals(experience_items: list[Any]) -> int:
+    """
+    Merge overlapping and continuous employment date intervals to compute unique work experience months.
+    Prevents double-counting parallel/overlapping jobs.
+    """
+    intervals: list[tuple[int, int]] = []
+    undated_months = 0
+
+    for item in experience_items:
+        obj = item if isinstance(item, dict) else (getattr(item, "__dict__", {}) or {})
+        start = obj.get("start_date")
+        end = obj.get("end_date")
+        is_current = bool(obj.get("is_current"))
+        duration = obj.get("duration_months")
+
+        start_ym = _to_month_index(start) if start else None
+        effective_end = end or (datetime.now(UTC).strftime("%Y-%m") if is_current else None)
+        end_ym = _to_month_index(effective_end, is_end=True) if effective_end else None
+
+        if start_ym is not None and end_ym is not None and end_ym >= start_ym:
+            intervals.append((start_ym, end_ym))
+        elif isinstance(duration, int) and duration > 0:
+            undated_months += duration
+
+    if not intervals:
+        return undated_months
+
+    intervals.sort(key=lambda x: x[0])
+
+    merged: list[tuple[int, int]] = []
+    for current in intervals:
+        if not merged:
+            merged.append(current)
+        else:
+            prev_start, prev_end = merged[-1]
+            curr_start, curr_end = current
+            if curr_start <= prev_end + 1:
+                merged[-1] = (prev_start, max(prev_end, curr_end))
+            else:
+                merged.append(current)
+
+    total_unique_months = sum(end - start + 1 for start, end in merged)
+    return total_unique_months + undated_months
+
+
 _DURATION = re.compile(r"(?i)\b(\d+)(\+)?\s*(?:(?:-|–|to)\s*(\d+)\s*)?(yrs?|years?|mos?|months?)\b")
 
 

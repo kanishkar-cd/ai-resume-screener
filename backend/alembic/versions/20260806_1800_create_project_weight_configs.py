@@ -10,9 +10,6 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from app.models.weight_config import ProjectWeightConfigModel
-
-_WEIGHT_CONFIG_MODEL = ProjectWeightConfigModel
 revision: str = "20260806_1800"
 down_revision: str | None = "20260806_1700"
 branch_labels: str | Sequence[str] | None = None

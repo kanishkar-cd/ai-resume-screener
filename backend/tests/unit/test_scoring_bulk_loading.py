@@ -29,8 +29,8 @@ async def test_score_project_uses_bulk_loading() -> None:
     mock_normalizations.get_resumes_by_document_ids = AsyncMock(return_value=[norm1, norm2])
     mock_normalizations.get_resume_by_document_id = AsyncMock()
 
-    ext1 = MagicMock(document_id=doc1.id, projects=[], candidate_name="Candidate One")
-    ext2 = MagicMock(document_id=doc2.id, projects=[], candidate_name="Candidate Two")
+    ext1 = MagicMock(document_id=doc1.id, projects=[], candidate_name="Candidate One", final_match_score=75.0)
+    ext2 = MagicMock(document_id=doc2.id, projects=[], candidate_name="Candidate Two", final_match_score=80.0)
     mock_extractions = MagicMock()
     mock_extractions.get_resumes_by_document_ids = AsyncMock(return_value=[ext1, ext2])
     mock_extractions.get_resume_by_document_id = AsyncMock()

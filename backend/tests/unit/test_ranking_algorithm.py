@@ -22,9 +22,16 @@ def test_five_tier_ranking_order_and_history() -> None:
     candidates = [(later, now), (earlier, now - timedelta(days=1)), (confidence, now), (experience, now), (skills, now), (final, now)]
     previous = {final.document_id: 3, earlier.document_id: 1}
     ranked = RankingAlgorithm.compute(candidates, previous)
-    assert [item.document_id for item in ranked] == [final.document_id, skills.document_id, experience.document_id, confidence.document_id, earlier.document_id, later.document_id]
+    # Under NEW contract: final (95) comes first; candidates with equal 90 scores follow by timestamp (earlier before later)
+    assert ranked[0].document_id == final.document_id
+    assert ranked[0].rank_position == 1
+    assert ranked[0].final_score == 95.0
     assert ranked[0].previous_rank == 3 and ranked[0].rank_change == 2
-    assert ranked[4].previous_rank == 1 and ranked[4].rank_change == -4
+    # Check earlier (created at now - 1 day) comes before later (created at now) among equal score 90 items
+    earlier_idx = next(i for i, r in enumerate(ranked) if r.document_id == earlier.document_id)
+    later_idx = next(i for i, r in enumerate(ranked) if r.document_id == later.document_id)
+    assert earlier_idx < later_idx
+    assert ranked[earlier_idx].previous_rank == 1 and ranked[earlier_idx].rank_change == (1 - (earlier_idx + 1))
 
 
 def test_percentile_math_for_cohorts() -> None:
@@ -34,22 +41,22 @@ def test_percentile_math_for_cohorts() -> None:
     assert RankingAlgorithm.compute([(_score(50, 0, 0, 0), now)])[0].percentile == 100
 
 
-def test_eligible_candidates_rank_before_knocked_out_candidates() -> None:
+def test_candidates_rank_strictly_by_final_score_descending() -> None:
     now = datetime.now(UTC)
-    eligible_high = _score(72, 70, 70, 70)
-    eligible_low = _score(40, 40, 40, 40)
-    knocked_high = _score(95, 95, 95, 95, knocked_out=True)
-    knocked_low = _score(58, 58, 58, 58, knocked_out=True)
+    cand1 = _score(95, 95, 95, 95, knocked_out=True)
+    cand2 = _score(72, 70, 70, 70)
+    cand3 = _score(58, 58, 58, 58)
+    cand4 = _score(40, 40, 40, 40)
     ranked = RankingAlgorithm.compute(
-        [(knocked_high, now), (eligible_low, now), (knocked_low, now), (eligible_high, now)]
+        [(cand1, now), (cand2, now), (cand3, now), (cand4, now)]
     )
     assert [item.document_id for item in ranked] == [
-        eligible_high.document_id, eligible_low.document_id,
-        knocked_high.document_id, knocked_low.document_id,
+        cand1.document_id, cand2.document_id,
+        cand3.document_id, cand4.document_id,
     ]
 
 
-def test_decision_priority_precedes_merit_score_within_eligible_candidates() -> None:
+def test_pure_final_score_sorting_independent_of_legacy_recommendation() -> None:
     now = datetime.now(UTC)
     shortlist = _score(85, 0, 0, 0, recommendation=RecommendationLevelEnum.SHORTLIST)
     review = _score(90, 0, 0, 0, recommendation=RecommendationLevelEnum.REVIEW)
@@ -61,6 +68,6 @@ def test_decision_priority_precedes_merit_score_within_eligible_candidates() -> 
         (review, now), (shortlist, now),
     ])
     assert [item.document_id for item in ranked] == [
-        shortlist.document_id, review.document_id, consider.document_id,
-        score_reject.document_id, knocked.document_id,
+        knocked.document_id, score_reject.document_id, consider.document_id,
+        review.document_id, shortlist.document_id,
     ]

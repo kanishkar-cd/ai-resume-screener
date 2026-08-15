@@ -19,11 +19,9 @@ class RankingAlgorithm:
     ) -> list[CandidateRankingCreate]:
         previous_ranks = previous_ranks or {}
         ordered = sorted(candidates, key=lambda item: (
-            bool(item[0].is_knocked_out),
-            RankingAlgorithm.RECOMMENDATION_PRIORITY.get(item[0].recommendation.value, 3),
-            -float(item[0].final_score), -float(item[0].skills_score),
-            -float(item[0].experience_score), -float(item[0].confidence),
-            item[1], str(item[0].document_id),
+            -float(item[0].final_score),
+            item[1],
+            str(item[0].document_id),
         ))
         total = len(ordered)
         rankings = []

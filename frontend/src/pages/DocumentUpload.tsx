@@ -493,8 +493,7 @@ export default function DocumentUpload() {
               animate={canProceedJD ? { boxShadow: ['0 4px 12px rgba(2,132,199,0.3)', '0 6px 20px rgba(2,132,199,0.5)', '0 4px 12px rgba(2,132,199,0.3)'] } : undefined}
               transition={canProceedJD ? { duration: 2, repeat: Infinity } : undefined}
             >
-              Continue to Resume Upload
-              <ArrowRight size={15} />
+              Continue to Resume Upload              <ArrowRight size={15} />
             </motion.button>
             <p className="text-[10px] text-slate-400 text-center leading-relaxed">
               You can only proceed when<br />

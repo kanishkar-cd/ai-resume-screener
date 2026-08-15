@@ -190,18 +190,19 @@ async def test_validated_llm_match_enriches_scoring_copy_only() -> None:
     service = HybridMatchingService(settings=settings(), evaluator=Evaluator())
     job = SimpleNamespace(
         skills=[], preferred_skills=[], degree_requirements=[], keywords=["Docker"],
-        responsibilities=["Deploy containerized applications"], experience_requirements=[],
+        responsibilities=["Architect multi-region serverless platform"], experience_requirements=[],
     )
     resume = SimpleNamespace(skills=[], education=[], certifications=[], languages=[])
     extracted = SimpleNamespace(
-        projects=[{"name": "Platform", "description": "Deploy containerized applications with Docker", "technologies": []}],
+        projects=[{"name": "Platform", "description": "Deployed Docker containers", "technologies": []}],
         experience=[],
     )
-    enriched, verdicts = await service.match(job, resume, extracted, SimpleNamespace(
+    match_result, verdicts = await service.match(job, resume, extracted, SimpleNamespace(
         mandatory_skills=[], required_certifications=[], required_languages=[],
     ))
-    assert enriched.projects[0]["technologies"] == []
     assert extracted.projects[0]["technologies"] == []
+    assert match_result.responsibility_score == 100.0
+    assert any(item.method == MatchMethod.LLM_CONFIRMED for item in match_result.responsibility_details)
     assert any(item.method == MatchMethod.LLM_CONFIRMED for item in verdicts)
 
     config = SimpleNamespace(
@@ -212,7 +213,7 @@ async def test_validated_llm_match_enriches_scoring_copy_only() -> None:
         skills=[], experience=[], education=[], certifications=[], languages=[],
     )
     before = ComponentScoringService().score(scoring_resume, job, config, extracted.projects)
-    after = ComponentScoringService().score(scoring_resume, job, config, enriched.projects)
+    after = ComponentScoringService().score(scoring_resume, job, config, extracted.projects)
     assert before.projects.score == after.projects.score == 0
     assert before.skills == after.skills
     assert before.experience == after.experience

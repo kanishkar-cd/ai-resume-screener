@@ -22,6 +22,14 @@ class CanonicalExperienceItem(BaseModel):
     is_current: bool = False
     duration_months: int | None = Field(default=None, ge=0)
     duration_display: str | None = None
+    description: str | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+
+
+class CanonicalProjectItem(BaseModel):
+    name: str | None = None
+    technologies: list[str] = Field(default_factory=list)
+    description: str | None = None
 
 
 class CanonicalLocation(BaseModel):
@@ -68,6 +76,9 @@ class NormalizedResumeCreate(BaseModel):
     companies: list[str] = Field(default_factory=list)
     job_titles: list[str] = Field(default_factory=list)
     experience: list[CanonicalExperienceItem] = Field(default_factory=list)
+    projects: list[CanonicalProjectItem] = Field(default_factory=list)
+    total_experience_months: int = Field(default=0, ge=0)
+    candidate_level: str = Field(default="FRESHER", max_length=32)
     phone: str | None = Field(default=None, max_length=32)
     email: str | None = Field(default=None, max_length=255)
     locations: list[CanonicalLocation] = Field(default_factory=list)
