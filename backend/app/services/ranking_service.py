@@ -43,13 +43,65 @@ class RankingService:
     def __init__(self, projects: ProjectRepository, documents: DocumentRepository, scores: ScoringRepository, rankings: RankingRepository) -> None:
         self.projects, self.documents, self.scores, self.rankings = projects, documents, scores, rankings
 
-    async def compute_project_rankings(self, project_id: UUID) -> RankingComputationRead:
-        logger.info("[RANK] ranking started", project_id=str(project_id))
-        await self._verify_project(project_id)
+    async def _verify_project(self, project_id: UUID) -> Any:
+        try:
+            project = await self.projects.get_by_id(project_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve project.") from exc
+        if project is None:
+            raise ProjectNotFoundException()
+        return project
+
+    async def compute_project_rankings(self, project_id: UUID, force_rescore: bool = False) -> RankingComputationRead:
+        logger.info("[RANK] ranking started", project_id=str(project_id), force_rescore=force_rescore)
+        project = await self._verify_project(project_id)
+        exp_level = (
+            (project.metadata_json or {}).get("experience_level")
+            or (project.metadata_json or {}).get("required_experience_level")
+            or "FRESHER"
+        ) if project else "FRESHER"
+
         try:
             scores = await self.scores.get_project_scores(project_id)
-            if not scores:
-                # If project scores haven't been generated yet, attempt auto-scoring via ScoringEngineFacade
+            resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
+            resume_doc_ids = {doc.id for doc in resumes}
+            scored_doc_ids = {s.document_id for s in scores} if scores else set()
+
+            is_stale = force_rescore or not scores or (len(resume_doc_ids) > 0 and len(scored_doc_ids) < len(resume_doc_ids))
+
+            if not is_stale and scores:
+                from app.repositories.normalization_repository import NormalizationRepository
+                from app.services.matching_service import MATCHING_ENGINE_VERSION
+                from app.services.scoring_service import compute_score_fingerprint
+
+                norm_repo = NormalizationRepository(self.scores.session)
+                jd_document = await self.documents.get_job_description_by_project(project_id)
+                jd_norm = await norm_repo.get_job_description_by_document_id(jd_document.id) if jd_document else None
+
+                jd_skills = (getattr(jd_norm, "required_skills", None) or (jd_norm.data_json.get("required_skills") if jd_norm and isinstance(getattr(jd_norm, "data_json", None), dict) else [])) if jd_norm else []
+                if len(jd_skills) > 10 or (len(jd_skills) <= 6 and any(float(getattr(s, "skills_score", 0) or 0) < 90.0 for s in scores)):
+                    is_stale = True
+
+                if not is_stale:
+                    project_obj = await self.projects.get_by_id(project_id)
+                    exp_level = getattr(project_obj, "experience_level", None) if project_obj else None
+                    for s in scores:
+                        stored_ver = getattr(s, "engine_version", None)
+                        stored_fp = getattr(s, "score_fingerprint", None)
+                        if stored_ver != MATCHING_ENGINE_VERSION or not stored_fp:
+                            is_stale = True
+                            break
+
+                        r_norm = await norm_repo.get_resume_by_document_id(s.document_id)
+                        current_fp = compute_score_fingerprint(
+                            MATCHING_ENGINE_VERSION, jd_norm, r_norm, exp_level
+                        )
+                        if stored_fp != current_fp:
+                            is_stale = True
+                            break
+
+            if is_stale:
+                logger.info("[RANK] Stale or missing scores detected; auto-scoring project", project_id=str(project_id))
                 try:
                     from app.repositories.extraction_repository import ExtractionRepository
                     from app.repositories.normalization_repository import NormalizationRepository
@@ -60,10 +112,12 @@ class RankingService:
                         ExtractionRepository(self.scores.session),
                         self.scores,
                     )
-                    await scoring_facade.score_project(project_id)
+                    # Pass update_rankings=False to prevent infinite recursion loop
+                    await scoring_facade.score_project(project_id, update_rankings=False)
+                    self.scores.session.expire_all()
                     scores = await self.scores.get_project_scores(project_id)
                 except Exception as exc:
-                    logger.warning("[RANK] auto_scoring_failed", project_id=str(project_id), error=str(exc))
+                    logger.error("[RANK] auto_scoring_failed", project_id=str(project_id), error=str(exc), exc_info=True)
 
             if not scores:
                 raise NoScoredCandidatesException("No candidates have been scored for this project yet. Please score candidates before computing rankings.")
@@ -101,6 +155,11 @@ class RankingService:
         await self._verify_project(project_id)
         if min_score is not None and max_score is not None and min_score > max_score:
             raise InvalidRankingFilterException("min_score cannot exceed max_score.")
+        try:
+            await self.compute_project_rankings(project_id)
+        except Exception as exc:
+            logger.error("[RANK] auto_freshness_compute_failed", project_id=str(project_id), error=str(exc), exc_info=True)
+        self.rankings.session.expire_all()
         filters = {"recommendation": recommendation, "min_score": min_score, "max_score": max_score, "is_knocked_out": is_knocked_out}
         try: rows, total = await self.rankings.list_rankings(project_id, filters, search.strip() if search else None, page, page_size, sort_by, order)
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve rankings.") from exc

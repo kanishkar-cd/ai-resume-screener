@@ -28,8 +28,8 @@ ERRORS = {400: {"model": ErrorResponsePayload}, 404: {"model": ErrorResponsePayl
 
 
 @router.post("/projects/{project_id}/rank", response_model=RankingComputationResponse, summary="Compute project candidate rankings", description="Deterministically rank all Stage 6 candidate scores and preserve prior positions.", responses=ERRORS)
-async def rank_project(project_id: UUID, service: RankingDependency) -> RankingComputationResponse:
-    return RankingComputationResponse(data=await service.compute_project_rankings(project_id))
+async def rank_project(project_id: UUID, service: RankingDependency, force_rescore: bool = Query(False)) -> RankingComputationResponse:
+    return RankingComputationResponse(data=await service.compute_project_rankings(project_id, force_rescore=force_rescore))
 
 
 @router.get("/projects/{project_id}/rankings", response_model=ProjectRankingListResponse, summary="List project candidate rankings", description="Search, filter, sort, and paginate the persisted project rankings.", responses=ERRORS)

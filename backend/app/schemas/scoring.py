@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
@@ -79,6 +79,8 @@ class CandidateScoreCreate(BaseModel):
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     match_verdicts: list[MatchVerdict] = Field(default_factory=list)
+    engine_version: str | None = None
+    score_fingerprint: str | None = None
 
 
 
@@ -90,8 +92,8 @@ class CandidateScoreRead(CandidateScoreCreate):
     education_score: float
     certifications_score: float
     languages_score: float
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     model_config = ConfigDict(from_attributes=True)
 
 

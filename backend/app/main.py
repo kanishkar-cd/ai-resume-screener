@@ -25,14 +25,19 @@ logger = structlog.get_logger(__name__)
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Check infrastructure at startup and release the pool at shutdown."""
     try:
-        async with engine.connect() as connection:
+        async with engine.begin() as connection:
             await connection.execute(text("SELECT 1"))
-        logger.info("Database startup readiness check successful")
+            await connection.execute(text("ALTER TABLE candidate_scores ADD COLUMN IF NOT EXISTS engine_version VARCHAR(50)"))
+            await connection.execute(text("ALTER TABLE candidate_scores ADD COLUMN IF NOT EXISTS score_fingerprint VARCHAR(128)"))
+
+        logger.info("Database startup readiness check and schema sync successful")
     except Exception as exc:
         logger.warning(
             "Database startup readiness check failed",
             error_type=type(exc).__name__,
+            error=str(exc),
         )
+
     logger.info("Application startup complete")
     yield
     await engine.dispose()

@@ -87,7 +87,7 @@ export default function CreateRequisition() {
             target_role: jobTitle,
             department: department.name,
             description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
-            metadata_json: { experience_level: expLevel, req_ref: reqRef },
+            metadata_json: { experience_level: expLevel.toUpperCase(), required_experience_level: expLevel.toUpperCase(), req_ref: reqRef },
           })
           projId = proj.id
           projectIdRef.current = projId
@@ -199,7 +199,7 @@ export default function CreateRequisition() {
           target_role: jobTitle,
           department: department.name,
           description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
-          metadata_json: { experience_level: expLevel, req_ref: reqRef },
+          metadata_json: { experience_level: expLevel.toUpperCase(), required_experience_level: expLevel.toUpperCase(), req_ref: reqRef },
         })
         targetProjId = proj.id
         setCreatedProjectId(targetProjId)

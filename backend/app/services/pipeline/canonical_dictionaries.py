@@ -1,4 +1,4 @@
-RULESET_VERSION = "1.3.0"
+RULESET_VERSION = "1.4.0"
 
 SKILL_ALIASES = {
     "py": "Python", "python": "Python", "python3": "Python",
@@ -48,6 +48,17 @@ SKILL_ALIASES = {
     "apache spark": "Apache Spark", "pyspark": "PySpark", "spark": "Apache Spark", "hadoop": "Hadoop",
     "apache airflow": "Apache Airflow", "airflow": "Apache Airflow", "dagster": "Dagster",
     "parquet": "Parquet", "csv": "CSV", "avro": "Avro",
+    # Networking & Security Canonical Aliases
+    "tcp/ip": "TCP/IP", "tcp ip": "TCP/IP", "dns": "DNS", "http": "HTTP", "https": "HTTPS", "http/https": "HTTP/HTTPS",
+    "wazuh": "Wazuh", "splunk": "Splunk", "wireshark": "Wireshark",
+    "sentinel": "Microsoft Sentinel", "microsoft sentinel": "Microsoft Sentinel",
+    "mitre att&ck": "MITRE ATT&CK", "mitre attack": "MITRE ATT&CK",
+    "siem": "SIEM", "siem fundamentals": "SIEM", "log analysis": "Log Analysis", "security log analysis": "Log Analysis",
+    "incident response": "Incident Response", "incident response lifecycle": "Incident Response",
+    "alert triage": "Alert Triage", "vulnerability scanning": "Vulnerability Scanning", "vulnerability scanning concepts": "Vulnerability Scanning",
+    "network security": "Network Security", "threat detection": "Threat Detection",
+    "networking fundamentals": "Networking Fundamentals", "linux fundamentals": "Linux", "security fundamentals": "Security Fundamentals",
+    "prometheus": "Prometheus", "grafana": "Grafana", "site reliability engineering": "SRE", "sre": "SRE",
 }
 
 DEGREE_ALIASES = {

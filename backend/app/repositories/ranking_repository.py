@@ -24,18 +24,33 @@ class RankingRepository:
         for item in rankings:
             data = CandidateRankingCreate.model_validate(item)
             values = data.model_dump()
-            values["recommendation"] = RecommendationLevelEnum(data.recommendation.value)
+            MAP_TO_DB_ENUM = {
+                "SHORTLIST": RecommendationLevelEnum.STRONG_MATCH,
+                "REVIEW": RecommendationLevelEnum.RECOMMENDED,
+                "CONSIDER": RecommendationLevelEnum.NEEDS_REVIEW,
+                "REJECT": RecommendationLevelEnum.NOT_RECOMMENDED,
+                "STRONG_MATCH": RecommendationLevelEnum.STRONG_MATCH,
+                "RECOMMENDED": RecommendationLevelEnum.RECOMMENDED,
+                "NEEDS_REVIEW": RecommendationLevelEnum.NEEDS_REVIEW,
+                "NOT_RECOMMENDED": RecommendationLevelEnum.NOT_RECOMMENDED,
+            }
+            rec_key = str(data.recommendation.value) if hasattr(data.recommendation, "value") else str(data.recommendation)
+            values["recommendation"] = MAP_TO_DB_ENUM.get(rec_key, RecommendationLevelEnum.NEEDS_REVIEW)
 
 
 
 
+
+            db_valid_keys = {c.name for c in CandidateRankingModel.__table__.columns}
+            db_values = {k: v for k, v in values.items() if k in db_valid_keys}
 
             model = existing.get(data.document_id)
             if model is None:
-                model = CandidateRankingModel(project_id=project_id, **values)
+                model = CandidateRankingModel(project_id=project_id, **db_values)
                 self.session.add(model)
             else:
-                for field, value in values.items(): setattr(model, field, value)
+                for field, value in db_values.items():
+                    setattr(model, field, value)
             retained.add(data.document_id)
         for document_id, model in existing.items():
             if document_id not in retained: await self.session.delete(model)

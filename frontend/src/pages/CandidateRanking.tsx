@@ -203,6 +203,24 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, screeningThresh
               {profileError && <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-[12px] text-amber-700">Profile unavailable: {profileError}</div>}
               {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted} document={resumeProfile.document} />}
 
+              {/* Experience Level Comparison Card */}
+              <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-900 text-white text-[12px]">
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">JD Required Level</p>
+                  <p className="text-[14px] font-extrabold text-blue-400">
+                    {candidate.effectiveWeights && candidate.effectiveWeights.experience === 0 ? 'Fresher' : 'Experienced'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Controls scoring formula</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Candidate Level</p>
+                  <p className="text-[14px] font-extrabold text-emerald-400">
+                    {resumeProfile?.normalized?.candidate_level || 'Fresher'} ({resumeProfile?.normalized?.total_experience_months || 0} mos)
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Resume profile experience</p>
+                </div>
+              </div>
+
               {/* Match Evaluation Overview */}
               <div className="rounded-xl bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 p-5">
                 <div className="flex items-center gap-2 mb-3">

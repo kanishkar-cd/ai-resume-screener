@@ -1,3 +1,5 @@
+import hashlib
+import json
 from typing import Any
 from uuid import UUID
 
@@ -21,10 +23,31 @@ from app.services.scoring import (
     BonusService, ComponentScoringService, ConfidenceService, PenaltyService,
     RecommendationService, WeightCalculationService,
 )
-from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder
+from app.services.matching_service import EvidenceBuilder, HybridMatchingService, MATCHING_ENGINE_VERSION, RequirementBuilder
 from app.services.pipeline.canonical_dictionaries import RULESET_VERSION
 
 logger = structlog.get_logger(__name__)
+
+
+def compute_score_fingerprint(
+    engine_version: str,
+    jd_data: Any,
+    resume_data: Any,
+    experience_level: str,
+    weight_config_version: int = 1,
+) -> str:
+    jd_dict = getattr(jd_data, "data_json", None) if not isinstance(jd_data, dict) else jd_data
+    if jd_dict is None:
+        jd_dict = getattr(jd_data, "__dict__", str(jd_data or ""))
+    resume_dict = getattr(resume_data, "data_json", None) if not isinstance(resume_data, dict) else resume_data
+    if resume_dict is None:
+        resume_dict = getattr(resume_data, "__dict__", str(resume_data or ""))
+
+    jd_str = json.dumps(jd_dict, sort_keys=True, default=str) if isinstance(jd_dict, dict) else str(jd_dict)
+    resume_str = json.dumps(resume_dict, sort_keys=True, default=str) if isinstance(resume_dict, dict) else str(resume_dict)
+
+    raw = f"{engine_version}::{jd_str}::{resume_str}::{str(experience_level).upper()}::{weight_config_version}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 class JobDescriptionMissingException(AppException):
@@ -70,8 +93,14 @@ class ScoringEngineFacade:
         self.components = ComponentScoringService()
         self.hybrid_matching = hybrid_matching or HybridMatchingService()
 
-    async def score_project(self, project_id: UUID) -> ProjectScoringRead:
-        logger.info("[SCORE] scoring started", project_id=str(project_id))
+    async def score_project(self, project_id: UUID, update_rankings: bool = True) -> ProjectScoringRead:
+        logger.info("[SCORE] scoring started", project_id=str(project_id), update_rankings=update_rankings)
+        project = await self.projects.get_by_id(project_id)
+        exp_level = (
+            (project.metadata_json or {}).get("experience_level")
+            or (project.metadata_json or {}).get("required_experience_level")
+            or "FRESHER"
+        ) if project else "FRESHER"
         job = await self._load_project_context(project_id)
         try:
             resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
@@ -98,20 +127,28 @@ class ScoringEngineFacade:
                 document, job,
                 resume=norm_map.get(document.id),
                 extracted=ext_map.get(document.id),
+                experience_level=exp_level,
             )
             for document in resumes
         ]
 
         try:
-            from app.repositories.ranking_repository import RankingRepository
-            from app.services.ranking_service import RankingService
-            ranking_service = RankingService(
-                self.projects, self.documents, self.scores,
-                RankingRepository(self.scores.session)
-            )
-            await ranking_service.compute_project_rankings(project_id)
-        except Exception as exc:
-            logger.warning("[SCORE] auto_rank_update_failed", project_id=str(project_id), error=str(exc))
+            await self.scores.session.commit()
+        except SQLAlchemyError as exc:
+            logger.error("[SCORE] commit_failed_rollback", error=str(exc), exc_info=True)
+            await self.scores.session.rollback()
+
+        if update_rankings:
+            try:
+                from app.repositories.ranking_repository import RankingRepository
+                from app.services.ranking_service import RankingService
+                ranking_service = RankingService(
+                    self.projects, self.documents, self.scores,
+                    RankingRepository(self.scores.session)
+                )
+                await ranking_service.compute_project_rankings(project_id)
+            except Exception as exc:
+                logger.warning("[SCORE] auto_rank_update_failed", project_id=str(project_id), error=str(exc))
 
         logger.info(
             "[SCORE] scoring completed",
@@ -121,12 +158,18 @@ class ScoringEngineFacade:
         return ProjectScoringRead(project_id=project_id, total_evaluated=len(results), scores=results)
 
     async def score_document(self, project_id: UUID, document_id: UUID) -> CandidateScoreRead:
+        project = await self.projects.get_by_id(project_id)
+        exp_level = (
+            (project.metadata_json or {}).get("experience_level")
+            or (project.metadata_json or {}).get("required_experience_level")
+            or "FRESHER"
+        ) if project else "FRESHER"
         job = await self._load_project_context(project_id)
         document = await self._get_document(document_id)
         if document.project_id != project_id: raise DocumentProjectMismatchException()
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentProjectMismatchException("Only project resumes can be scored.")
-        return await self._score(document, job)
+        return await self._score(document, job, experience_level=exp_level)
 
     async def get_project_scores(self, project_id: UUID) -> list[CandidateScoreRead]:
         await self._verify_project(project_id)
@@ -152,7 +195,8 @@ class ScoringEngineFacade:
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve normalized job description.") from exc
         if job is None: raise JobDescriptionMissingException()
 
-        if getattr(job, "ruleset_version", None) != RULESET_VERSION or not getattr(job, "required_skills", None):
+        skills_list = getattr(job, "required_skills", None) or (job.data_json.get("required_skills") if isinstance(getattr(job, "data_json", None), dict) else [])
+        if getattr(job, "ruleset_version", None) != RULESET_VERSION or not skills_list or len(skills_list) < 6 or len(skills_list) > 10:
             logger.info("[SCORE] Stale or unpopulated job description detected, auto-refreshing JD extraction and normalization", project_id=str(project_id))
             from app.repositories.parsed_document_repository import ParsedDocumentRepository
             from app.repositories.extracted_jd_repository import ExtractedJDRepository
@@ -160,18 +204,23 @@ class ScoringEngineFacade:
             from app.services.jd_normalization_service import JDNormalizationService
 
             session = self.documents.session
+            extracted_jd_repo = ExtractedJDRepository(session)
             jd_extractor = JDExtractionService(
                 self.documents,
                 ParsedDocumentRepository(session),
-                ExtractedJDRepository(session),
+                extracted_jd_repo,
             )
             jd_normalizer = JDNormalizationService(
                 self.documents,
-                ExtractedJDRepository(session),
+                extracted_jd_repo,
                 self.normalizations,
             )
-            await jd_extractor.extract_document(job_document.id)
+            try:
+                await jd_extractor.extract_document(job_document.id)
+            except Exception as exc:
+                logger.warning("auto_reextract_skipped", document_id=str(job_document.id), error=str(exc))
             await jd_normalizer.normalize_document(job_document.id)
+            await self.scores.session.commit()
             job = await self.normalizations.get_job_description_by_document_id(job_document.id)
 
         if not getattr(job, "required_skills", None) and not getattr(job, "skills", None):
@@ -182,6 +231,7 @@ class ScoringEngineFacade:
     async def _score(
         self, document: DocumentModel, job: Any,
         resume: Any = None, extracted: Any = None,
+        experience_level: str | None = None,
     ) -> CandidateScoreRead:
         try:
             if resume is None:
@@ -191,7 +241,7 @@ class ScoringEngineFacade:
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(
-                    job, resume, extracted, config=None
+                    job, resume, extracted, config=None, experience_level=experience_level
                 )
             except Exception as exc:
                 logger.warning(
@@ -213,8 +263,8 @@ class ScoringEngineFacade:
             from app.schemas.matching import NormalizedMatchResult
             if isinstance(scoring_extracted, NormalizedMatchResult):
                 final_score = round(max(0.0, min(100.0, float(scoring_extracted.final_match_score))), 2)
-                is_fresher = scoring_extracted.profile.candidate_level == "FRESHER"
-                rel_exp_score = scoring_extracted.relevant_experience_score if scoring_extracted.relevant_experience_score is not None else (100.0 if not is_fresher else 0.0)
+                is_fresher_formula = scoring_extracted.profile.jd_required_level == "FRESHER"
+                rel_exp_score = scoring_extracted.relevant_experience_score if scoring_extracted.relevant_experience_score is not None else 0.0
 
                 components = ComponentScores(
                     skills=ComponentScoreDetail(
@@ -227,7 +277,7 @@ class ScoringEngineFacade:
                         score=rel_exp_score,
                         matched_items=[f"{scoring_extracted.profile.total_experience_months} months"],
                         missing_items=[],
-                        explanation=f"Candidate level: {scoring_extracted.profile.candidate_level} ({scoring_extracted.profile.total_experience_months} months).",
+                        explanation=f"Candidate level: {scoring_extracted.profile.candidate_level} ({scoring_extracted.profile.total_experience_months} months). JD Required Level: {scoring_extracted.profile.jd_required_level}.",
                     ),
                     projects=ComponentScoreDetail(
                         score=scoring_extracted.responsibility_score,
@@ -255,7 +305,7 @@ class ScoringEngineFacade:
                     ),
                 )
 
-                if is_fresher:
+                if is_fresher_formula:
                     effective_weights = {"skills": 45.0, "projects": 35.0, "certifications": 10.0, "languages": 10.0, "experience": 0.0, "education": 0.0}
                     weighted = WeightedScores(
                         skills=round(scoring_extracted.required_skills_score * 0.45, 2),
@@ -284,7 +334,7 @@ class ScoringEngineFacade:
                 bonuses = []
                 knocked_out = False
                 knockout_reason = None
-                applicable_categories = {"skills", "projects", "certifications", "languages"} if is_fresher else {"skills", "projects", "certifications", "languages", "experience"}
+                applicable_categories = {"skills", "projects", "certifications", "languages"} if is_fresher_formula else {"skills", "projects", "certifications", "languages", "experience"}
             else:
                 projects_for_scoring = getattr(scoring_extracted, "projects", None) or getattr(resume, "projects", None) or getattr(extracted, "projects", None)
                 components = self.components.score(resume, job, config=None, projects=projects_for_scoring)
@@ -347,6 +397,10 @@ class ScoringEngineFacade:
                 for name in ("skills", "experience", "projects", "education", "certifications", "languages")
             ]
 
+            fingerprint = compute_score_fingerprint(
+                MATCHING_ENGINE_VERSION, job, resume, experience_level or "FRESHER"
+            )
+
             model = await self.scores.upsert_score(CandidateScoreCreate(
                 document_id=document.id, project_id=document.project_id,
                 component_scores=components, weighted_scores=weighted,
@@ -363,6 +417,8 @@ class ScoringEngineFacade:
                 strengths=strengths,
                 weaknesses=weaknesses,
                 match_verdicts=match_verdicts,
+                engine_version=MATCHING_ENGINE_VERSION,
+                score_fingerprint=fingerprint,
             ), commit=False, refresh=False)
             logger.info(
                 "[SCORE] candidate scored",

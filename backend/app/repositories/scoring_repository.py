@@ -18,7 +18,19 @@ class ScoringRepository:
         values = score.model_dump(mode="json")
         values["document_id"] = UUID(values["document_id"])
         values["project_id"] = UUID(values["project_id"])
-        values["recommendation"] = RecommendationLevelEnum(values["recommendation"])
+        rec_map = {
+            "SHORTLIST": RecommendationLevelEnum.STRONG_MATCH,
+            "REVIEW": RecommendationLevelEnum.RECOMMENDED,
+            "CONSIDER": RecommendationLevelEnum.NEEDS_REVIEW,
+            "REJECT": RecommendationLevelEnum.NOT_RECOMMENDED,
+            "STRONG_MATCH": RecommendationLevelEnum.STRONG_MATCH,
+            "RECOMMENDED": RecommendationLevelEnum.RECOMMENDED,
+            "NEEDS_REVIEW": RecommendationLevelEnum.NEEDS_REVIEW,
+            "NOT_RECOMMENDED": RecommendationLevelEnum.NOT_RECOMMENDED,
+        }
+        rec_val = values["recommendation"]
+        rec_str = rec_val.value if hasattr(rec_val, "value") else str(rec_val)
+        values["recommendation"] = rec_map.get(rec_str, RecommendationLevelEnum.NEEDS_REVIEW)
 
 
 
@@ -30,12 +42,20 @@ class ScoringRepository:
         db_valid_keys = {c.name for c in CandidateScoreModel.__table__.columns}
         model_values = {k: v for k, v in values.items() if k in db_valid_keys}
 
+        from datetime import UTC, datetime
+        now = datetime.now(UTC)
+
         model = await self.get_document_score(values["document_id"])
         if model is None:
+            model_values["created_at"] = now
+            model_values["updated_at"] = now
             model = CandidateScoreModel(**model_values)
             self.session.add(model)
         else:
             model_values.pop("document_id", None)
+            if not getattr(model, "created_at", None):
+                model.created_at = now
+            model.updated_at = now
             for field, value in model_values.items():
                 setattr(model, field, value)
 

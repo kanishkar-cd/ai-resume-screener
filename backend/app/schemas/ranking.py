@@ -27,6 +27,8 @@ class CandidateRankingCreate(BaseModel):
     rank_position: int = Field(ge=1)
     percentile: float = Field(ge=0, le=100)
     final_score: float = Field(ge=0, le=100)
+    skills_score: float = Field(default=0.0, ge=0, le=100)
+    experience_score: float = Field(default=0.0, ge=0, le=100)
     recommendation: RecommendationLevel
     confidence: float = Field(ge=0, le=100)
     previous_rank: int | None = Field(default=None, ge=1)

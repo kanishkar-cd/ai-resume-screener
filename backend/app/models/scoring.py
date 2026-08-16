@@ -74,6 +74,8 @@ class CandidateScoreModel(UUIDMixin, TimestampMixin, Base):
     score_breakdown: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     match_verdicts: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     weight_config_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    engine_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    score_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ranking: Mapped["CandidateRankingModel | None"] = relationship(
         back_populates="score", cascade="all, delete-orphan", uselist=False
     )

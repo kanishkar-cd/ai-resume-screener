@@ -96,16 +96,38 @@ DEGREE_PATTERNS: list[re.Pattern[str]] = [
     ]
 ]
 
+_GENERIC_EXP_REGEX = re.compile(
+    r"\b(?:"
+    r"(\d+)\s*[-–—to]+\s*(\d+)\s*(?:years?|yrs?|yr)\b|"
+    r"(\d+)\s*\+\s*(?:years?|yrs?|yr)\b|"
+    r"(?:minimum|at\s+least|min(?:imum)?\.?|more\s+than|greater\s+than)\s+(?:of\s+)?(\d+)\s*(?:years?|yrs?|yr)\b|"
+    r"(\d+)\s*(?:years?|yrs?|yr)'?\s+(?:of\s+)?(?:hands[-\s]on\s+)?(?:relevant\s+)?(?:professional\s+)?(?:work\s+)?(?:experience|exp)\b|"
+    r"(\d+)\s+(?:years?|yrs?|yr)\b"
+    r")",
+    re.IGNORECASE,
+)
+
 EXPERIENCE_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r"\b(\d+)\+\s*years?\s+(?:of\s+)?(?:relevant\s+)?(?:professional\s+)?experience\b",
-        r"\bminimum\s+(?:of\s+)?(\d+)\s+years?\b",
-        r"\b(\d+)\s*[-–—]\s*(\d+)\s+years?(?:\s+(?:of\s+)?(?:professional\s+or\s+internship\s+)?experience)?\b",
-        r"\bat\s+least\s+(\d+)\s+years?\b",
-        r"\b(\d+)\s+years?\s+(?:of\s+)?(?:strong\s+)?(?:hands[-\s]on\s+)?experience\b",
-        r"\b(\d+)\s+to\s+(\d+)\s+years?\b",
-    ]
+    _GENERIC_EXP_REGEX,
 ]
+
+
+def _is_experience_phrase(line: str) -> bool:
+    cleaned = BULLET_PATTERN.sub("", line)
+    cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
+    if not cleaned or len(cleaned) < 5:
+        return False
+    if _GENERIC_EXP_REGEX.search(cleaned):
+        return True
+    lowered = cleaned.casefold()
+    if (
+        re.match(r"^(?:required\s+)?experience\b", lowered, re.I)
+        or re.match(r"^(?:hands[-\s]on\s+)?experience\s+(?:in|with|operating|building|managing|resolving|deploying|working)\b", lowered, re.I)
+    ):
+        first_word = lowered.split()[0] if lowered.split() else ""
+        if first_word not in RESPONSIBILITY_VERBS:
+            return True
+    return False
 
 RESPONSIBILITY_VERBS: frozenset[str] = frozenset({
     "design", "develop", "build", "implement", "create", "architect", "lead",
@@ -171,12 +193,12 @@ NUMBERED_PATTERN = re.compile(r"^[\s]*\d+[.)]\s+", re.MULTILINE)
 
 SECTION_HEADINGS = {
     "job description": "description", "overview": "description", "summary": "description", "role overview": "description",
-    "key responsibilities": "responsibilities", "responsibilities": "responsibilities", "duties": "responsibilities", "job responsibilities": "responsibilities", "core responsibilities": "responsibilities", "key duties": "responsibilities",
+    "key responsibilities": "responsibilities", "responsibilities": "responsibilities", "duties": "responsibilities", "job responsibilities": "responsibilities", "core responsibilities": "responsibilities", "key duties": "responsibilities", "role responsibilities": "responsibilities", "key role responsibilities": "responsibilities",
     "required skills": "required_skills", "required technical skills": "required_skills", "technical skills": "required_skills", "required qualifications": "required_skills", "requirements": "required_skills", "key requirements": "required_skills", "core skills": "required_skills", "skills required": "required_skills", "qualifications": "required_skills", "basic qualifications": "required_skills",
-    "mandatory skills": "required_skills", "must have": "required_skills", "must-have": "required_skills", "must have skills": "required_skills", "must-have skills": "required_skills", "essential skills": "required_skills", "minimum qualifications": "required_skills", "technical requirements": "required_skills",
+    "mandatory skills": "required_skills", "must have": "required_skills", "must-have": "required_skills", "must have skills": "required_skills", "must-have skills": "required_skills", "essential skills": "required_skills", "minimum qualifications": "required_skills", "technical requirements": "required_skills", "role requirements": "required_skills", "job requirements": "required_skills", "candidate requirements": "required_skills", "candidate profile": "required_skills", "what you need": "required_skills", "what we're looking for": "required_skills",
     "preferred skills": "preferred_skills", "preferred technical skills": "preferred_skills", "nice to have": "preferred_skills", "nice-to-have": "preferred_skills", "nice to have skills": "preferred_skills", "nice-to-have skills": "preferred_skills", "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills", "bonus skills": "preferred_skills", "good to have": "preferred_skills", "good-to-have": "preferred_skills", "good to have skills": "preferred_skills", "good-to-have skills": "preferred_skills", "additional qualifications": "preferred_skills", "optional skills": "preferred_skills", "preferred requirements": "preferred_skills",
     "education": "education", "education requirements": "education", "educational qualifications": "education", "academic background": "education",
-    "experience": "experience", "experience required": "experience", "work experience": "experience",
+    "experience": "experience", "experience required": "experience", "required experience": "experience", "work experience": "experience", "professional experience": "experience", "minimum experience": "experience", "relevant experience": "experience",
     "certifications": "certifications", "licenses": "certifications", "credentials": "certifications",
     "keywords": "keywords",
 }
@@ -278,27 +300,21 @@ def _clean_skill_term(term: str) -> str:
 def _split_sentence_into_skills(sentence: str) -> list[str]:
     """
     Parse requirement sentences structurally:
-    - Splits across clause/sentence period boundaries.
-    - Strips grammatical noise.
-    - Preserves meaningful phrase concepts without fragmenting.
+    - Preserves logical parent requirement phrases containing list clauses (including, such as, e.g., and/or).
+    - Splits on semicolons or distinct period boundaries when separate independent skills are listed.
     """
     results: list[str] = []
     clauses = [c.strip() for c in re.split(r"\.\s+", sentence) if c.strip()]
     for clause in clauses:
         clause_clean = clause.rstrip(".")
-        stripped_clause = _FILLER_LEADERS.sub("", clause_clean).strip()
-        stripped_clause = _FILLER_TRAILERS.sub("", stripped_clause).strip()
-
-        # If line contains comma or semicolon list, split on comma boundaries
-        if "," in stripped_clause or ";" in stripped_clause:
-            items = re.split(r"[,;]\s*", stripped_clause)
-            for item in items:
+        if ";" in clause_clean and not re.search(r"\b(?:including|such\s+as|consisting\s+of|e\.g\.)\b", clause_clean, re.I):
+            sub_items = [s.strip() for s in clause_clean.split(";") if s.strip()]
+            for item in sub_items:
                 item_clean = _clean_skill_term(item)
                 if item_clean and not _GRAMMATICAL_FRAGMENTS.match(item_clean) and len(item_clean) > 1:
                     results.append(item_clean)
         else:
-            # Single phrase/clause without commas
-            item_clean = _clean_skill_term(stripped_clause)
+            item_clean = _clean_skill_term(clause_clean)
             if item_clean and not _GRAMMATICAL_FRAGMENTS.match(item_clean) and len(item_clean) > 1:
                 results.append(item_clean)
     return results
@@ -324,7 +340,8 @@ def _canonical_skills(text: str) -> list[str]:
         for skill in extracted:
             canonical_skill = SKILL_ALIASES.get(skill.casefold(), skill)
             key = canonical_skill.casefold()
-            if key not in seen and len(canonical_skill) <= 60:
+            # Structural validation: retain valid requirement clauses while rejecting empty or multi-paragraph blocks
+            if key not in seen and len(canonical_skill) > 1 and len(canonical_skill.split()) <= 35:
                 seen.add(key)
                 terms.append(canonical_skill)
     return terms
@@ -365,7 +382,7 @@ def _extract_skills(text: str) -> tuple[list[str], float]:
 
 
 def _extract_responsibilities(text: str) -> tuple[list[str], float]:
-    """Extract bullet-point / list items directly from responsibilities section text."""
+    """Extract bullet-point / list items directly from responsibilities section text, excluding experience requirements."""
     responsibilities: list[str] = []
     seen: set[str] = set()
 
@@ -375,6 +392,8 @@ def _extract_responsibilities(text: str) -> tuple[list[str], float]:
         if len(cleaned) > 15:
             key = cleaned.casefold()
             if key not in seen and not re.match(r"^(?:key\s+)?responsibilities:?$", key, re.I):
+                if _is_experience_phrase(cleaned):
+                    continue
                 seen.add(key)
                 responsibilities.append(cleaned)
 
@@ -397,14 +416,17 @@ def _extract_education(text: str) -> tuple[list[str], float]:
 
 
 def _extract_experience(text: str) -> tuple[list[str], float]:
-    """Extract experience requirement phrases using regex patterns."""
+    """Extract full experience requirement phrases using regex patterns across full text."""
     found: list[str] = []
-    for pattern in EXPERIENCE_PATTERNS:
-        for match in pattern.finditer(text):
-            phrase = match.group(0).strip()
-            phrase = re.sub(r"\s+", " ", phrase)
-            if phrase not in found:
-                found.append(phrase)
+    seen: set[str] = set()
+    for line in text.splitlines():
+        cleaned = BULLET_PATTERN.sub("", line)
+        cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
+        if len(cleaned) > 5 and _is_experience_phrase(cleaned):
+            key = cleaned.casefold()
+            if key not in seen and not re.match(r"^(?:required\s+)?experience:?$", key, re.I):
+                seen.add(key)
+                found.append(cleaned)
     confidence = min(1.0, len(found) / 2) if found else 0.0
     return found[:10], round(confidence, 2)
 

@@ -52,10 +52,10 @@ DEGREE_CANONICAL: list[tuple[re.Pattern[str], str]] = [
 
 # ─── Experience parsing ──────────────────────────────────────────────────────
 
-_EXP_RANGE = re.compile(r"(\d+)\s*[-–to]+\s*(\d+)\s+years?", re.I)
-_EXP_PLUS = re.compile(r"(\d+)\+\s*years?", re.I)
-_EXP_MIN = re.compile(r"(?:minimum|at\s+least|min(?:imum)?\.?)\s+(?:of\s+)?(\d+)\s+years?", re.I)
-_EXP_PLAIN = re.compile(r"(\d+)\s+years?", re.I)
+_EXP_RANGE = re.compile(r"(\d+)\s*[-–—to]+\s*(\d+)\s*(?:years?|yrs?|yr)\b", re.I)
+_EXP_PLUS = re.compile(r"(\d+)\s*\+\s*(?:years?|yrs?|yr)\b", re.I)
+_EXP_MIN = re.compile(r"(?:minimum|at\s+least|min(?:imum)?\.?|more\s+than|greater\s+than)\s+(?:of\s+)?(\d+)\s*(?:years?|yrs?|yr)\b", re.I)
+_EXP_PLAIN = re.compile(r"(\d+)\s*(?:years?|yrs?|yr)\b", re.I)
 
 
 def _parse_experience_phrase(phrase: str) -> CanonicalExperienceRequirement:
@@ -303,12 +303,12 @@ def _atomize_skill_phrase(
 
 
 def _is_skill_item(item: str) -> bool:
-    """Return True only when the string looks like a genuine skill label, not prose."""
+    """Return True only when the string looks like a genuine skill label or requirement clause, not prose."""
     stripped = item.strip()
     if len(stripped) < 2:
         return False
-    # Long sentences are requirement prose, not skill labels
-    if len(stripped) > 70:
+    # Structural check: genuine skill requirement lines are under 35 words (not full prose paragraphs)
+    if len(stripped.split()) > 35:
         return False
     # Phrases that read as requirement / HR prose
     if _NON_SKILL_PATTERNS.search(stripped):
@@ -327,27 +327,25 @@ def _normalize_skill_list(
     filter_noise: bool = False,
 ) -> list[str]:
     """
-    Convert a list of raw extracted JD skill entries to a clean list of atomic
-    canonical skill tokens, optionally filtering prose items first.
-
-    Args:
-        raw:          Raw list from extracted_job_descriptions.required_skills or preferred_skills.
-        skill_aliases: SKILL_ALIASES canonical map.
-        skills_vocab:  SKILLS_VOCABULARY frozenset.
-        filter_noise: When True, pre-filter items that are clearly non-skill prose
-                      (used for preferred_skills which often contains HR sentences).
+    Convert a list of raw extracted JD skill entries to a clean list of logical requirement entries.
+    Preserves logical parent requirement integrity while deduplicating and cleaning aliases across all departments.
     """
     result: list[str] = []
     seen: set[str] = set()
-    for item in raw:
+
+    for entry in raw:
+        item = re.sub(r"\s+", " ", entry).strip()
+        if not item or len(item) < 2:
+            continue
         if filter_noise and not _is_skill_item(item):
             continue
-        atoms = _atomize_skill_phrase(item, skill_aliases, skills_vocab)
-        for atom in atoms:
-            k = atom.casefold()
-            if k and k not in seen:
-                seen.add(k)
-                result.append(atom)
+
+        canonical = skill_aliases.get(item.casefold(), item)
+        key = canonical.casefold()
+        if key not in seen and len(canonical.split()) <= 35:
+            seen.add(key)
+            result.append(canonical)
+
     return result
 
 

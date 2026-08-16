@@ -21,6 +21,7 @@ from app.services.pipeline.canonical_dictionaries import (
 from app.services.scoring.component_scoring_service import ComponentScoringService
 
 logger = structlog.get_logger(__name__)
+MATCHING_ENGINE_VERSION = "2.6.0"
 _TOKEN = re.compile(r"[a-z0-9+#.]+")
 _CONTEXTUAL = {
     RequirementKind.RESPONSIBILITY,
@@ -190,19 +191,37 @@ class DeterministicRequirementMatcher:
                 text_key = _key(item.text)
                 text_tokens = _tokens(item.text)
                 overlap = len(req_tokens & text_tokens)
+                overlap_ratio = overlap / len(req_tokens) if req_tokens else 0.0
+
+                # Exact / Canonical Direct Match
                 if (
                     required_key in canonical
                     or required_key in text_key
                     or any(required_key in _key(cand) for cand in item.canonical_terms)
-                    or (len(req_tokens) >= 2 and overlap >= 2 and (overlap / len(req_tokens)) >= 0.35)
                 ):
                     return MatchVerdict(
                         requirement_id=requirement.requirement_id,
                         status=MatchStatus.MATCHED, confidence=1.0,
                         evidence_ids=[item.evidence_id],
-                        reasoning="Deterministic contextual evidence matches requirement.",
+                        reasoning="Deterministic exact contextual evidence matches requirement.",
                         method=MatchMethod.EXACT,
                     )
+
+                # High-confidence deterministic match requiring >= 70% token overlap
+                if len(req_tokens) >= 2 and overlap_ratio >= 0.70:
+                    # Specific term checks for high precision
+                    if "handover" in requirement.text.casefold() and "handover" not in item.text.casefold():
+                        continue
+                    if "procedure" in requirement.text.casefold() and not any(w in item.text.casefold() for w in ("procedure", "process", "protocol", "workflow")):
+                        continue
+                    return MatchVerdict(
+                        requirement_id=requirement.requirement_id,
+                        status=MatchStatus.MATCHED, confidence=1.0,
+                        evidence_ids=[item.evidence_id],
+                        reasoning="Deterministic high-confidence keyword match.",
+                        method=MatchMethod.EXACT,
+                    )
+
             return MatchVerdict(
                 requirement_id=requirement.requirement_id, status=MatchStatus.UNRESOLVED,
                 confidence=0, reasoning="Contextual requirement requires evidence review.",
@@ -234,6 +253,30 @@ class DeterministicRequirementMatcher:
                     requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
                     confidence=1, evidence_ids=[], reasoning="Canonical values match.", method=method,
                 )
+
+        if requirement.kind == RequirementKind.SKILL and evidence:
+            req_term = requirement.canonical_value or requirement.text
+            canon_skill = SKILL_ALIASES.get(_key(req_term), req_term)
+            clean_term = _key(canon_skill)
+            if len(clean_term) >= 2:
+                pattern = re.compile(r"(?<![\w+#.-])" + re.escape(clean_term) + r"(?![\w+#.-])", re.I)
+                for item in evidence:
+                    canonical_keys = {_key(t) for t in item.canonical_terms}
+                    if clean_term in canonical_keys or _key(req_term) in canonical_keys:
+                        return MatchVerdict(
+                            requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
+                            confidence=1.0, evidence_ids=[item.evidence_id],
+                            reasoning=f"Skill matched in {item.kind} evidence ({item.evidence_id}).",
+                            method=MatchMethod.EXACT,
+                        )
+                    if pattern.search(item.text):
+                        return MatchVerdict(
+                            requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
+                            confidence=1.0, evidence_ids=[item.evidence_id],
+                            reasoning=f"Skill matched in {item.kind} text ({item.evidence_id}).",
+                            method=MatchMethod.EXACT,
+                        )
+
         if requirement.kind == RequirementKind.DEGREE:
             required_rank = ComponentScoringService.degree_rank(requirement.text)
             if required_rank and any(ComponentScoringService.degree_rank(value) >= required_rank for value in candidates):
@@ -401,7 +444,7 @@ class HybridMatchingService:
         self.matcher = DeterministicRequirementMatcher()
 
     async def match(
-        self, job: Any, resume: Any, extracted: Any = None, config: Any = None,
+        self, job: Any, resume: Any, extracted: Any = None, config: Any = None, experience_level: str | None = None,
     ) -> tuple[NormalizedMatchResult, list[MatchVerdict]]:
         target_resume = resume if resume is not None else extracted
         requirements = RequirementBuilder.build(job, config)
@@ -423,21 +466,39 @@ class HybridMatchingService:
         total_exp_months = int(getattr(target_resume, "total_experience_months", 0) or 0)
         cand_level = str(getattr(target_resume, "candidate_level", "FRESHER") or "FRESHER")
 
-        # 1. Build Candidate Skill Pool (deduplicated canonical skill keys)
+        # 1. Build Candidate Unified Evidence Pool
         skill_evidence_strings: set[str] = set()
         for s in candidate_skills:
             if s and str(s).strip():
                 skill_evidence_strings.add(str(s).strip())
+
         for p in candidate_projects:
-            techs = p.get("technologies") or []
-            for t in techs:
-                if t and str(t).strip():
-                    skill_evidence_strings.add(str(t).strip())
+            for k in ("technologies", "highlights", "responsibilities", "bullet_points"):
+                vals = p.get(k) or []
+                if isinstance(vals, list):
+                    for v in vals:
+                        if v and str(v).strip():
+                            skill_evidence_strings.add(str(v).strip())
+            for k in ("name", "title", "description", "summary"):
+                val = p.get(k)
+                if val and str(val).strip():
+                    skill_evidence_strings.add(str(val).strip())
+
         for exp in candidate_experience:
-            resps = exp.get("responsibilities") or []
-            for r in resps:
-                if r and str(r).strip():
-                    skill_evidence_strings.add(str(r).strip())
+            for k in ("technologies", "highlights", "responsibilities"):
+                vals = exp.get(k) or []
+                if isinstance(vals, list):
+                    for v in vals:
+                        if v and str(v).strip():
+                            skill_evidence_strings.add(str(v).strip())
+            for k in ("job_title", "title", "company", "description"):
+                val = exp.get(k)
+                if val and str(val).strip():
+                    skill_evidence_strings.add(str(val).strip())
+
+        for cert in (getattr(target_resume, "certifications", None) or []):
+            if cert and str(cert).strip():
+                skill_evidence_strings.add(str(cert).strip())
 
         candidate_skill_keys: set[str] = set()
         for s_str in skill_evidence_strings:
@@ -445,26 +506,44 @@ class HybridMatchingService:
             canonical = SKILL_ALIASES.get(key, key)
             candidate_skill_keys.add(_key(canonical))
 
+        from app.services.jd_normalization_service import _atomize_skill_phrase
+        from app.services.jd_extraction_service import SKILLS_VOCABULARY
+
+        skills_vocab_set = frozenset(SKILLS_VOCABULARY)
+
+        def _is_skill_matched_in_evidence(req_term: str) -> bool:
+            if not req_term or not str(req_term).strip():
+                return False
+            r_key = _key(req_term)
+            r_canonical = _key(SKILL_ALIASES.get(r_key, req_term))
+
+            if r_key in candidate_skill_keys or r_canonical in candidate_skill_keys:
+                return True
+
+            term_to_check = r_canonical if len(r_canonical) >= 2 else r_key
+            if len(term_to_check) >= 2:
+                pattern = re.compile(r"(?<![\w+#.-])" + re.escape(term_to_check) + r"(?![\w+#.-])", re.I)
+                for cand_s in skill_evidence_strings:
+                    if pattern.search(cand_s):
+                        return True
+            return False
+
         # 2. Required Skills Matching
         job_req_skills = list(getattr(job, "required_skills", None) or getattr(job, "skills", None) or [])
         matched_req: list[str] = []
         missing_req: list[str] = []
+
         for req_skill in job_req_skills:
             if not str(req_skill).strip():
                 continue
-            r_key = _key(req_skill)
-            r_canonical = _key(SKILL_ALIASES.get(r_key, r_key))
-            if r_key in candidate_skill_keys or r_canonical in candidate_skill_keys:
+            atoms = _atomize_skill_phrase(str(req_skill), SKILL_ALIASES, skills_vocab_set)
+            is_matched = any(_is_skill_matched_in_evidence(atom) for atom in atoms) or _is_skill_matched_in_evidence(req_skill)
+            if is_matched:
                 if req_skill not in matched_req:
                     matched_req.append(req_skill)
             else:
-                matched_token = any(r_key in _key(cand_s) or _key(cand_s) in r_key for cand_s in skill_evidence_strings)
-                if matched_token:
-                    if req_skill not in matched_req:
-                        matched_req.append(req_skill)
-                else:
-                    if req_skill not in missing_req:
-                        missing_req.append(req_skill)
+                if req_skill not in missing_req:
+                    missing_req.append(req_skill)
 
         req_score = round(min(100.0, (len(matched_req) / len(job_req_skills)) * 100.0), 2) if job_req_skills else 100.0
 
@@ -472,22 +551,18 @@ class HybridMatchingService:
         job_pref_skills = list(getattr(job, "preferred_skills", None) or [])
         matched_pref: list[str] = []
         missing_pref: list[str] = []
+
         for pref_skill in job_pref_skills:
             if not str(pref_skill).strip():
                 continue
-            p_key = _key(pref_skill)
-            p_canonical = _key(SKILL_ALIASES.get(p_key, p_key))
-            if p_key in candidate_skill_keys or p_canonical in candidate_skill_keys:
+            atoms = _atomize_skill_phrase(str(pref_skill), SKILL_ALIASES, skills_vocab_set)
+            is_matched = any(_is_skill_matched_in_evidence(atom) for atom in atoms) or _is_skill_matched_in_evidence(pref_skill)
+            if is_matched:
                 if pref_skill not in matched_pref:
                     matched_pref.append(pref_skill)
             else:
-                matched_token = any(p_key in _key(cand_s) or _key(cand_s) in p_key for cand_s in skill_evidence_strings)
-                if matched_token:
-                    if pref_skill not in matched_pref:
-                        matched_pref.append(pref_skill)
-                else:
-                    if pref_skill not in missing_pref:
-                        missing_pref.append(pref_skill)
+                if pref_skill not in missing_pref:
+                    missing_pref.append(pref_skill)
 
         pref_score = round(min(100.0, (len(matched_pref) / len(job_pref_skills)) * 100.0), 2) if job_pref_skills else 100.0
 
@@ -547,13 +622,19 @@ class HybridMatchingService:
         matched_resp_count = sum(1 for rd in resp_details if rd.status == MatchStatus.MATCHED)
         resp_score = round(min(100.0, (matched_resp_count / len(job_resps)) * 100.0), 2) if job_resps else 100.0
 
-        # 5. Job Title Score
+        # 5. Job Title Score (Primary: Formal Employment Titles; Supporting: Project Titles)
         jd_title = getattr(job, "job_title", None)
         cand_titles = list(getattr(target_resume, "job_titles", None) or [])
         for exp in candidate_experience:
             t = exp.get("job_title") or exp.get("title")
             if t and t not in cand_titles:
                 cand_titles.append(t)
+
+        proj_titles: list[str] = []
+        for proj in candidate_projects:
+            t = proj.get("name") or proj.get("title")
+            if t and t not in proj_titles:
+                proj_titles.append(t)
 
         if not jd_title:
             job_title_score = 100.0
@@ -562,6 +643,8 @@ class HybridMatchingService:
             jd_canonical = _key(TITLE_ALIASES.get(jd_key, jd_key))
             title_matched = False
             token_matched = False
+            proj_token_matched = False
+
             for ct in cand_titles:
                 c_key = _key(ct)
                 c_canonical = _key(TITLE_ALIASES.get(c_key, c_key))
@@ -571,7 +654,21 @@ class HybridMatchingService:
                 elif any(word in c_key for word in _tokens(jd_title)):
                     token_matched = True
 
-            job_title_score = 100.0 if title_matched else (75.0 if token_matched else 40.0)
+            if not title_matched and not token_matched:
+                for pt in proj_titles:
+                    p_key = _key(pt)
+                    if any(word in p_key for word in _tokens(jd_title)):
+                        proj_token_matched = True
+                        break
+
+            if title_matched:
+                job_title_score = 100.0
+            elif token_matched:
+                job_title_score = 75.0
+            elif proj_token_matched:
+                job_title_score = 50.0
+            else:
+                job_title_score = 40.0
 
         # 6. Candidate Level & Relevant Experience Score
         req_exp_items = list(getattr(job, "experience_requirements", None) or [])
@@ -581,7 +678,17 @@ class HybridMatchingService:
             if isinstance(m, int) and m > min_months:
                 min_months = m
 
-        jd_required_level = "EXPERIENCED" if min_months > 12 else "FRESHER"
+        explicit_level = (
+            experience_level
+            or getattr(job, "experience_level", None)
+            or getattr(job, "jd_required_level", None)
+            or (config.metadata.get("experience_level") if (config and hasattr(config, "metadata") and isinstance(config.metadata, dict)) else None)
+            or (getattr(config, "experience_level", None) if config else None)
+        )
+        if explicit_level and str(explicit_level).strip():
+            jd_required_level = "EXPERIENCED" if "EXP" in str(explicit_level).upper() else "FRESHER"
+        else:
+            jd_required_level = "EXPERIENCED" if min_months > 12 else "FRESHER"
 
         if cand_level == "FRESHER":
             relevant_exp_score = None
@@ -589,8 +696,8 @@ class HybridMatchingService:
             eff_req = max(min_months, 12)
             relevant_exp_score = round(min(100.0, (total_exp_months / eff_req) * 100.0), 2)
 
-        # Step 4: Calculate Final Match Score (0–100)
-        if cand_level == "FRESHER":
+        # Step 4: Calculate Final Match Score (0–100) using JD Required Level (NOT candidate_level!)
+        if jd_required_level == "FRESHER":
             raw_final = (
                 (req_score * 0.45)
                 + (resp_score * 0.35)
