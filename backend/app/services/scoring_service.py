@@ -11,7 +11,10 @@ from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
-from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem, ProjectScoringRead
+from app.schemas.scoring import (
+    CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem,
+    ComponentScoreDetail, ComponentScores, ProjectScoringRead, WeightedScores,
+)
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
 from app.services.scoring import (
@@ -207,19 +210,96 @@ class ScoringEngineFacade:
                         match_verdicts.append(verdict)
                 except Exception:
                     match_verdicts = []
-            projects_for_scoring = getattr(scoring_extracted, "projects", None) or getattr(resume, "projects", None) or getattr(extracted, "projects", None)
-            components = self.components.score(resume, job, config=None, projects=projects_for_scoring)
-            applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
-            weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
-                components, config=None, applicable_categories=applicable_categories
-            )
-            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
-            penalty_total, penalties = PenaltyService.calculate(components, config=None)
-            bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
-            final_score = WeightCalculationService.final_score(
-                weighted_total, penalty_total, bonus_total,
-                components=components, applicable_categories=applicable_categories
-            )
+            from app.schemas.matching import NormalizedMatchResult
+            if isinstance(scoring_extracted, NormalizedMatchResult):
+                final_score = round(max(0.0, min(100.0, float(scoring_extracted.final_match_score))), 2)
+                is_fresher = scoring_extracted.profile.candidate_level == "FRESHER"
+                rel_exp_score = scoring_extracted.relevant_experience_score if scoring_extracted.relevant_experience_score is not None else (100.0 if not is_fresher else 0.0)
+
+                components = ComponentScores(
+                    skills=ComponentScoreDetail(
+                        score=scoring_extracted.required_skills_score,
+                        matched_items=scoring_extracted.matched_required_skills,
+                        missing_items=scoring_extracted.missing_required_skills,
+                        explanation=f"Required Skills match: {scoring_extracted.required_skills_score}% ({len(scoring_extracted.matched_required_skills)} matched).",
+                    ),
+                    experience=ComponentScoreDetail(
+                        score=rel_exp_score,
+                        matched_items=[f"{scoring_extracted.profile.total_experience_months} months"],
+                        missing_items=[],
+                        explanation=f"Candidate level: {scoring_extracted.profile.candidate_level} ({scoring_extracted.profile.total_experience_months} months).",
+                    ),
+                    projects=ComponentScoreDetail(
+                        score=scoring_extracted.responsibility_score,
+                        matched_items=[r.responsibility for r in scoring_extracted.responsibility_details if (r.status.value if hasattr(r.status, "value") else str(r.status)) == "MATCHED"],
+                        missing_items=[r.responsibility for r in scoring_extracted.responsibility_details if (r.status.value if hasattr(r.status, "value") else str(r.status)) != "MATCHED"],
+                        explanation=f"Responsibilities / Projects match: {scoring_extracted.responsibility_score}%.",
+                    ),
+                    education=ComponentScoreDetail(
+                        score=100.0,
+                        matched_items=[str(d.get("degree", "")) if isinstance(d, dict) else str(getattr(d, "degree", "")) for d in (scoring_extracted.profile.education or []) if (isinstance(d, dict) and d.get("degree")) or (not isinstance(d, dict) and getattr(d, "degree", None))],
+                        missing_items=[],
+                        explanation="Education provided for candidate profile (0% score weight).",
+                    ),
+                    certifications=ComponentScoreDetail(
+                        score=scoring_extracted.preferred_skills_score,
+                        matched_items=scoring_extracted.matched_preferred_skills,
+                        missing_items=scoring_extracted.missing_preferred_skills,
+                        explanation=f"Preferred Skills match: {scoring_extracted.preferred_skills_score}%.",
+                    ),
+                    languages=ComponentScoreDetail(
+                        score=scoring_extracted.job_title_score,
+                        matched_items=[scoring_extracted.profile.resume_job_title] if scoring_extracted.profile.resume_job_title else [],
+                        missing_items=[],
+                        explanation=f"Job Title / Role Relevance: {scoring_extracted.job_title_score}%.",
+                    ),
+                )
+
+                if is_fresher:
+                    effective_weights = {"skills": 45.0, "projects": 35.0, "certifications": 10.0, "languages": 10.0, "experience": 0.0, "education": 0.0}
+                    weighted = WeightedScores(
+                        skills=round(scoring_extracted.required_skills_score * 0.45, 2),
+                        projects=round(scoring_extracted.responsibility_score * 0.35, 2),
+                        certifications=round(scoring_extracted.preferred_skills_score * 0.10, 2),
+                        languages=round(scoring_extracted.job_title_score * 0.10, 2),
+                        experience=0.0,
+                        education=0.0,
+                    )
+                else:
+                    effective_weights = {"skills": 40.0, "projects": 35.0, "certifications": 10.0, "languages": 5.0, "experience": 10.0, "education": 0.0}
+                    weighted = WeightedScores(
+                        skills=round(scoring_extracted.required_skills_score * 0.40, 2),
+                        projects=round(scoring_extracted.responsibility_score * 0.35, 2),
+                        certifications=round(scoring_extracted.preferred_skills_score * 0.10, 2),
+                        languages=round(scoring_extracted.job_title_score * 0.05, 2),
+                        experience=round(rel_exp_score * 0.10, 2),
+                        education=0.0,
+                    )
+
+                raw_total = final_score
+                weighted_total = final_score
+                penalty_total = 0.0
+                bonus_total = 0.0
+                penalties = []
+                bonuses = []
+                knocked_out = False
+                knockout_reason = None
+                applicable_categories = {"skills", "projects", "certifications", "languages"} if is_fresher else {"skills", "projects", "certifications", "languages", "experience"}
+            else:
+                projects_for_scoring = getattr(scoring_extracted, "projects", None) or getattr(resume, "projects", None) or getattr(extracted, "projects", None)
+                components = self.components.score(resume, job, config=None, projects=projects_for_scoring)
+                applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
+                weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
+                    components, config=None, applicable_categories=applicable_categories
+                )
+                knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
+                penalty_total, penalties = PenaltyService.calculate(components, config=None)
+                bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
+                final_score = WeightCalculationService.final_score(
+                    weighted_total, penalty_total, bonus_total,
+                    components=components, applicable_categories=applicable_categories
+                )
+
             confidence = ConfidenceService.calculate(extracted)
             passing_score = 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
@@ -290,7 +370,7 @@ class ScoringEngineFacade:
                 document_id=str(document.id),
                 final_score=final_score,
                 component_scores=component_values,
-                recommendation=recommendation.value,
+                recommendation=recommendation.value if hasattr(recommendation, "value") else str(recommendation),
                 is_knocked_out=knocked_out,
             )
         except AppException: raise

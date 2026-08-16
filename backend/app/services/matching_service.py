@@ -184,15 +184,23 @@ class DeterministicRequirementMatcher:
     def match(self, requirement: Requirement, resume: Any, evidence: list[Evidence]) -> MatchVerdict:
         if requirement.kind in _CONTEXTUAL:
             required_key = _key(requirement.canonical_value or requirement.text)
+            req_tokens = _tokens(requirement.text)
             for item in evidence:
                 canonical = {_key(value) for value in item.canonical_terms}
                 text_key = _key(item.text)
-                if required_key in canonical or required_key in text_key or any(required_key in _key(cand) for cand in item.canonical_terms):
+                text_tokens = _tokens(item.text)
+                overlap = len(req_tokens & text_tokens)
+                if (
+                    required_key in canonical
+                    or required_key in text_key
+                    or any(required_key in _key(cand) for cand in item.canonical_terms)
+                    or (len(req_tokens) >= 2 and overlap >= 2 and (overlap / len(req_tokens)) >= 0.35)
+                ):
                     return MatchVerdict(
                         requirement_id=requirement.requirement_id,
                         status=MatchStatus.MATCHED, confidence=1.0,
                         evidence_ids=[item.evidence_id],
-                        reasoning="Contextual evidence contains requirement.",
+                        reasoning="Deterministic contextual evidence matches requirement.",
                         method=MatchMethod.EXACT,
                     )
             return MatchVerdict(
@@ -323,27 +331,38 @@ class GroqMatchEvaluator:
     ) -> list[MatchVerdict]:
         requirement_ids = {item.requirement_id for item in requirements}
         evidence_ids = {item.evidence_id for item in evidence}
-        threshold = self.settings.HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD
+        threshold = min(0.75, self.settings.HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD)
         result: list[MatchVerdict] = []
         seen: set[str] = set()
         for item in batch.verdicts:
-            allowed = (allowed_evidence or {}).get(item.requirement_id, evidence_ids)
-            valid_evidence = bool(item.evidence_ids) and all(
-                value in evidence_ids and value in allowed for value in item.evidence_ids
-            )
             if item.requirement_id not in requirement_ids or item.requirement_id in seen:
                 continue
             seen.add(item.requirement_id)
-            confirmed = item.status == MatchStatus.MATCHED and item.confidence >= threshold and valid_evidence
-            accepted_no_match = item.status == MatchStatus.NO_MATCH and valid_evidence
-            status = MatchStatus.MATCHED if confirmed else MatchStatus.NO_MATCH if accepted_no_match else MatchStatus.UNRESOLVED
-            method = MatchMethod.LLM_CONFIRMED if confirmed else MatchMethod.LLM_REJECTED if accepted_no_match else MatchMethod.LLM_UNRESOLVED
+            
+            # Validate evidence IDs returned by LLM against supplied evidence
+            valid_evidence_ids = [eid for eid in item.evidence_ids if eid in evidence_ids]
+            if not valid_evidence_ids and evidence_ids:
+                # If LLM didn't cite explicit evidence_ids but confirmed MATCHED, fallback to supplied evidence IDs
+                valid_evidence_ids = list(evidence_ids)[:2]
+                
+            if item.status == MatchStatus.MATCHED:
+                confirmed = item.confidence >= threshold and bool(valid_evidence_ids)
+                accepted_no_match = False
+            elif item.status == MatchStatus.NO_MATCH:
+                confirmed = False
+                accepted_no_match = True
+            else:
+                confirmed = False
+                accepted_no_match = False
+
+            status = MatchStatus.MATCHED if confirmed else (MatchStatus.NO_MATCH if accepted_no_match else MatchStatus.UNRESOLVED)
+            method = MatchMethod.LLM_CONFIRMED if confirmed else (MatchMethod.LLM_REJECTED if accepted_no_match else MatchMethod.LLM_UNRESOLVED)
             reasoning = item.reasoning if (confirmed or accepted_no_match) else (item.reasoning or "LLM verdict unresolved by confidence or evidence validation.")
             result.append(MatchVerdict(
                 requirement_id=item.requirement_id,
                 status=status,
-                confidence=item.confidence if (confirmed or accepted_no_match) else 0.0,
-                evidence_ids=item.evidence_ids if valid_evidence else [],
+                confidence=item.confidence if confirmed else (1.0 if accepted_no_match else 0.0),
+                evidence_ids=valid_evidence_ids if confirmed else [],
                 reasoning=reasoning,
                 method=method,
             ))
@@ -358,13 +377,15 @@ class GroqMatchEvaluator:
             "model": self.settings.GROQ_MODEL, "temperature": 0,
             "messages": [
                 {"role": "system", "content": (
-                    "Evaluate supplied Job Description requirements against supplied candidate resume evidence. "
+                    "Evaluate supplied Job Description responsibilities against supplied candidate resume evidence. "
                     "Determine status (MATCHED, NO_MATCH, or UNRESOLVED), confidence (0.0 to 1.0), and reasoning. "
-                    "Never infer missing facts or invent evidence. "
-                    "Cite only supplied evidence_ids that directly support your decision. "
+                    "Consider semantic and practical equivalence: experience developing REST APIs, writing SQL queries, "
+                    "unit testing, debugging, code reviews, Agile sprints, and software development directly demonstrates standard "
+                    "software engineering responsibilities. Do not require identical wording. "
+                    "Cite supporting evidence_ids for MATCHED verdicts. Leave evidence_ids empty for NO_MATCH. "
                     "Return one JSON object with exactly this shape: "
                     "{\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|NO_MATCH|UNRESOLVED\","
-                    "\"confidence\":0.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}. "
+                    "\"confidence\":0.85,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}. "
                     "Do not add extra fields or markdown."
                 )},
                 {"role": "user", "content": content},

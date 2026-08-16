@@ -464,6 +464,12 @@ class JDNormalizationService:
         if not experience_requirements:
             warnings.append("No experience requirements found in extracted data.")
 
+        # ── Job Title ───────────────────────────────────────────
+        job_title_value = getattr(extracted, "job_title", None)
+        job_title = job_title_value.strip() if isinstance(job_title_value, str) else None
+        if job_title and job_title.isupper():
+            job_title = job_title.title()
+
         # ── Keywords ────────────────────────────────────────────
         # Build keywords from the already-atomized technical skills, NOT the verbose
         # extraction phrases. This ensures that project-evidence scoring uses meaningful
@@ -474,10 +480,6 @@ class JDNormalizationService:
         responsibilities = [r.strip() for r in (extracted.responsibilities or []) if r.strip()]
         certifications = _stable_casefold(_safe_list(extracted, "certifications"))
         education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
-        job_title_value = getattr(extracted, "job_title", None)
-        job_title = job_title_value.strip() if isinstance(job_title_value, str) else None
-        if job_title and job_title.isupper():
-            job_title = job_title.title()
 
         # ── Domain passthrough ──────────────────────────────────
         domain = extracted.domain

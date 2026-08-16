@@ -146,6 +146,9 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, screeningThresh
   const isScreened = score >= screeningThreshold
   const statusConfig = getScreeningStatusConfig(isScreened)
 
+  const filteredStrengths = displayStrengths.filter((s) => !s.toLowerCase().includes('education'))
+  const filteredWeaknesses = displayWeaknesses.filter((w) => !w.toLowerCase().includes('education'))
+
   return (
     <AnimatePresence>
       {candidate && (
@@ -211,15 +214,45 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, screeningThresh
                 <p className="text-[13px] text-slate-700 leading-relaxed">{aiSummaryText}</p>
               </div>
 
+              {/* Component Score Breakdown */}
+              {candidate.scores && candidate.scores.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles size={13} className="text-blue-500" />
+                    <p className="text-[11px] font-bold text-blue-600 uppercase tracking-widest">Component Score Breakdown</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {candidate.scores.map((sc) => {
+                      const contribution = sc.weightedScore ?? ((sc.score * sc.weight) / 100)
+                      return (
+                        <div key={sc.criterionId} className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 text-[12px] space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800">{sc.label}</span>
+                            <span className={`font-extrabold text-[13.5px] ${sc.score >= 75 ? 'text-emerald-600' : sc.score >= 50 ? 'text-amber-600' : 'text-slate-600'}`}>
+                              Score: {sc.score.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium pt-0.5 border-t border-slate-100">
+                            <span>Weight: {sc.weight}%</span>
+                            <span>Contribution: {contribution.toFixed(2)}</span>
+                            {!sc.isApplicable && <span className="text-slate-400 font-normal">Applicable: false</span>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Key matched requirements */}
-              {displayStrengths.length > 0 && (
+              {filteredStrengths.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <TrendingUp size={13} className="text-emerald-500" />
                     <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">Key Matched Strengths</p>
                   </div>
                   <ul className="space-y-1.5">
-                    {displayStrengths.map((s, i) => (
+                    {filteredStrengths.map((s, i) => (
                       <motion.li key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.05 }}
                         className="flex items-start gap-2 text-[12.5px] text-slate-700">
                         <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
@@ -231,14 +264,14 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, screeningThresh
               )}
 
               {/* Missing requirements */}
-              {displayWeaknesses.length > 0 && (
+              {filteredWeaknesses.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <AlertCircle size={13} className="text-amber-500" />
-                    <p className="text-[11px] font-bold text-amber-600 uppercase tracking-widest">Missing / Unclear Requirements</p>
+                    <p className="text-[11px] font-bold text-amber-600 uppercase tracking-widest">Areas Requiring Review</p>
                   </div>
                   <ul className="space-y-1.5">
-                    {displayWeaknesses.map((w, i) => (
+                    {filteredWeaknesses.map((w, i) => (
                       <motion.li key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + i * 0.05 }}
                         className="flex items-start gap-2 text-[12.5px] text-slate-600">
                         <AlertCircle size={13} className="text-amber-400 flex-shrink-0 mt-0.5" />
@@ -302,18 +335,25 @@ export default function CandidateRanking() {
   const mapRankings = useCallback((rankings: ApiCandidateRanking[], scores: ApiCandidateScore[], config: WeightConfig): Candidate[] => {
     const scoresByDocument = new Map(scores.map((score) => [score.document_id, score]))
     const components = [
-      ['skills', 'Skills'], ['experience', 'Experience'], ['projects', 'Projects'],
-      ['education', 'Education'], ['certifications', 'Certifications'], ['languages', 'Languages'],
+      ['skills', 'Required Skills'],
+      ['projects', 'Responsibilities / Projects'],
+      ['certifications', 'Preferred Skills'],
+      ['languages', 'Job Title / Role Relevance'],
+      ['experience', 'Relevant Experience'],
     ] as const
     return rankings.map((ranking) => {
       const persistedScore = scoresByDocument.get(ranking.document_id)
+      const authoritativeScore = (persistedScore?.final_score !== undefined && persistedScore.final_score !== null)
+        ? Number(persistedScore.final_score)
+        : (ranking.final_score !== undefined && ranking.final_score !== null ? Number(ranking.final_score) : 0)
+
       return {
         id: ranking.document_id,
         documentId: ranking.document_id,
         name: ranking.candidate_name || 'Candidate',
         email: ranking.email || '',
         resumeFile: state.upload.resumes.find((r: any) => r.id === ranking.document_id)?.name || ranking.document_id,
-        overallScore: ranking.final_score,
+        overallScore: authoritativeScore,
         rank: ranking.rank_position,
         percentile: ranking.percentile,
         confidence: ranking.confidence,
@@ -323,13 +363,21 @@ export default function CandidateRanking() {
         status: 'pending',
         extractedFields: [],
         scores: persistedScore ? components.map(([key, label]) => {
-          const detail = persistedScore.component_scores[key]
+          const detail = persistedScore.component_scores[key] || { score: 0, matched_items: [], missing_items: [], explanation: '' }
+          const weight = (persistedScore.effective_weights && persistedScore.effective_weights[key] !== undefined)
+            ? Number(persistedScore.effective_weights[key])
+            : Number(config.weights[key] ?? 0)
+          const weightedScore = (persistedScore.weighted_scores && persistedScore.weighted_scores[key] !== undefined)
+            ? Number(persistedScore.weighted_scores[key])
+            : Number(((detail.score * weight) / 100).toFixed(2))
+          const isApplicable = weight > 0
           return {
             criterionId: key, label,
-            score: detail.score,
-            weight: (persistedScore.effective_weights && persistedScore.effective_weights[key] !== undefined) ? persistedScore.effective_weights[key] : config.weights[key],
-            weightedScore: persistedScore.weighted_scores[key],
-            isApplicable: true, explanation: detail.explanation,
+            score: Number(detail.score ?? 0),
+            weight,
+            weightedScore,
+            isApplicable,
+            explanation: detail.explanation || '',
           }
         }) : [],
         matchVerdicts: persistedScore?.match_verdicts || [],
