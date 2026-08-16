@@ -19,6 +19,7 @@ from app.services.scoring import (
     RecommendationService, WeightCalculationService,
 )
 from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder
+from app.services.pipeline.canonical_dictionaries import RULESET_VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -97,6 +98,18 @@ class ScoringEngineFacade:
             )
             for document in resumes
         ]
+
+        try:
+            from app.repositories.ranking_repository import RankingRepository
+            from app.services.ranking_service import RankingService
+            ranking_service = RankingService(
+                self.projects, self.documents, self.scores,
+                RankingRepository(self.scores.session)
+            )
+            await ranking_service.compute_project_rankings(project_id)
+        except Exception as exc:
+            logger.warning("[SCORE] auto_rank_update_failed", project_id=str(project_id), error=str(exc))
+
         logger.info(
             "[SCORE] scoring completed",
             project_id=str(project_id),
@@ -135,6 +148,32 @@ class ScoringEngineFacade:
         try: job = await self.normalizations.get_job_description_by_document_id(job_document.id)
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve normalized job description.") from exc
         if job is None: raise JobDescriptionMissingException()
+
+        if getattr(job, "ruleset_version", None) != RULESET_VERSION or not getattr(job, "required_skills", None):
+            logger.info("[SCORE] Stale or unpopulated job description detected, auto-refreshing JD extraction and normalization", project_id=str(project_id))
+            from app.repositories.parsed_document_repository import ParsedDocumentRepository
+            from app.repositories.extracted_jd_repository import ExtractedJDRepository
+            from app.services.jd_extraction_service import JDExtractionService
+            from app.services.jd_normalization_service import JDNormalizationService
+
+            session = self.documents.session
+            jd_extractor = JDExtractionService(
+                self.documents,
+                ParsedDocumentRepository(session),
+                ExtractedJDRepository(session),
+            )
+            jd_normalizer = JDNormalizationService(
+                self.documents,
+                ExtractedJDRepository(session),
+                self.normalizations,
+            )
+            await jd_extractor.extract_document(job_document.id)
+            await jd_normalizer.normalize_document(job_document.id)
+            job = await self.normalizations.get_job_description_by_document_id(job_document.id)
+
+        if not getattr(job, "required_skills", None) and not getattr(job, "skills", None):
+            raise JobDescriptionMissingException("Job description contains no extractable skill requirements for scoring.")
+
         return job
 
     async def _score(
@@ -177,12 +216,10 @@ class ScoringEngineFacade:
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
             penalty_total, penalties = PenaltyService.calculate(components, config=None)
             bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
-            final_score = getattr(scoring_extracted, "final_match_score", None)
-            if final_score is None:
-                final_score = WeightCalculationService.final_score(
-                    weighted_total, penalty_total, bonus_total,
-                    components=components, applicable_categories=applicable_categories
-                )
+            final_score = WeightCalculationService.final_score(
+                weighted_total, penalty_total, bonus_total,
+                components=components, applicable_categories=applicable_categories
+            )
             confidence = ConfidenceService.calculate(extracted)
             passing_score = 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)

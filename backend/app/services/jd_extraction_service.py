@@ -49,19 +49,20 @@ SKILLS_VOCABULARY: frozenset[str] = frozenset({
     # Databases
     "postgresql", "mysql", "sqlite", "mongodb", "redis", "elasticsearch",
     "cassandra", "dynamodb", "bigquery", "snowflake", "oracle", "sql server",
-    "mariadb", "neo4j", "influxdb",
+    "mariadb", "neo4j", "influxdb", "sql",
     # Cloud / Infra
     "aws", "azure", "gcp", "google cloud", "heroku", "vercel", "netlify",
     "docker", "kubernetes", "k8s", "helm", "terraform", "ansible", "jenkins",
-    "gitlab", "github actions", "ci/cd", "devops", "sre",
+    "gitlab", "github", "github actions", "ci/cd", "devops", "sre",
     # Tools
     "git", "jira", "confluence", "slack", "figma", "postman", "swagger",
-    "linux", "unix", "nginx", "apache", "rabbitmq", "celery",
+    "linux", "unix", "nginx", "apache", "rabbitmq", "celery", "json", "xml",
     # Methodologies
     "agile", "scrum", "kanban", "tdd", "bdd", "microservices", "serverless",
     "solid", "clean architecture", "ddd", "event-driven",
     "rest api", "rest apis", "object-oriented programming",
     "data structures and algorithms", "software development and debugging",
+    "software testing", "debugging",
     "iot", "embedded systems", "plc programming",
 })
 
@@ -171,8 +172,9 @@ NUMBERED_PATTERN = re.compile(r"^[\s]*\d+[.)]\s+", re.MULTILINE)
 SECTION_HEADINGS = {
     "job description": "description", "overview": "description", "summary": "description", "role overview": "description",
     "key responsibilities": "responsibilities", "responsibilities": "responsibilities", "duties": "responsibilities", "job responsibilities": "responsibilities", "core responsibilities": "responsibilities", "key duties": "responsibilities",
-    "required skills": "required_skills", "technical skills": "required_skills", "required qualifications": "required_skills", "requirements": "required_skills", "key requirements": "required_skills", "core skills": "required_skills", "skills required": "required_skills", "qualifications": "required_skills", "basic qualifications": "required_skills",
-    "preferred skills": "preferred_skills", "nice to have": "preferred_skills", "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills", "bonus skills": "preferred_skills", "good to have": "preferred_skills", "additional qualifications": "preferred_skills",
+    "required skills": "required_skills", "required technical skills": "required_skills", "technical skills": "required_skills", "required qualifications": "required_skills", "requirements": "required_skills", "key requirements": "required_skills", "core skills": "required_skills", "skills required": "required_skills", "qualifications": "required_skills", "basic qualifications": "required_skills",
+    "mandatory skills": "required_skills", "must have": "required_skills", "must-have": "required_skills", "must have skills": "required_skills", "must-have skills": "required_skills", "essential skills": "required_skills", "minimum qualifications": "required_skills", "technical requirements": "required_skills",
+    "preferred skills": "preferred_skills", "preferred technical skills": "preferred_skills", "nice to have": "preferred_skills", "nice-to-have": "preferred_skills", "nice to have skills": "preferred_skills", "nice-to-have skills": "preferred_skills", "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills", "bonus skills": "preferred_skills", "good to have": "preferred_skills", "good-to-have": "preferred_skills", "good to have skills": "preferred_skills", "good-to-have skills": "preferred_skills", "additional qualifications": "preferred_skills", "optional skills": "preferred_skills", "preferred requirements": "preferred_skills",
     "education": "education", "education requirements": "education", "educational qualifications": "education", "academic background": "education",
     "experience": "experience", "experience required": "experience", "work experience": "experience",
     "certifications": "certifications", "licenses": "certifications", "credentials": "certifications",
@@ -211,8 +213,14 @@ def _split_sections(text: str) -> dict[str, str]:
         if not line:
             continue
         prefix, separator, remainder = line.partition(":")
-        candidate = re.sub(r"\s+", " ", prefix if separator else line).strip().casefold()
-        heading = SECTION_HEADINGS.get(candidate) if len(candidate) <= 60 else None
+        raw_candidate = prefix if separator else line
+        cleaned = BULLET_PATTERN.sub("", raw_candidate)
+        cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
+        cleaned = cleaned.rstrip(":-–— ").strip().casefold()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned_spaces = re.sub(r"[-–—]", " ", cleaned)
+
+        heading = (SECTION_HEADINGS.get(cleaned) or SECTION_HEADINGS.get(cleaned_spaces)) if len(cleaned) <= 60 else None
         if heading:
             current = heading
             sections.setdefault(current, [])
@@ -224,16 +232,33 @@ def _split_sections(text: str) -> dict[str, str]:
 
 
 _FILLER_TRAILERS = re.compile(
-    r"\b(?:is\s+an?\s+advantage|is\s+a\s+plus|an?\s+advantage|good\s+to\s+have|preferred|or\s+equivalent)\b\.?",
+    r"\b(?:is\s+an?\s+advantage|is\s+a\s+plus|an?\s+advantage|good\s+to\s+have|"
+    r"preferred|or\s+equivalent|or\s+related|experience|knowledge|tools?)\b\.?",
     re.I,
 )
 _FILLER_LEADERS = re.compile(
-    r"^(?:(?:strong|solid|deep|basic|general|good)\s+)?(?:exposure\s+to|knowledge\s+of|understanding\s+of|experience\s+with|proficiency\s+in|hands[-\s]on\s+experience\s+with|ability\s+to)\s+",
+    r"^"
+    # Optional adjective (strong / solid / basic / good / working / deep / general)
+    r"(?:(?:strong|solid|deep|basic|general|good|working)\s+)?"
+    # Optional "programming" modifier: "strong programming fundamentals in"
+    r"(?:programming\s+)?"
+    # Verb phrase — ALL forms, whether adjective-prefixed or standalone
+    r"(?:"
+    r"fundamentals?(?:\s+(?:in|of))?|"    # "fundamentals in X", "fundamentals of X"
+    r"exposure\s+to|"
+    r"knowledge\s+of|"
+    r"understanding\s+of|"
+    r"familiarity\s+with|"
+    r"experience\s+(?:in|with)|"
+    r"proficiency\s+in|"
+    r"hands[-\s]on\s+(?:experience\s+)?(?:in|with)?|"
+    r"ability\s+to"
+    r")\s+",
     re.I,
 )
 
 _GRAMMATICAL_FRAGMENTS = re.compile(
-    r"^(?:or|and|is|an|a|the|concepts?|language|frameworks?|tools?|systems?|methods?)\.?$",
+    r"^(?:or|and|is|an|a|the|another|any|concepts?|language|frameworks?|tools?|systems?|methods?|technologies?)\.?$",
     re.I,
 )
 
@@ -283,6 +308,7 @@ def _canonical_skills(text: str) -> list[str]:
     """Extract atomic skills directly from section text items without fragmenting natural sentences."""
     if not text.strip():
         return []
+    from app.services.pipeline.canonical_dictionaries import SKILL_ALIASES
     terms: list[str] = []
     seen: set[str] = set()
 
@@ -291,15 +317,16 @@ def _canonical_skills(text: str) -> list[str]:
     for line in lines:
         cleaned_line = BULLET_PATTERN.sub("", line)
         cleaned_line = NUMBERED_PATTERN.sub("", cleaned_line).strip()
-        if not cleaned_line or re.match(r"^(?:required|preferred|technical)\s+skills?:?$", cleaned_line, re.I):
+        if not cleaned_line or re.match(r"^(?:required|preferred|technical|good[-\s]to[-\s]have|nice[-\s]to[-\s]have|must[-\s]have|mandatory)\s+(?:technical\s+)?skills?:?$", cleaned_line, re.I):
             continue
 
         extracted = _split_sentence_into_skills(cleaned_line)
         for skill in extracted:
-            key = skill.casefold()
-            if key not in seen and len(skill) <= 60:
+            canonical_skill = SKILL_ALIASES.get(skill.casefold(), skill)
+            key = canonical_skill.casefold()
+            if key not in seen and len(canonical_skill) <= 60:
                 seen.add(key)
-                terms.append(skill)
+                terms.append(canonical_skill)
     return terms
 
 
@@ -504,6 +531,8 @@ class JDExtractionService:
             skills, skills_conf = _extract_skills(raw_text)
             required_skills = _canonical_skills(sections.get("required_skills", ""))
             preferred_skills = _canonical_skills(sections.get("preferred_skills", ""))
+            req_keys = {s.casefold() for s in required_skills}
+            preferred_skills = [s for s in preferred_skills if s.casefold() not in req_keys]
             combined_skill_keys = {value.casefold() for value in skills}
             for value in [*required_skills, *preferred_skills]:
                 if value.casefold() not in combined_skill_keys:
@@ -661,8 +690,10 @@ class JDExtractionService:
                     path, document.original_filename, document.mime_type
                 )
             provider_meta = response.get("meta") or {}
+            parsed_doc = await self.parsed_repository.get_by_document_id(document.id)
+            raw_text = parsed_doc.raw_text if parsed_doc else ""
             mapped = map_affinda_jd(
-                response["data"], provider_meta.get("identifier")
+                response["data"], provider_meta.get("identifier"), raw_text
             )
             await self.extracted_repository.upsert(
                 ExtractedJDCreate(document_id=document.id, **mapped),

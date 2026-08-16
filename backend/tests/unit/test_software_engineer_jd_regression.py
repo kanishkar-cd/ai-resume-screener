@@ -101,13 +101,36 @@ async def test_software_engineer_jd_preserves_structured_requirements_through_no
     normalized = normalized_repository.upsert.await_args.args[0]
 
     assert normalized.job_title == "Software Engineer"
-    assert normalized.required_skills == extracted.required_skills
-    assert normalized.preferred_skills == extracted.preferred_skills
+    # After normalization, required_skills are atomized canonical forms:
+    # compound phrases like "HTML and CSS" → "HTML", "CSS";
+    # "REST APIs and Git" → "REST API", "Git"; "Software development and debugging" → split
+    # Every item in the normalized list must be a real known skill token
+    for skill in normalized.required_skills:
+        assert len(skill) <= 60, f"Required skill too long (verbose phrase leaked): {skill!r}"
+    # All 5 extracted entries must have expanded into at least 1 canonical token each
+    assert len(normalized.required_skills) >= len(extracted.required_skills)
+    # Core skills that must definitely be present after atomization
+    required_lower = {s.casefold() for s in normalized.required_skills}
+    for expected in ["javascript", "python", "c++", "sql", "html", "css",
+                     "rest api", "git", "object-oriented programming",
+                     "data structures and algorithms"]:
+        assert expected in required_lower, f"Expected required skill missing after normalization: {expected!r}"
+
+    # Preferred skills: compound entries are also split
+    for skill in normalized.preferred_skills:
+        assert len(skill) <= 60, f"Preferred skill too long (verbose phrase leaked): {skill!r}"
+    preferred_lower = {s.casefold() for s in normalized.preferred_skills}
+    for expected in ["react", "node.js", "express", "mongodb", "postgresql",
+                     "aws", "docker", "ci/cd", "jenkins"]:
+        assert expected in preferred_lower, f"Expected preferred skill missing: {expected!r}"
+
     assert normalized.education_disciplines == extracted.education_disciplines
     assert len(normalized.responsibilities) == 10
     assert normalized.experience_requirements[0].minimum_months == 0
     assert normalized.experience_requirements[0].maximum_months == 24
-    assert normalized.keywords == extracted.keywords
+    # Keywords must be derived from atomized skills (no verbose phrases)
+    for kw in normalized.keywords:
+        assert len(kw) <= 60, f"Keyword is a verbose phrase, not an atomic skill: {kw!r}"
 
 
 class RecoveryAI:

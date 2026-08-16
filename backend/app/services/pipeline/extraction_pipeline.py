@@ -10,14 +10,18 @@ URL_PATTERN = re.compile(r"https?://[^\s]+|(?:www\.)[^\s]+", re.IGNORECASE)
 SKILLS = (
     "Python", "FastAPI", "SQLAlchemy", "PostgreSQL", "React", "Docker",
     "Pytest", "Java", "JavaScript", "TypeScript", "Django", "Flask",
-    "Kubernetes", "Git", "AWS", "Azure", "Node.js", "Node", "C++", "SQL",
+    "Kubernetes", "Git", "AWS", "AWS S3", "Azure", "Node.js", "Node", "C++", "C#", "C", "SQL",
     "HTML", "CSS", "MongoDB", "Jenkins", "Terraform", "DynamoDB", "Redis",
     "Lambda", "API Gateway", "S3", "EC2", "GraphQL", "REST API", "Linux",
     "GitLab", "CI/CD", "GCP", "Go", "Spring Boot", "Express", "Vue",
     "Angular", "Next.js", "Tailwind", "Kafka", "Elasticsearch", "RabbitMQ",
-    "Rust", "C#", ".NET", "Redux", "Pandas", "NumPy", "Scikit-learn",
+    "Rust", ".NET", "Redux", "Pandas", "NumPy", "Scikit-learn",
     "TensorFlow", "PyTorch", "Bash", "Shell", "MySQL", "SQLite", "Oracle",
     "Embedded Systems", "PLC Programming", "PLC", "IoT",
+    "Postman", "Agile", "SDLC", "OOP", "DSA", "Software Testing", "Debugging",
+    "ETL", "ELT", "Data Pipelines", "Data Cleaning", "Data Validation", "Batch Processing",
+    "Data Warehousing", "Data Lakes", "Apache Spark", "PySpark", "Hadoop",
+    "Apache Airflow", "Airflow", "Dagster", "Parquet", "CSV", "Avro",
 )
 
 LANGUAGES = (
@@ -62,28 +66,42 @@ DEGREES = tuple(
 )
 
 SECTION_ALIASES = {
-    "contact": {"contact", "contact information", "personal info", "personal details"},
-    "summary": {"summary", "profile", "objective", "professional summary", "about me", "executive summary"},
-    "skills": {"skills", "technical skills", "core skills", "core competencies", "skills & tools", "technologies", "key skills", "preferred skills", "preferred qualifications", "desired skills", "nice to have", "keywords"},
-    "requirements": {"requirements", "required skills", "job requirements", "prerequisites", "qualifications", "basic qualifications"},
+    "contact": {"contact", "contact information", "personal info", "personal details", "contact details", "address", "location", "personal profile"},
+    "summary": {"summary", "profile", "objective", "professional summary", "about me", "executive summary", "career objective", "career summary", "overview"},
+    "skills": {
+        "skills", "technical skills", "technical skill", "core skills", "core competencies", "skills & tools",
+        "skills and tools", "technologies", "key skills", "preferred skills", "preferred qualifications",
+        "desired skills", "nice to have", "keywords", "technical expertise", "technical proficiencies", "core technical skills",
+    },
+    "requirements": {"requirements", "required skills", "job requirements", "prerequisites", "qualifications", "basic qualifications", "mandatory skills", "must have"},
     "experience": {
         "experience", "work experience", "professional experience", "work history",
         "employment", "employment history", "career history", "relevant experience",
-        "internship", "internships", "internship experience",
-        "intership", "interships",
+        "internship", "internships", "internship experience", "intership", "interships",
+        "experience / internship", "experience/internship", "work experience & internships",
+        "work experience and internships", "work history & experience", "practical experience",
     },
-    "education": {"education", "academic background", "academic qualifications", "education & qualifications"},
-    "projects": {"projects", "project experience", "project details", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
-
+    "education": {
+        "education", "academic background", "academic qualifications", "educational qualifications",
+        "education & qualifications", "education and qualifications", "academic profile", "qualifications & education",
+    },
+    "projects": {
+        "projects", "project experience", "project details", "personal projects",
+        "key projects", "academic projects", "selected projects", "technical projects",
+        "projects & experience", "projects and experience", "major projects", "featured projects",
+    },
     "certifications": {
         "certifications", "certificates", "licenses", "certifications & licenses",
         "licenses & certifications", "trainings", "training & certifications",
-        "courses", "workshops", "online courses",
+        "courses", "workshops", "online courses", "courses & certifications",
+        "courses and certifications", "training and certifications", "credentials",
+        "certifications & training", "certifications and training",
     },
     "awards": {"awards", "honors", "achievements", "awards & honors", "awards & achievements"},
     "publications": {"publications", "research publications", "papers"},
     "languages": {"languages", "language proficiency", "languages known"},
     "responsibilities": {"responsibilities", "key responsibilities", "duties", "job responsibilities", "role responsibilities"},
+    "soft_skills": {"soft skills", "interpersonal skills", "personal skills", "professional skills", "soft skills & strengths"},
     "benefits": {"benefits", "what we offer"},
 }
 
@@ -127,6 +145,17 @@ def reconstruct_layout_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def _normalize_heading_line(line: str) -> str:
+    cleaned = clean_unicode(line)
+    # Strip leading numbers, bullets, markdown, decorative symbols
+    cleaned = re.sub(r"^\s*[-*#•►▸▶·‣⁃◆○●✦✧★☆✱*\d.)\s]+", "", cleaned)
+    # Strip trailing colons, dashes, em-dashes, slashes, pipes, underscores
+    cleaned = re.sub(r"[:\s_=\-–—|/\u2010-\u2015]+$", "", cleaned)
+    cleaned = cleaned.strip().lower()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
 def segment_sections(text: str) -> dict[str, str]:
     """Split normalized text hierarchically at known section headings."""
     reconstructed_text = reconstruct_layout_text(text)
@@ -143,14 +172,16 @@ def segment_sections(text: str) -> dict[str, str]:
         if not line:
             continue
 
-        clean_heading = re.sub(r"^[#*•\s-]+", "", line)
-        clean_heading = re.sub(r"[:\s_=-]+$", "", clean_heading).strip().lower()
-
+        clean_heading = _normalize_heading_line(line)
         matched_section = alias_map.get(clean_heading)
 
-        if not matched_section:
+        if not matched_section and clean_heading:
+            clean_spaced = re.sub(r"[/&|]", " ", clean_heading)
+            clean_spaced = re.sub(r"\s+", " ", clean_spaced).strip()
+            matched_section = alias_map.get(clean_spaced)
+
+        if not matched_section and clean_heading:
             heading_words = len(clean_heading.split())
-            # Only attempt fuzzy heading matching if line is short (<= 6 words) and doesn't look like a standard descriptive sentence
             if heading_words <= 6:
                 for alias, canonical in alias_map.items():
                     alias_words = len(alias.split())
@@ -163,7 +194,6 @@ def segment_sections(text: str) -> dict[str, str]:
             current = matched_section
             sections.setdefault(current, [])
         elif matched_section and matched_section == current:
-            # Same section re-triggered — treat as content, not a heading
             sections.setdefault(current, []).append(line)
         else:
             sections.setdefault(current, []).append(line)

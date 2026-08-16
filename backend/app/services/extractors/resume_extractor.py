@@ -111,15 +111,22 @@ class ResumeExtractor:
 
     @staticmethod
     def _candidate_name(lines: list[str]) -> str | None:
-        from app.services.pipeline.extraction_pipeline import SECTION_ALIASES
+        from app.services.pipeline.extraction_pipeline import SECTION_ALIASES, EMAIL_PATTERN, PHONE_PATTERN, URL_PATTERN
         all_headings = {alias for aliases in SECTION_ALIASES.values() for alias in aliases}
-        for line in lines[:5]:
-            if re.search(r"[@\d:/]|http", line):
+        for line in lines[:8]:
+            line_no_contact = EMAIL_PATTERN.sub("", line)
+            line_no_contact = PHONE_PATTERN.sub("", line_no_contact)
+            line_no_contact = URL_PATTERN.sub("", line_no_contact)
+            candidate_part = re.split(r"\s*[|•·-]\s*", line_no_contact)[0].strip()
+            if not candidate_part or re.search(r"[@\d:]", candidate_part):
                 continue
-            words = line.split()
-            if 1 <= len(words) <= 5:
-                clean = re.sub(r"[^\w\s.-]", "", line).strip()
-                if not clean or clean.casefold() in all_headings:
+            words = candidate_part.split()
+            if 1 <= len(words) <= 4:
+                clean = re.sub(r"[^\w\s.-]", "", candidate_part).strip()
+                clean_lower = clean.casefold()
+                if not clean or clean_lower in all_headings or any(alias in clean_lower for alias in all_headings):
+                    continue
+                if any(kw in clean_lower for kw in ("resume", "curriculum", "vitae", "profile", "contact", "address", "phone", "email", "github", "linkedin")):
                     continue
                 if not match_terms(clean, DESIGNATIONS):
                     return clean[:255]
@@ -357,6 +364,8 @@ class ResumeExtractor:
                     current["description_lines"].append(line)
                     current["responsibilities"].append(line)
             elif title_val or extracted_company or dur_val or is_intern:
+                from app.services.pipeline.normalization_rules import parse_duration_months
+                dur_months = parse_duration_months(dur_val) or parse_duration_months(line)
                 current = cls._new_experience_item(
                     company=extracted_company,
                     designation=title_val,
@@ -364,6 +373,7 @@ class ResumeExtractor:
                     start_date=start_date,
                     end_date=end_date,
                     duration=dur_val,
+                    duration_months=dur_months,
                 )
 
         if current and (current.get("designation") or current.get("title")):
@@ -372,7 +382,6 @@ class ResumeExtractor:
             elif not current.get("description"):
                 current["description"] = " ".join(filter(None, [current.get("company"), current.get("designation"), current.get("duration")]))
             items.append(cls._format_experience_item(current))
-
 
         return items
 
@@ -384,6 +393,7 @@ class ResumeExtractor:
         start_date: str | None,
         end_date: str | None,
         duration: str | None,
+        duration_months: int | None = None,
     ) -> dict[str, Any]:
         return {
             "company": company[:255] if company else None,
@@ -393,6 +403,7 @@ class ResumeExtractor:
             "start_date": start_date,
             "end_date": end_date,
             "duration": duration,
+            "duration_months": duration_months,
             "description": "",
             "description_lines": [],
             "responsibilities": [],

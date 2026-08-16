@@ -99,6 +99,10 @@ class ExtractionService:
                             error_type=type(exc).__name__,
                         )
                     extracted = merge_resume_extractions(deterministic, ai_extracted)
+                else:
+                    deterministic = ResumeExtractor().extract(parsed.normalized_text)
+                    from app.services.extractors.resume_merge import merge_resume_extractions
+                    extracted = merge_resume_extractions(deterministic, extracted)
                 await self.extraction_repository.create_or_update_resume(
                     ExtractedResumeCreate(document_id=document_id, **extracted),
                     commit=False, refresh=False,

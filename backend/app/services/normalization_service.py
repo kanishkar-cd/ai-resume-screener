@@ -73,15 +73,25 @@ class NormalizationService:
                 document=document, refresh=False,
             )
             if document.document_type == DocumentTypeEnum.RESUME:
-                affinda_values = (getattr(extracted, "raw_metadata", {}) or {}).get(
-                    "affinda_normalized_profile"
-                )
+                raw_meta = getattr(extracted, "raw_metadata", {}) or {}
+                affinda_values = raw_meta.get("affinda_normalized_profile")
+                if affinda_values and affinda_values.get("ruleset_version") != RULESET_VERSION:
+                    logger.info(
+                        "[NORMALIZE] Stale affinda_normalized_profile ruleset_version detected",
+                        document_id=str(document_id),
+                        cached_version=affinda_values.get("ruleset_version"),
+                        current_version=RULESET_VERSION,
+                    )
+                    affinda_values = None
                 values = affinda_values or ResumeNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_resume(
                     NormalizedResumeCreate(document_id=document_id, extracted_resume_id=extracted.id, **values),
                     commit=False, refresh=False,
                 )
             elif document.document_type == DocumentTypeEnum.JOB_DESCRIPTION:
+                if not getattr(extracted, "required_skills", None) and hasattr(self, "extraction_service") and self.extraction_service:
+                    await self.extraction_service.extract_document(document_id)
+                    extracted = await self._get_extracted(document)
                 values = JobDescriptionNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_job_description(
                     NormalizedJobDescriptionCreate(document_id=document_id, extracted_job_description_id=extracted.id, **values),

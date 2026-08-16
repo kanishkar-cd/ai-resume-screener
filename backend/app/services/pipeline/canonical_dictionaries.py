@@ -1,22 +1,26 @@
-RULESET_VERSION = "1.0.0"
+RULESET_VERSION = "1.3.0"
 
 SKILL_ALIASES = {
     "py": "Python", "python": "Python", "python3": "Python",
     "postgres": "PostgreSQL", "postgresql": "PostgreSQL",
-    "fastapi": "FastAPI", "sqlalchemy": "SQLAlchemy", "sql": "SQL",
+    "fastapi": "FastAPI", "sqlalchemy": "SQLAlchemy", "sql": "SQL", "sql server": "SQL Server",
     "nodejs": "Node.js", "node.js": "Node.js", "reactjs": "React", "react": "React",
     "js": "JavaScript", "javascript": "JavaScript", "ts": "TypeScript", "typescript": "TypeScript",
     "docker": "Docker", "k8s": "Kubernetes", "kubernetes": "Kubernetes",
     "aws": "AWS", "aws cloud": "AWS", "azure": "Azure", "gcp": "GCP", "google cloud": "GCP",
-    "java": "Java", "c++": "C++", "c#": "C#", "net": ".NET", ".net": ".NET",
+    "java": "Java", "c++": "C++", "cpp": "C++", "c#": "C#", "c": "C", "net": ".NET", ".net": ".NET",
     "html": "HTML", "html5": "HTML", "css": "CSS", "css3": "CSS",
     "mongodb": "MongoDB", "mongo": "MongoDB", "jenkins": "Jenkins",
     "terraform": "Terraform", "dynamodb": "DynamoDB", "redis": "Redis",
     "lambda": "AWS Lambda", "aws lambda": "AWS Lambda",
     "api gateway": "AWS API Gateway", "aws api gateway": "AWS API Gateway",
-    "s3": "AWS S3", "aws s3": "AWS S3", "ec2": "AWS EC2", "aws ec2": "AWS EC2",
-    "graphql": "GraphQL", "rest": "REST API", "rest api": "REST API", "restful": "REST API",
-    "linux": "Linux", "unix": "Linux", "gitlab": "GitLab", "ci/cd": "CI/CD", "cicd": "CI/CD",
+    "s3": "AWS S3", "aws s3": "AWS S3", "amazon s3": "AWS S3", "ec2": "AWS EC2", "aws ec2": "AWS EC2",
+    "graphql": "GraphQL",
+    "rest": "REST API", "rest api": "REST API", "rest apis": "REST API",
+    "restful": "REST API", "restful api": "REST API", "restful apis": "REST API",
+    "json": "JSON", "xml": "XML",
+    "linux": "Linux", "unix": "Linux", "git": "Git", "github": "GitHub", "gitlab": "GitLab",
+    "ci/cd": "CI/CD", "cicd": "CI/CD",
     "golang": "Go", "go": "Go", "spring": "Spring Boot", "spring boot": "Spring Boot",
     "express": "Express", "express.js": "Express", "vue": "Vue", "vue.js": "Vue",
     "angular": "Angular", "angularjs": "Angular", "nextjs": "Next.js", "next.js": "Next.js",
@@ -27,6 +31,23 @@ SKILL_ALIASES = {
     "tensorflow": "TensorFlow", "pytorch": "PyTorch", "pytest": "Pytest",
     "bash": "Bash", "shell": "Shell", "mysql": "MySQL", "sqlite": "SQLite", "oracle": "Oracle",
     "embedded systems": "Embedded Systems", "plc programming": "PLC Programming", "plc": "PLC Programming", "iot": "IoT",
+    "postman": "Postman", "agile": "Agile", "sdlc": "SDLC", "software development life cycle": "SDLC",
+    # Compound canonical skill phrases that must NOT be fragmented by splitting on "and"
+    "data structures and algorithms": "Data Structures and Algorithms",
+    "dsa": "Data Structures and Algorithms",
+    "data structures & algorithms": "Data Structures and Algorithms",
+    "object-oriented programming": "Object-Oriented Programming",
+    "object oriented programming": "Object-Oriented Programming",
+    "oop": "Object-Oriented Programming",
+    "software testing": "Software Testing",
+    "debugging": "Debugging",
+    "software testing and debugging": "Software Testing",  # split handled separately
+    "etl": "ETL", "elt": "ELT", "data pipelines": "Data Pipelines", "data pipeline": "Data Pipelines",
+    "data cleaning": "Data Cleaning", "data validation": "Data Validation", "batch processing": "Batch Processing",
+    "data warehousing": "Data Warehousing", "data lakes": "Data Lakes",
+    "apache spark": "Apache Spark", "pyspark": "PySpark", "spark": "Apache Spark", "hadoop": "Hadoop",
+    "apache airflow": "Apache Airflow", "airflow": "Apache Airflow", "dagster": "Dagster",
+    "parquet": "Parquet", "csv": "CSV", "avro": "Avro",
 }
 
 DEGREE_ALIASES = {

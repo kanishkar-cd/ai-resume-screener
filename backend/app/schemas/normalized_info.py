@@ -112,8 +112,14 @@ class NormalizedJobDescriptionCreate(BaseModel):
     document_id: UUID
     extracted_job_description_id: UUID
     skills: list[str] = Field(default_factory=list)
+    job_title: str | None = Field(default=None, max_length=255)
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
     degree_requirements: list[str] = Field(default_factory=list)
+    education_disciplines: list[str] = Field(default_factory=list)
     experience_requirements: list[CanonicalExperienceRequirement] = Field(default_factory=list)
+    responsibilities: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
     domain: str | None = Field(default=None, max_length=255)
     keywords: list[str] = Field(default_factory=list)
     normalization_metadata: NormalizationMetadata

@@ -42,11 +42,18 @@ class RequirementBuilder:
     def build(job: Any, config: Any = None) -> list[Requirement]:
         rows: list[tuple[RequirementKind, str, bool, bool]] = []
         mandatory = {_key(value) for value in (getattr(config, "mandatory_skills", None) or [])}
-        preferred = {_key(value) for value in (getattr(job, "preferred_skills", None) or [])}
-        req_skills = getattr(job, "required_skills", None) or getattr(job, "skills", None) or []
+        req_skills = list(getattr(job, "required_skills", None) or [])
+        pref_skills = list(getattr(job, "preferred_skills", None) or [])
+        req_keys = {_key(v) for v in req_skills}
+
         for value in req_skills:
             key = _key(value)
-            rows.append((RequirementKind.SKILL, value, key not in preferred, key in mandatory))
+            rows.append((RequirementKind.SKILL, value, True, key in mandatory))
+
+        for value in pref_skills:
+            key = _key(value)
+            if key not in req_keys:
+                rows.append((RequirementKind.SKILL, value, False, False))
         for value in getattr(job, "degree_requirements", None) or []:
             rows.append((RequirementKind.DEGREE, value, True, False))
         for value in [

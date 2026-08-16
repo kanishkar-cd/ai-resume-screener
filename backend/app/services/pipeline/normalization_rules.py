@@ -288,6 +288,22 @@ def format_duration(months: int | None) -> str | None:
     return " ".join(parts) or "0 months"
 
 
+def parse_duration_months(value: str | None) -> int | None:
+    if not value or not isinstance(value, str):
+        return None
+    match = re.search(r"(?i)\b(\d+)(?:\.(\d+))?\s*(yrs?|years?|mos?|months?)\b", value)
+    if not match:
+        return None
+    whole = int(match.group(1))
+    frac = int(match.group(2)) if match.group(2) else 0
+    unit = match.group(3).casefold()
+    if unit.startswith(("yr", "year")):
+        months = whole * 12 + (6 if frac == 5 else frac)
+    else:
+        months = whole
+    return months if months > 0 else None
+
+
 def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
     if not value:
         return None

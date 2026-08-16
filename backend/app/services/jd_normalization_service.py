@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from time import perf_counter
+from typing import Sequence
 from uuid import UUID
 
 import structlog
@@ -33,7 +34,7 @@ from app.services.jd_extraction_service import ExtractedJDNotFoundException
 
 logger = structlog.get_logger(__name__)
 
-RULESET_VERSION = "1.0"
+from app.services.pipeline.canonical_dictionaries import RULESET_VERSION
 
 # ─── Degree canonicalization map ────────────────────────────────────────────
 
@@ -152,6 +153,204 @@ def _stable_casefold(values: list[str]) -> list[str]:
     return result
 
 
+# ─── JD skill-phrase normalisation helpers ──────────────────────────────────
+
+# Strip qualifier prefixes from JD bullet text before skill lookup.
+# Handles both standalone verb phrases AND adjective-prefixed ones, e.g.:
+#   "Strong programming fundamentals in Java"  → "Java"
+#   "Familiarity with Git and GitHub"           → "Git and GitHub"
+#   "Basic SQL and database concepts"           → "SQL and database concepts"
+#   "Hands-on experience with Docker"           → "Docker"
+_PHRASE_FILLER_LEADERS = re.compile(
+    r"^"
+    # Optional leading adjective
+    r"(?:(?:strong|solid|deep|basic|general|good|working)\s+)?"
+    # Optional "programming" modifier (e.g. "programming fundamentals in")
+    r"(?:programming\s+)?"
+    # Verb / noun phrase — all common JD qualification phrases
+    r"(?:"
+    r"fundamentals?(?:\s+(?:in|of))?|"  # fundamentals in X / fundamentals of X
+    r"exposure\s+to|"
+    r"knowledge\s+of|"
+    r"understanding\s+of|"
+    r"familiarity\s+with|"
+    r"experience\s+(?:in|with)|"
+    r"proficiency\s+in|"
+    r"hands[-\s]on\s+(?:experience\s+)?(?:in|with)?|"
+    r"ability\s+to"
+    r")\s+",
+    re.I,
+)
+# Strip qualifier suffixes that add no skill meaning
+_PHRASE_FILLER_TRAILERS = re.compile(
+    r"\s+(?:concepts?|fundamentals?|programming|and\s+related\s+tools?|experience|knowledge|tools?)$",
+    re.I,
+)
+# Items that are clearly requirement prose, not skill labels
+_NON_SKILL_PATTERNS = re.compile(
+    r"\b(?:"
+    r"candidates?|graduates?|years?\s+of|experience\s+required|encouraged|willingness|"
+    r"apply|teamwork|communication|analytical|problem[-\s]solving|focus|selection|"
+    r"relevant|exposure|academic|personal|or\s+equivalent|requirements?\s+(?:configured|listed)|"
+    r"another|any\s+(?:other|similar)|similar|equivalent"
+    r")\b",
+    re.I,
+)
+# Single generic words that add no matching value as standalone skills
+_GENERIC_SINGLE_WORDS = frozenset({
+    "ability", "communication", "teamwork", "focus", "selection",
+    "relevant", "exposure", "academic", "personal", "another",
+    "framework", "technology", "tool", "language", "system", "method",
+})
+
+
+def _atomize_skill_phrase(
+    phrase: str,
+    skill_aliases: dict[str, str],
+    skills_vocab: frozenset[str],
+) -> list[str]:
+    """
+    Convert a verbose JD skill phrase to one or more atomic canonical skill tokens.
+
+    Algorithm (generalizable — NO hardcoded JD content):
+
+    1. Direct alias lookup on the cleaned phrase.
+    2. Strip qualifier leaders ("Strong programming fundamentals in", "Familiarity with", …)
+       and trailer noise ("concepts", "experience", …).
+    3. Direct alias lookup on the stripped form.
+    4. Scan SKILL_ALIASES for whole-word embedded tokens (longest-first).
+       Return immediately if any found — preserves compound phrases like
+       "Data Structures and Algorithms" that are whole alias keys.
+    5. Scan SKILLS_VOCABULARY for whole-word embedded tokens (longest-first).
+       Return immediately if any found.
+    6. Only if steps 1-5 produced nothing: split on " or " / " and " and recurse
+       on each part (handles "MySQL or PostgreSQL", "Git and GitHub").
+    7. Fallback: return stripped phrase if short (≤ 50 chars) and not noise.
+    """
+    cleaned = re.sub(r"\s+", " ", phrase).strip()
+    if not cleaned:
+        return []
+    key = cleaned.casefold()
+
+    # 1. Direct alias lookup
+    if key in skill_aliases:
+        return [skill_aliases[key]]
+
+    # 2. Strip qualifier leaders/trailers
+    stripped = _PHRASE_FILLER_LEADERS.sub("", cleaned).strip()
+    stripped = _PHRASE_FILLER_TRAILERS.sub("", stripped).strip()
+    # Also strip leading prepositions that the leaders may leave behind
+    stripped = re.sub(r"^(?:in|of|with|for)\s+", "", stripped, flags=re.I).strip()
+    stripped_key = stripped.casefold()
+
+    # 3. Stripped alias lookup
+    if stripped_key in skill_aliases:
+        return [skill_aliases[stripped_key]]
+
+    # 4. Scan SKILL_ALIASES: longest-match first so compound keys beat fragments.
+    #    Important: this step runs BEFORE splitting on "and"/"or" so that
+    #    "Data Structures and Algorithms" is matched as one unit, not split.
+    found: list[str] = []
+    found_keys: set[str] = set()
+    lower_stripped = stripped_key
+    for alias_key in sorted(skill_aliases, key=len, reverse=True):
+        pattern = r"(?<![\w+#])" + re.escape(alias_key) + r"(?![\w+#])"
+        if re.search(pattern, lower_stripped, re.I):
+            canonical = skill_aliases[alias_key]
+            ck = canonical.casefold()
+            if ck not in found_keys:
+                found_keys.add(ck)
+                found.append(canonical)
+    if found:
+        return found
+
+    # 5. Scan SKILLS_VOCABULARY: longest-match first (same reasoning as step 4).
+    for vocab_token in sorted(skills_vocab, key=len, reverse=True):
+        vk = vocab_token.casefold()
+        pattern = r"(?<![\w+#])" + re.escape(vk) + r"(?![\w+#])"
+        if re.search(pattern, lower_stripped, re.I):
+            canonical = skill_aliases.get(vk, vocab_token)
+            ck = canonical.casefold()
+            if ck not in found_keys:
+                found_keys.add(ck)
+                found.append(canonical)
+    if found:
+        return found
+
+    # 6. Split on " or " / " and " and recurse (only when steps 1-5 gave nothing).
+    if re.search(r"\bor\b|\band\b", stripped, re.I):
+        parts = re.split(r"\s+(?:or|and)\s+", stripped, flags=re.I)
+        result: list[str] = []
+        seen_rk: set[str] = set()
+        for part in parts:
+            for s in _atomize_skill_phrase(part.strip(), skill_aliases, skills_vocab):
+                sk = s.casefold()
+                if sk not in seen_rk:
+                    seen_rk.add(sk)
+                    result.append(s)
+        if result:
+            return result
+
+    # 7. Fallback: return stripped phrase only when it looks like a real skill label.
+    if (
+        stripped
+        and len(stripped) <= 50
+        and not _NON_SKILL_PATTERNS.search(stripped)
+        and stripped.casefold() not in _GENERIC_SINGLE_WORDS
+    ):
+        return [stripped]
+    return []
+
+
+def _is_skill_item(item: str) -> bool:
+    """Return True only when the string looks like a genuine skill label, not prose."""
+    stripped = item.strip()
+    if len(stripped) < 2:
+        return False
+    # Long sentences are requirement prose, not skill labels
+    if len(stripped) > 70:
+        return False
+    # Phrases that read as requirement / HR prose
+    if _NON_SKILL_PATTERNS.search(stripped):
+        return False
+    # Single generic words that are not useful as standalone skills
+    if stripped.casefold() in _GENERIC_SINGLE_WORDS:
+        return False
+    return True
+
+
+def _normalize_skill_list(
+    raw: list[str],
+    skill_aliases: dict[str, str],
+    skills_vocab: frozenset[str],
+    *,
+    filter_noise: bool = False,
+) -> list[str]:
+    """
+    Convert a list of raw extracted JD skill entries to a clean list of atomic
+    canonical skill tokens, optionally filtering prose items first.
+
+    Args:
+        raw:          Raw list from extracted_job_descriptions.required_skills or preferred_skills.
+        skill_aliases: SKILL_ALIASES canonical map.
+        skills_vocab:  SKILLS_VOCABULARY frozenset.
+        filter_noise: When True, pre-filter items that are clearly non-skill prose
+                      (used for preferred_skills which often contains HR sentences).
+    """
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if filter_noise and not _is_skill_item(item):
+            continue
+        atoms = _atomize_skill_phrase(item, skill_aliases, skills_vocab)
+        for atom in atoms:
+            k = atom.casefold()
+            if k and k not in seen:
+                seen.add(k)
+                result.append(atom)
+    return result
+
+
 # ─── Exceptions ─────────────────────────────────────────────────────────────
 
 class DocumentNotNormalizableException(ConflictException):
@@ -205,8 +404,22 @@ class JDNormalizationService:
         warnings: list[str] = []
 
         # ── Skills ──────────────────────────────────────────────
-        required_skills = _stable_casefold(_safe_list(extracted, "required_skills"))
-        preferred_skills = _stable_casefold(_safe_list(extracted, "preferred_skills"))
+        from app.services.jd_extraction_service import SKILLS_VOCABULARY
+        from app.services.pipeline.canonical_dictionaries import SKILL_ALIASES
+
+        raw_required = _safe_list(extracted, "required_skills")
+        raw_preferred = _safe_list(extracted, "preferred_skills")
+        skills_vocab: frozenset[str] = frozenset(SKILLS_VOCABULARY)
+
+        # Atomize verbose skill phrases → canonical atomic skill tokens (generalizable)
+        required_skills = _normalize_skill_list(raw_required, SKILL_ALIASES, skills_vocab, filter_noise=False)
+        # For preferred_skills also filter prose noise (e.g. "Candidate Requirements", "fresh graduates are encouraged...")
+        preferred_skills = _normalize_skill_list(raw_preferred, SKILL_ALIASES, skills_vocab, filter_noise=True)
+
+        # Remove preferred items that duplicated required
+        req_keys = {s.casefold() for s in required_skills}
+        preferred_skills = [s for s in preferred_skills if s.casefold() not in req_keys]
+
         grouped_skills = [*required_skills, *preferred_skills]
         canonical_skills, skill_changes = _canonicalize_skills(grouped_skills or list(extracted.skills or []))
         changes.extend(skill_changes)
@@ -252,7 +465,12 @@ class JDNormalizationService:
             warnings.append("No experience requirements found in extracted data.")
 
         # ── Keywords ────────────────────────────────────────────
-        canonical_keywords = _canonicalize_keywords(extracted.keywords or [])
+        # Build keywords from the already-atomized technical skills, NOT the verbose
+        # extraction phrases. This ensures that project-evidence scoring uses meaningful
+        # technical tokens (e.g. "Java", "SQL") rather than verbose JD sentences.
+        canonical_keywords = list(dict.fromkeys(
+            ([job_title] if job_title else []) + required_skills + preferred_skills
+        ))
         responsibilities = [r.strip() for r in (extracted.responsibilities or []) if r.strip()]
         certifications = _stable_casefold(_safe_list(extracted, "certifications"))
         education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
