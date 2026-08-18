@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
+    RESEND_API_KEY: str | None = None
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+    ENABLE_ASSESSMENT_EMAILS: bool = True
+
+
 
     @field_validator("OCR_LANGUAGES", mode="before")
     @classmethod

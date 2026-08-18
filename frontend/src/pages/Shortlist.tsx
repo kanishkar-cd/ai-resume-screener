@@ -70,11 +70,12 @@ export default function Shortlist() {
     if (projectId) {
       try {
         const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
-        if (response?.data?.candidates) {
-          for (const item of response.data.candidates) {
+        if (response?.candidates) {
+          for (const item of response.candidates) {
             linksMap[item.candidate_id] = item.assessment_link
           }
         }
+
       } catch (err) {
         console.warn('Backend handoff warning:', err)
       }

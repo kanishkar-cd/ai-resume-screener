@@ -20,7 +20,10 @@ export default function Assessment() {
   const { state } = usePipeline()
 
   const activeDept = DEPARTMENTS.find((d) => d.id === state.activeDepartmentId) || DEPARTMENTS[0]
-  const reqRef = `REQ-2026-${activeDept.code}-042`
+  const reqRef = (state.selectedProject?.metadata_json as Record<string, any> | undefined)?.req_ref || `REQ-2026-${activeDept.code}`
+
+
+
   const reqTitle = state.selectedProject?.title || 'Senior Full-Stack Engineer Requisition'
 
   // Assessment candidates list from store or empty array

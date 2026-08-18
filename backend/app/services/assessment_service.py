@@ -12,6 +12,8 @@ from app.services.cd_recruit_service import CDRecruitService
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
 
+from app.services.email_service import EmailService
+
 logger = structlog.get_logger(__name__)
 
 
@@ -23,12 +25,15 @@ class AssessmentService:
         extractions: ExtractionRepository,
         scores: ScoringRepository | None = None,
         cd_recruit: CDRecruitService | None = None,
+        email_service: EmailService | None = None,
     ) -> None:
         self.projects = projects
         self.documents = documents
         self.extractions = extractions
         self.scores = scores
         self.cd_recruit = cd_recruit or CDRecruitService()
+        self.email_service = email_service or EmailService(settings=self.cd_recruit.settings)
+
 
     async def handoff_assessment(
         self,
@@ -192,11 +197,29 @@ class AssessmentService:
             )
 
 
+        # Dispatch assessment invitation emails
+        if getattr(self.cd_recruit.settings, "ENABLE_ASSESSMENT_EMAILS", True):
+            for item in items:
+                if item.assessment_link and item.email and item.email.strip():
+                    try:
+                        await self.email_service.send_assessment_invitation(
+                            candidate_name=item.candidate_name,
+                            candidate_email=item.email,
+                            assessment_link=item.assessment_link,
+                            requisition_ref=effective_req_ref,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[ASSESSMENT_EMAIL] delivery failed",
+                            error=str(exc),
+                        )
+
         logger.info(
             "[ASSESSMENT_HANDOFF] handoff completed successfully",
             project_id=str(project_id),
             total_invited=len(items),
         )
+
 
         return AssessmentHandoffData(
             project_id=project_id,

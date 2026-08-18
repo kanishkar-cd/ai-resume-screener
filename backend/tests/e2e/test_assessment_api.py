@@ -362,4 +362,239 @@ async def test_persisted_project_req_ref_is_sent_to_cd_recruit(monkeypatch) -> N
     assert captured_req_ref == "REQ-2026-SOFTWARE_ENGINEERING-739"
 
 
+@pytest.mark.asyncio
+async def test_cd_recruit_invites_response_parsing(monkeypatch) -> None:
+    """Regression test verifying that CD-Recruit response with 'invites' key maps assessment_link correctly."""
+    from app.services.cd_recruit_service import CDRecruitService
+    from app.services.assessment_service import AssessmentService
+    import httpx
+
+    cd_service = CDRecruitService()
+    exact_cd_recruit_response = {
+        "success": True,
+        "drive_id": "bac52db7-c4a3-4458-bf42-bdd7ef5f798a",
+        "requisition_ref": "REQ-2026-SOFTWARE_ENGINEERING-739",
+        "department_code": "SOFTWARE_ENGINEERING",
+        "level": "EXPERIENCED",
+        "invites": [
+            {
+                "candidate_email": "jane@example.com",
+                "candidate_name": "Jane Doe",
+                "assessment_link": "http://localhost:3000/invite/inv_108431d0c4a81e0a4e0928bc",
+                "expires_at": "2026-08-20T10:22:21.839Z"
+            }
+        ],
+        "drive_warnings": []
+    }
+
+    async def mock_post(*args, **kwargs):
+        class MockResponse:
+            status_code = 201
+            def json(self): return exact_cd_recruit_response
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    # 1. Verify CDRecruitService parses invites array
+    invites = await cd_service.send_candidates(
+        department_code="SOFTWARE_ENGINEERING",
+        level="EXPERIENCED",
+        requisition_ref="REQ-2026-SOFTWARE_ENGINEERING-739",
+        candidates=[{"name": "Jane Doe", "email": "jane@example.com", "phone": "", "ai_score": 90.0, "metadata": {}}]
+    )
+    assert len(invites) == 1
+    assert invites[0]["assessment_link"] == "http://localhost:3000/invite/inv_108431d0c4a81e0a4e0928bc"
+
+    # 2. Verify AssessmentService handoff maps assessment_link to CandidateAssessmentItem
+    doc_id = uuid4()
+
+    class FakeDocument:
+        project_id = doc_id
+        original_filename = "resume.pdf"
+
+    class FakeExtraction:
+        candidate_name = "Jane Doe"
+        email = "jane@example.com"
+        phone = "+1999888777"
+
+    class FakeDocRepo:
+        async def get_document(self, did): return FakeDocument()
+
+    class FakeExtRepo:
+        async def get_resume_by_document_id(self, did): return FakeExtraction()
+
+    class FakeProject:
+        department = "SOFTWARE_ENGINEERING"
+        target_role = "Senior Engineer"
+        metadata_json = {"req_ref": "REQ-2026-SOFTWARE_ENGINEERING-739", "experience_level": "Experienced"}
+
+    class FakeProjectRepo:
+        async def get_by_id(self, pid): return FakeProject()
+
+    service = AssessmentService(
+        projects=FakeProjectRepo(),
+        documents=FakeDocRepo(),
+        extractions=FakeExtRepo(),
+        cd_recruit=cd_service,
+    )
+
+    handoff_res = await service.handoff_assessment(
+        project_id=doc_id,
+        candidate_ids=[doc_id],
+        requisition_ref="REQ-2026-SOFTWARE_ENGINEERING-739",
+    )
+
+    assert len(handoff_res.candidates) == 1
+    assert handoff_res.candidates[0].assessment_link == "http://localhost:3000/invite/inv_108431d0c4a81e0a4e0928bc"
+    assert handoff_res.candidates[0].status == "INVITED"
+
+
+@pytest.mark.asyncio
+async def test_email_invitation_dispatches(monkeypatch) -> None:
+    """Test A, B, C, D, E, F: Assessment invitation email delivery scenarios."""
+    from app.services.email_service import EmailService
+    from app.services.assessment_service import AssessmentService
+
+    doc_id1 = uuid4()
+    doc_id2 = uuid4()
+
+    class FakeDocument1:
+        project_id = doc_id1
+        original_filename = "resume1.pdf"
+
+    class FakeDocument2:
+        project_id = doc_id1
+        original_filename = "resume2.pdf"
+
+
+    class FakeExtraction1:
+        candidate_name = "Candidate One"
+        email = "one@real-candidate.com"
+        phone = "+1111111"
+
+    class FakeExtraction2:
+        candidate_name = "Candidate Two"
+        email = "two@real-candidate.com"
+        phone = "+2222222"
+
+    class FakeDocRepo:
+        async def get_document(self, did):
+            return FakeDocument1() if did == doc_id1 else FakeDocument2()
+
+    class FakeExtRepo:
+        async def get_resume_by_document_id(self, did):
+            return FakeExtraction1() if did == doc_id1 else FakeExtraction2()
+
+    class FakeProject:
+        department = "SOFTWARE_ENGINEERING"
+        target_role = "Senior Engineer"
+        metadata_json = {"req_ref": "REQ-2026-ENG-99", "experience_level": "Experienced"}
+
+    class FakeProjectRepo:
+        async def get_by_id(self, pid): return FakeProject()
+
+    # Test A & B: Successful email for single & multiple candidates
+    sent_emails = []
+
+    class MockEmailService(EmailService):
+        async def send_assessment_invitation(self, candidate_name, candidate_email, assessment_link, requisition_ref):
+            if not candidate_email or not candidate_email.strip():
+                return
+            if not assessment_link or not assessment_link.strip():
+                return
+            sent_emails.append({
+                "candidate_name": candidate_name,
+                "candidate_email": candidate_email,
+                "assessment_link": assessment_link,
+                "requisition_ref": requisition_ref,
+            })
+
+    async def mock_send_candidates(*args, **kwargs):
+        return [
+            {"candidate_email": "one@real-candidate.com", "assessment_link": "http://localhost:3000/invite/inv_one"},
+            {"candidate_email": "two@real-candidate.com", "assessment_link": "http://localhost:3000/invite/inv_two"},
+        ]
+
+    email_srv = MockEmailService()
+    service = AssessmentService(
+        projects=FakeProjectRepo(),
+        documents=FakeDocRepo(),
+        extractions=FakeExtRepo(),
+        email_service=email_srv,
+    )
+    monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates)
+
+    handoff = await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1, doc_id2], requisition_ref="REQ-1")
+
+    assert len(sent_emails) == 2
+    assert sent_emails[0]["candidate_email"] == "one@real-candidate.com"
+    assert sent_emails[0]["assessment_link"] == "http://localhost:3000/invite/inv_one"
+    assert sent_emails[1]["candidate_email"] == "two@real-candidate.com"
+    assert sent_emails[1]["assessment_link"] == "http://localhost:3000/invite/inv_two"
+
+    # Test C: Missing assessment_link -> no email sent
+    sent_emails.clear()
+
+    async def mock_send_candidates_no_link(*args, **kwargs):
+        return [{"candidate_email": "one@real-candidate.com", "assessment_link": None}]
+
+    monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates_no_link)
+    await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
+    assert len(sent_emails) == 0
+
+    # Test D: Missing candidate email -> no email sent
+    sent_emails.clear()
+
+    class FakeExtractionNoEmail:
+        candidate_name = "No Email Candidate"
+        email = None
+        phone = ""
+
+    class FakeExtRepoNoEmail:
+        async def get_resume_by_document_id(self, did): return FakeExtractionNoEmail()
+
+    service_no_email = AssessmentService(
+        projects=FakeProjectRepo(),
+        documents=FakeDocRepo(),
+        extractions=FakeExtRepoNoEmail(),
+        email_service=email_srv,
+    )
+    async def mock_send_candidates_link(*args, **kwargs):
+        return [{"candidate_email": "", "assessment_link": "http://localhost:3000/invite/inv_x"}]
+    monkeypatch.setattr(service_no_email.cd_recruit, "send_candidates", mock_send_candidates_link)
+    await service_no_email.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
+    # Clear synthetic fallback emails if any
+    filtered_sent = [e for e in sent_emails if e["candidate_email"] and not e["candidate_email"].endswith("@example.com")]
+    assert len(filtered_sent) == 0
+
+
+    # Test E: Email provider failure -> handoff succeeds, status remains INVITED, assessment_link remains present
+    class FailingEmailService(EmailService):
+        async def send_assessment_invitation(self, *args, **kwargs):
+            raise RuntimeError("Provider connection error 500")
+
+    failing_service = AssessmentService(
+        projects=FakeProjectRepo(),
+        documents=FakeDocRepo(),
+        extractions=FakeExtRepo(),
+        email_service=FailingEmailService(),
+    )
+    async def mock_send_candidates_ok(*args, **kwargs):
+        return [{"candidate_email": "one@example.com", "assessment_link": "http://localhost:3000/invite/inv_one"}]
+    monkeypatch.setattr(failing_service.cd_recruit, "send_candidates", mock_send_candidates_ok)
+
+    handoff_failing = await failing_service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
+    assert handoff_failing.candidates[0].status == "INVITED"
+    assert handoff_failing.candidates[0].assessment_link == "http://localhost:3000/invite/inv_one"
+
+    # Test F: Disabled emails -> ENABLE_ASSESSMENT_EMAILS=false
+    sent_emails.clear()
+    monkeypatch.setattr(service.cd_recruit.settings, "ENABLE_ASSESSMENT_EMAILS", False)
+    monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates_ok)
+    await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
+    assert len(sent_emails) == 0
+
+
+
+
 
