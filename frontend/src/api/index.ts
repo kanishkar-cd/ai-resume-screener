@@ -4,6 +4,7 @@
  */
 import { apiRequest } from './client'
 import type {
+  AssessmentHandoffData,
   BatchResumeUpload,
   CandidateInsights,
   CandidateRanking,
@@ -187,6 +188,13 @@ export const api = {
 
   getInsights(documentId: string): Promise<CandidateInsights> {
     return apiRequest<CandidateInsights>(`/documents/${documentId}/insights`)
+  },
+
+  handoffAssessment(projectId: string, candidateIds: string[], requisitionRef: string): Promise<{ data: AssessmentHandoffData }> {
+    return apiRequest<{ data: AssessmentHandoffData }>(`/projects/${projectId}/assessment/handoff`, {
+      method: 'POST',
+      body: { candidate_ids: candidateIds, requisition_ref: requisitionRef },
+    })
   },
 
   async exportProjectData(projectId: string, format: 'csv' | 'excel' | 'json' | 'pdf'): Promise<Blob> {

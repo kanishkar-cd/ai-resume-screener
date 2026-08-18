@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     """Validated application configuration loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=BACKEND_ROOT / ".env",
+        env_file=(BACKEND_ROOT.parent / ".env", BACKEND_ROOT / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -66,17 +66,29 @@ class Settings(BaseSettings):
             ]
         return v
 
-    ENABLE_OCR_FALLBACK: bool = True
-    OCR_ENGINE: str = "paddleocr"
-    OCR_LANGUAGES: list[str] | str = Field(default_factory=lambda: ["en"])
+    STORAGE_DIR: Path = BACKEND_ROOT / "storage"
+    MAX_UPLOAD_SIZE_BYTES: int = 25 * 1024 * 1024
+    ALLOWED_RESUME_EXTENSIONS: list[str] = Field(
+        default_factory=lambda: [".pdf", ".docx"]
+    )
+    ALLOWED_RESUME_MIME_TYPES: list[str] = Field(
+        default_factory=lambda: [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ]
+    )
+
+    ENABLE_AI_INSIGHTS: bool = False
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_TIMEOUT_SECONDS: float = 5.0
+    GROQ_MAX_RETRIES: int = 1
+
+    ENABLE_OCR_FALLBACK: bool = False
+    OCR_ENGINE: str = "easyocr"
+    OCR_LANGUAGES: str | list[str] = Field(default_factory=lambda: ["en"])
     OCR_DPI: int = 200
 
-    GROQ_API_KEY: str | None = None
-    ENABLE_AI_RESUME_EXTRACTION: bool = False
-    ENABLE_AI_JD_EXTRACTION: bool = False
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
-    AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
 
     ENABLE_HYBRID_MATCHING: bool = True
     HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD: float = Field(default=0.80, ge=0, le=1)
@@ -90,6 +102,13 @@ class Settings(BaseSettings):
     AFFINDA_RESUME_DOCUMENT_TYPE_ID: str | None = None
     AFFINDA_JD_DOCUMENT_TYPE_ID: str | None = None
     AFFINDA_TIMEOUT_SECONDS: float = 240.0
+
+    CD_RECRUIT_BASE_URL: str = "http://localhost:3001"
+    CD_RECRUIT_API_KEY: str = "pk_live_7f9ec682b7da34e6b9d5fee8ad70be610c1b8d67647a1c99"
+    CD_RECRUIT_TIMEOUT_SECONDS: float = 15.0
+    CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
+    CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
+
 
     @field_validator("OCR_LANGUAGES", mode="before")
     @classmethod
@@ -105,42 +124,50 @@ class Settings(BaseSettings):
                 except Exception:
                     pass
             return [lang.strip() for lang in v_str.split(",") if lang.strip()]
+        if not v:
+            return ["en"]
         return v
-
-    @field_validator("DEBUG", mode="before")
-    @classmethod
-    def normalize_debug(cls, value: object) -> object:
-        """Normalize common build-mode values sometimes exported as DEBUG."""
-        if isinstance(value, str):
-            normalized = value.casefold()
-            if normalized in {"release", "production"}:
-                return False
-            if normalized in {"debug", "development"}:
-                return True
-        return value
 
     @property
     def ASYNC_DATABASE_URI(self) -> str:
-        """Build the SQLAlchemy async PostgreSQL connection URI."""
+        """Alias for sqlalchemy_database_uri used in async session engine."""
+        return self.sqlalchemy_database_uri
+
+    @property
+    def sqlalchemy_database_uri(self) -> str:
+
+        """Construct a validated SQLAlchemy connection URI."""
         if self.DATABASE_URL:
-            url = make_url(self.DATABASE_URL)
-            query = dict(url.query)
-            query.pop("channel_binding", None)
-            if query.pop("sslmode", None) == "require":
-                query["ssl"] = "require"
-            return url.set(
-                drivername="postgresql+asyncpg",
-                query=query,
-            ).render_as_string(hide_password=False)
-        user = quote_plus(self.POSTGRES_USER)
-        password = quote_plus(self.POSTGRES_PASSWORD)
+            raw_url = str(self.DATABASE_URL)
+            if raw_url.startswith("postgres://"):
+                raw_url = raw_url.replace("postgres://", "postgresql://", 1)
+            if raw_url.startswith("postgresql://"):
+                raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            parsed_url = make_url(raw_url)
+            query_dict = dict(parsed_url.query)
+            query_dict.pop("channel_binding", None)
+            if "sslmode" in query_dict:
+                ssl_val = query_dict.pop("sslmode")
+                if ssl_val and "ssl" not in query_dict:
+                    query_dict["ssl"] = ssl_val
+
+            if parsed_url.password:
+                encoded_password = quote_plus(parsed_url.password)
+                parsed_url = parsed_url._replace(password=encoded_password)
+
+            escaped_url = parsed_url._replace(query=query_dict)
+            return escaped_url.render_as_string(hide_password=False)
+
+
+
+        encoded_password = quote_plus(self.POSTGRES_PASSWORD)
         return (
-            f"postgresql+asyncpg://{user}:{password}@{self.POSTGRES_SERVER}:"
-            f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{encoded_password}"
+            f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return the process-wide immutable settings instance."""
+    """Cached settings singleton across requests."""
     return Settings()

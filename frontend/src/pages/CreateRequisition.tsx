@@ -101,7 +101,9 @@ export default function CreateRequisition() {
               department: proj.department,
               description: proj.description,
               status: proj.status,
+              metadata_json: proj.metadata_json,
               created_at: proj.created_at,
+
               updated_at: proj.updated_at,
             },
           })

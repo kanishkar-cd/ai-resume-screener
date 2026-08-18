@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
+import { api } from '@/api'
 
 export default function Shortlist() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -44,18 +45,49 @@ export default function Shortlist() {
     setSelectedForAssessment([])
   }
 
-  const handleSendToAssessment = () => {
+  const handleSendToAssessment = async () => {
     if (selectedForAssessment.length === 0) {
       alert('Please select at least one candidate to send to assessment.')
       return
     }
-    const reqRef = `REQ-2026-${activeDept.code}-042`
+    let reqRef = (state.selectedProject?.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
+    if (!reqRef && projectId) {
+      try {
+        const proj = await api.getProject(projectId)
+        reqRef = (proj.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
+      } catch (err) {
+        console.warn('Failed to fetch project details for requisition reference:', err)
+      }
+    }
+
+    if (!reqRef || !reqRef.trim()) {
+      alert('Requisition reference (req_ref) not found for this project. Cannot initiate assessment handoff.')
+      return
+    }
+
+    const linksMap: Record<string, string | null> = {}
+
+    if (projectId) {
+      try {
+        const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
+        if (response?.data?.candidates) {
+          for (const item of response.data.candidates) {
+            linksMap[item.candidate_id] = item.assessment_link
+          }
+        }
+      } catch (err) {
+        console.warn('Backend handoff warning:', err)
+      }
+    }
+
+
     dispatch({
       type: 'SEND_TO_ASSESSMENT',
-      payload: { candidateIds: selectedForAssessment, reqRef },
+      payload: { candidateIds: selectedForAssessment, reqRef, linksMap },
     })
     navigate(`/projects/${projectId}/assessment`)
   }
+
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">

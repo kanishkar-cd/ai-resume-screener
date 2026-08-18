@@ -195,47 +195,12 @@ export interface ResumeProcessingState {
   stage: DocumentProcessingStage | null
   normalized: boolean
   errorMessage?: string
-}
-
-// ─── Pipeline State ───────────────────────────────────────────
-export interface PipelineState {
-  currentStep: number
-  completedSteps: number[]
-  /** Backend project UUID from POST /projects (JD upload flow). */
-  projectId: string | null
-  selectedProject: {
-    id: string
-    title: string
-    target_role: string
-    department: string | null
-    description: string | null
-    status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
-    created_at: string
-    updated_at: string
-  } | null
-  /** Backend JD document UUID from POST /projects/{id}/job-description. */
-  jdDocumentId: string | null
-  /** Latest backend processing_status for the JD document. */
-  jdProcessingStatus: JdProcessingStatus | null
-  /** Latest backend processing_stage for the JD document. */
-  jdProcessingStage: JdProcessingStage | null
-  /** True only after POST /documents/{id}/normalize succeeds for the JD. */
-  jdNormalized: boolean
-  /** True after POST /projects/{id}/weight-config succeeds for the current weights. */
-  weightConfigSaved: boolean
-  /** Backend weight-config UUID from the last successful save. */
-  weightConfigId: string | null
-  /** Backend document UUIDs for successfully batch-uploaded resumes. */
-  resumeDocumentIds: string[]
-  /** Per-resume parse → extract → normalize tracking keyed by document id. */
-  resumeProcessing: Record<string, ResumeProcessingState>
-  /** True after POST /projects/{id}/score succeeds. */
-  scoringComplete: boolean
-  /** Last scoring API error message, if any. */
   extractedAt?: Date
   scoredAt?: Date
 }
 
+
+
 // ─── Pipeline State ───────────────────────────────────────────
 export interface PipelineState {
   currentStep: number
@@ -249,7 +214,9 @@ export interface PipelineState {
     department: string | null
     description: string | null
     status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+    metadata_json?: Record<string, any>
     created_at: string
+
     updated_at: string
   } | null
   /** Backend JD document UUID from POST /projects/{id}/job-description. */
@@ -343,7 +310,9 @@ export interface AssessmentCandidate {
   techScore?: number
   codingScore?: number
   overallResult?: 'PASSED' | 'UNDER_REVIEW' | 'FAILED'
+  assessmentLink?: string | null
 }
+
 
 export interface BreadcrumbItem {
   label: string

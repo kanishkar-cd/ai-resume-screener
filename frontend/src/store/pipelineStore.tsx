@@ -149,7 +149,14 @@ type Action =
   | { type: 'SET_DEPARTMENT_ID'; payload: string }
   | { type: 'TOGGLE_SHORTLIST_CANDIDATE'; payload: string }
   | { type: 'SET_SHORTLIST_CANDIDATES'; payload: string[] }
-  | { type: 'SEND_TO_ASSESSMENT'; payload: { candidateIds: string[]; reqRef: string } }
+  | {
+      type: 'SEND_TO_ASSESSMENT'
+      payload: {
+        candidateIds: string[]
+        reqRef: string
+        linksMap?: Record<string, string | null>
+      }
+    }
 
 function reducer(state: PipelineState, action: Action): PipelineState {
   switch (action.type) {
@@ -184,16 +191,21 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           techScore: Math.floor(75 + Math.random() * 20),
           codingScore: Math.floor(80 + Math.random() * 18),
           overallResult: 'PASSED' as const,
+          assessmentLink: action.payload.linksMap?.[cid] || null,
         }
       })
       const merged = [...existing]
       for (const item of newItems) {
-        if (!merged.some((m) => m.id === item.id)) {
+        const existingIdx = merged.findIndex((m) => m.id === item.id)
+        if (existingIdx >= 0) {
+          merged[existingIdx] = { ...merged[existingIdx], ...item }
+        } else {
           merged.push(item)
         }
       }
       return { ...state, assessmentCandidates: merged }
     }
+
     case 'RESET_PIPELINE':
       return { ...emptyState, weights: DEFAULT_WEIGHTS.map((weight) => ({ ...weight })) }
 

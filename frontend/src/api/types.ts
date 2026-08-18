@@ -592,6 +592,116 @@ export interface CandidateInsights {
   missing_skills: string[]
   score_explanation: string
   recommendation_reason: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectScoring {
+  project_id: string
+  total_evaluated: number
+  scores: CandidateScore[]
+}
+
+// ─── Ranking ──────────────────────────────────────────────────
+
+export interface CandidateRanking {
+  id: string
+  project_id: string
+  document_id: string
+  candidate_name: string
+  email: string | null
+  rank_position: number
+  percentile: number
+  final_score: number
+  recommendation: RecommendationLevel
+  confidence: number
+  is_knocked_out: boolean
+  knockout_reason: string | null
+  skills_score: number
+  experience_score: number
+  previous_rank: number | null
+  rank_change: number
+  created_at: string
+}
+
+export interface RankingComputation {
+  project_id: string
+  total_ranked: number
+  message: string
+}
+
+export interface RankingsQuery {
+  page?: number
+  page_size?: number
+  recommendation?: RecommendationLevel
+  min_score?: number
+  max_score?: number
+  is_knocked_out?: boolean
+  search?: string
+  sort_by?: RankingSortField
+  order?: SortOrder
+}
+
+// ─── Dashboard ────────────────────────────────────────────────
+
+export interface PipelineStageStatus {
+  total_candidates: number
+  candidates_ingested: number
+  candidates_parsed: number
+  candidates_extracted: number
+  candidates_normalized: number
+  candidates_scored: number
+  candidates_ranked: number
+}
+
+export interface SkillFrequencyItem {
+  skill_name: string
+  frequency_count: number
+  percentage: number
+}
+
+export interface ProjectAnalytics {
+  project_id: string
+  total_candidates: number
+  average_score: number
+  highest_score: number
+  lowest_score: number
+  average_confidence: number
+  recommendation_distribution: Record<string, number>
+  top_matched_skills: SkillFrequencyItem[]
+  top_missing_skills: SkillFrequencyItem[]
+  knocked_out_count: number
+  knocked_out_summary: Record<string, unknown>[]
+}
+
+export interface ProjectSummary {
+  project_id: string
+  project_title: string
+  target_role: string
+  total_candidates: number
+}
+
+export interface ProjectDashboard {
+  project_summary: ProjectSummary
+  pipeline_counts: PipelineStageStatus
+  analytics: ProjectAnalytics
+  top_candidates: Record<string, unknown>[]
+  pipeline_completion_percentage: number
+  processing_time_seconds: number
+  last_updated: string
+}
+
+export interface CandidateInsights {
+  id: string
+  document_id: string
+  project_id: string
+  summary: string
+  strengths: string[]
+  weaknesses: string[]
+  matched_skills: string[]
+  missing_skills: string[]
+  score_explanation: string
+  recommendation_reason: string
   improvement_suggestions: string[]
   created_at: string
   updated_at: string
@@ -605,4 +715,26 @@ export interface PipelineStatusResponse {
   resume_count: number
   stage_counts: Record<string, number>
   completion_percentage: number
+}
+
+// ─── Assessment Handoff ───────────────────────────────────────
+
+export interface AssessmentHandoffRequest {
+  candidate_ids: string[]
+  requisition_ref: string
+}
+
+export interface CandidateAssessmentItem {
+  candidate_id: string
+  candidate_name: string
+  email: string
+  assessment_link: string | null
+  status: string
+}
+
+export interface AssessmentHandoffData {
+  project_id: string
+  requisition_ref: string
+  total_invited: number
+  candidates: CandidateAssessmentItem[]
 }
