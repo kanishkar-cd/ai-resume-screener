@@ -1,6 +1,8 @@
+import asyncio
 from uuid import UUID, uuid4
 import httpx
 import pytest
+
 
 from app.api.v1.endpoints.assessment import get_assessment_service
 from app.main import app
@@ -525,6 +527,7 @@ async def test_email_invitation_dispatches(monkeypatch) -> None:
     monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates)
 
     handoff = await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1, doc_id2], requisition_ref="REQ-1")
+    await asyncio.sleep(0.1)
 
     assert len(sent_emails) == 2
     assert sent_emails[0]["candidate_email"] == "one@real-candidate.com"
@@ -540,7 +543,9 @@ async def test_email_invitation_dispatches(monkeypatch) -> None:
 
     monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates_no_link)
     await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
+    await asyncio.sleep(0.1)
     assert len(sent_emails) == 0
+
 
     # Test D: Missing candidate email -> no email sent
     sent_emails.clear()

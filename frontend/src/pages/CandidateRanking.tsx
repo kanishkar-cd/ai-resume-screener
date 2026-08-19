@@ -713,11 +713,12 @@ export default function CandidateRanking() {
                       const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
 
                       // Calculate AI relevance (50 marks max) from non-skill categories
-                      const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills')
+                      const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills' && s.isApplicable)
                       const avgNonSkill = nonSkillScores.length
                         ? nonSkillScores.reduce((acc, curr) => acc + curr.score, 0) / nonSkillScores.length
                         : candidate.overallScore
                       const aiRelevance50 = Math.round((avgNonSkill / 100) * 50)
+
 
                       return (
                         <motion.tr

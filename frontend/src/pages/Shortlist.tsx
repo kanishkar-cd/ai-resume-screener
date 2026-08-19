@@ -190,12 +190,8 @@ export default function Shortlist() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-[11px] font-bold text-slate-400 uppercase border-b border-slate-100">
-                  <th className="py-3 px-4 w-10 text-center">Select</th>
-                  <th className="py-3 px-4">Rank</th>
+                  <th className="py-3 px-4 w-12 text-center">Select</th>
                   <th className="py-3 px-4">Candidate</th>
-                  <th className="py-3 px-4 text-center">Merit Score</th>
-                  <th className="py-3 px-4 text-center">Recommendation</th>
-                  <th className="py-3 px-4">Key Strengths</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
@@ -216,48 +212,15 @@ export default function Shortlist() {
                           )}
                         </button>
                       </td>
-                      <td className="py-3.5 px-4 font-extrabold text-slate-900">
-                        #{c.rank}
-                      </td>
                       <td className="py-3.5 px-4">
                         <p className="font-bold text-slate-900">{c.name}</p>
                         <p className="text-[11px] text-slate-400 mt-0.5">{c.email}</p>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="inline-block px-3 py-1 bg-slate-900 text-white rounded-lg font-extrabold text-xs">
-                          {c.overallScore.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
-                            c.recommendation === 'SHORTLIST'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {c.recommendation || 'CONSIDER'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {(c.keyStrengths && c.keyStrengths.length > 0
-                            ? c.keyStrengths.slice(0, 2)
-                            : ['Technical Skills', 'Education']
-                          ).map((s, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-bold"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
+
             </table>
           </div>
         )}
