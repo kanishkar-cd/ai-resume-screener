@@ -68,7 +68,6 @@ class AffindaService:
                     data={
                         "workspace": self.settings.AFFINDA_WORKSPACE_ID,
                         "documentType": document_type,
-                        "wait": "true",
                         "compact": "true",
                         "enableValidationTool": "false",
                     },
@@ -105,6 +104,35 @@ class AffindaService:
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
             )
             raise AffindaError(f"Affinda returned HTTP {response.status_code}.")
+
+        # If document processing is asynchronous, poll GET /documents/{id} until ready
+        identifier = payload.get("identifier") or (payload.get("meta") or {}).get("identifier")
+        meta = payload.get("meta") or {}
+        if identifier and (not meta.get("ready") or not isinstance(payload.get("data"), dict)):
+            import asyncio
+            max_polls = 20
+            poll_count = 0
+            while poll_count < max_polls:
+                await asyncio.sleep(1.0)
+                poll_count += 1
+                try:
+                    async with httpx.AsyncClient(timeout=self.settings.AFFINDA_TIMEOUT_SECONDS) as client:
+                        get_resp = await client.get(
+                            f"{endpoint}/{identifier}",
+                            headers={"Authorization": f"Bearer {self.settings.AFFINDA_API_KEY}"},
+                        )
+                        if get_resp.status_code in {200, 201}:
+                            polled_payload = get_resp.json()
+                            if isinstance(polled_payload, dict):
+                                payload = polled_payload
+                                meta = payload.get("meta") or {}
+                                if meta.get("ready") and isinstance(payload.get("data"), dict):
+                                    break
+                                if meta.get("failed"):
+                                    break
+                except Exception:
+                    pass
+
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
             raise AffindaError("Affinda response did not contain structured data.")
         meta = payload.get("meta") or {}

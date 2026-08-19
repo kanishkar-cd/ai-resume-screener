@@ -103,23 +103,26 @@ export default function ResumeUpload() {
   useEffect(() => {
     const normalizedIds = state.resumeDocumentIds.filter((id) => state.resumeProcessing[id]?.normalized)
     if (!normalizedIds.length) return
+    const idsToFetch = normalizedIds.filter((id) => !profiles[id]?.normalized && !profiles[id]?.error)
+    if (!idsToFetch.length) return
     let active = true
     setProfiles((current) => {
       const next = { ...current }
-      normalizedIds.forEach((id) => { next[id] = { ...next[id], loading: true, error: undefined } })
+      idsToFetch.forEach((id) => { next[id] = { ...next[id], loading: true, error: undefined } })
       return next
     })
-    Promise.all(normalizedIds.map(async (id) => {
+    Promise.all(idsToFetch.map(async (id) => {
       try {
         const [normalized, extracted, document] = await Promise.all([api.getNormalizedDocument(id), api.getExtractedDocument(id).catch(() => null), api.getDocument(id)])
-        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null, document }] as const
-        return [id, { error: 'Normalized resume data was not returned.' }] as const
+        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null, document, loading: false }] as const
+        return [id, { error: 'Normalized resume data was not returned.', loading: false }] as const
       } catch (err) {
-        return [id, { error: errorMessage(err, 'Unable to load normalized candidate profile') }] as const
+        return [id, { error: errorMessage(err, 'Unable to load normalized candidate profile'), loading: false }] as const
       }
     })).then((entries) => { if (active) setProfiles((current) => ({ ...current, ...Object.fromEntries(entries) })) })
     return () => { active = false }
-  }, [normalizedCount, state.resumeDocumentIds, state.resumeProcessing])
+  }, [normalizedCount, state.resumeDocumentIds, state.resumeProcessing, profiles])
+
 
   const upsertProcessing = useCallback(
     (payload: ResumeProcessingState) => {
@@ -230,6 +233,29 @@ export default function ResumeUpload() {
           normalized: false,
         })
         const normalizeResult = await api.normalizeDocument(documentId)
+
+        // Fetch candidate profile data immediately to avoid trailing loading delay
+        try {
+          const [normalized, extracted, document] = await Promise.all([
+            api.getNormalizedDocument(documentId),
+            api.getExtractedDocument(documentId).catch(() => null),
+            api.getDocument(documentId),
+          ])
+          if ('job_titles' in normalized) {
+            setProfiles((current) => ({
+              ...current,
+              [documentId]: {
+                normalized,
+                extracted: extracted && 'candidate_name' in extracted ? extracted : null,
+                document,
+                loading: false,
+              },
+            }))
+          }
+        } catch {
+          // Failure handling will fallback to useEffect if needed
+        }
+
         upsertProcessing({
           documentId,
           phase: 'normalized',
@@ -242,6 +268,7 @@ export default function ResumeUpload() {
           statusLabel: undefined,
           errorMessage: undefined,
         })
+
       } catch (err) {
         const message = errorMessage(err, 'Resume processing failed')
         upsertProcessing({

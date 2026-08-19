@@ -653,13 +653,9 @@ class JDExtractionService:
             from app.services.affinda_service import AffindaError
 
             response = (document.metadata_json or {}).get("affinda_payload")
-            if not isinstance(response, dict):
-                path = self.storage.resolve_file(document.file_path)
-                if path is None:
-                    raise AffindaError("Stored document is unavailable.")
-                response = await self.affinda_service.parse_job_description(
-                    path, document.original_filename, document.mime_type
-                )
+            if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+                return None
+
             provider_meta = response.get("meta") or {}
             mapped = map_affinda_jd(
                 response["data"], provider_meta.get("identifier")

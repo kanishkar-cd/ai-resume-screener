@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,10 +12,35 @@ from app.schemas.assessment import AssessmentHandoffData, CandidateAssessmentIte
 from app.services.cd_recruit_service import CDRecruitService
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
-
 from app.services.email_service import EmailService
 
 logger = structlog.get_logger(__name__)
+
+
+async def _dispatch_emails_background(
+    email_service: EmailService,
+    items_to_email: list[dict[str, str]],
+    requisition_ref: str,
+) -> None:
+    """Send assessment invitation emails concurrently in the background."""
+    async def _send_one(item: dict[str, str]) -> None:
+        try:
+            await email_service.send_assessment_invitation(
+                candidate_name=item["candidate_name"],
+                candidate_email=item["email"],
+                assessment_link=item["assessment_link"],
+                requisition_ref=requisition_ref,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[ASSESSMENT_EMAIL] background delivery failed",
+                candidate_email=item.get("email"),
+                error=str(exc),
+            )
+
+    if items_to_email:
+        await asyncio.gather(*[_send_one(item) for item in items_to_email], return_exceptions=True)
+
 
 
 class AssessmentService:
@@ -197,22 +223,24 @@ class AssessmentService:
             )
 
 
-        # Dispatch assessment invitation emails
+        # Dispatch assessment invitation emails asynchronously in background task
         if getattr(self.cd_recruit.settings, "ENABLE_ASSESSMENT_EMAILS", True):
-            for item in items:
-                if item.assessment_link and item.email and item.email.strip():
-                    try:
-                        await self.email_service.send_assessment_invitation(
-                            candidate_name=item.candidate_name,
-                            candidate_email=item.email,
-                            assessment_link=item.assessment_link,
-                            requisition_ref=effective_req_ref,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "[ASSESSMENT_EMAIL] delivery failed",
-                            error=str(exc),
-                        )
+            items_to_email = [
+                {
+                    "candidate_name": item.candidate_name,
+                    "email": item.email,
+                    "assessment_link": item.assessment_link,
+                }
+                for item in items
+                if item.assessment_link and item.email and item.email.strip()
+            ]
+            if items_to_email:
+                asyncio.create_task(
+                    _dispatch_emails_background(
+                        self.email_service, items_to_email, effective_req_ref
+                    )
+                )
+
 
         logger.info(
             "[ASSESSMENT_HANDOFF] handoff completed successfully",
