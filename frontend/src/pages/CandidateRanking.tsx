@@ -49,7 +49,7 @@ function getRecommendationConfig(candidate: Candidate): {
   iconColor: string
   Icon: typeof CheckCircle2
 } {
-  if (candidate.status === 'rejected' || candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
+  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
     return {
       label: 'Not Relevant',
       shortLabel: 'Reject',
@@ -58,7 +58,7 @@ function getRecommendationConfig(candidate: Candidate): {
       Icon: ThumbsDown,
     }
   }
-  if (candidate.status === 'screened' || candidate.recommendation === 'SHORTLIST') {
+  if (candidate.recommendation === 'SHORTLIST') {
     return {
       label: 'Strong Match',
       shortLabel: 'Shortlist',
@@ -90,8 +90,7 @@ function getScoreBg(score: number) {
 
 function recommendationToStatus(recommendation: string, knockedOut: boolean): ScreeningStatus {
   if (knockedOut || recommendation === 'REJECT') return 'rejected'
-  if (recommendation === 'SHORTLIST') return 'screened'
-  return 'pending'
+  return 'screened'
 }
 
 // ─── Score Breakdown helpers (kept for drawer) ────────────────────────────────
@@ -802,7 +801,7 @@ export default function CandidateRanking() {
                                 updateStatus(candidate.id, e.target.value as ScreeningStatus)
                               }}
                             >
-                              <option value="screened">Shortlist</option>
+                              <option value="screened">Screened</option>
                               <option value="pending">Review</option>
                               <option value="rejected">Reject</option>
                             </select>

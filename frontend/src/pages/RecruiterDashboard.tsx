@@ -35,8 +35,7 @@ function getScoreClass(score: number) {
 
 function rankingToStatus(recommendation: string, isKnockedOut: boolean): ScreeningStatus {
   if (isKnockedOut || recommendation === 'REJECT') return 'rejected'
-  if (recommendation === 'SHORTLIST') return 'screened'
-  return 'pending'
+  return 'screened'
 }
 
 export default function RecruiterDashboard() {
@@ -299,8 +298,8 @@ export default function RecruiterDashboard() {
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <option value="screened">Screen</option>
-                          <option value="pending">Pending</option>
+                          <option value="screened">Screened</option>
+                          <option value="pending">Review</option>
                           <option value="rejected">Reject</option>
                         </select>
                       </td>
