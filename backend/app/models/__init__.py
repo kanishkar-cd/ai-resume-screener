@@ -10,6 +10,7 @@ from app.models.normalized_info import NormalizedResumeModel
 from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
 from app.models.project import ProjectModel, ProjectStatusEnum
+from app.models.weight_config import WeightConfigModel
 
 __all__ = [
     "DocumentModel",
@@ -23,4 +24,5 @@ __all__ = [
     "ProcessingStatusEnum",
     "ProjectModel",
     "ProjectStatusEnum",
+    "WeightConfigModel",
 ]

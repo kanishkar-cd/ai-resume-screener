@@ -11,6 +11,7 @@ from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
+from app.repositories.weight_config_repository import WeightConfigRepository
 from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem, ProjectScoringRead
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
@@ -58,17 +59,28 @@ class ScoringEngineFacade:
         self, projects: ProjectRepository, documents: DocumentRepository,
         normalizations: NormalizationRepository, extractions: ExtractionRepository,
         scores: ScoringRepository,
+        weights: WeightConfigRepository | None = None,
         hybrid_matching: HybridMatchingService | None = None,
     ) -> None:
         self.projects, self.documents = projects, documents
         self.normalizations, self.extractions = normalizations, extractions
         self.scores = scores
+        if weights is None and hasattr(scores, "session"):
+            self.weights = WeightConfigRepository(scores.session)
+        else:
+            self.weights = weights
         self.components = ComponentScoringService()
         self.hybrid_matching = hybrid_matching or HybridMatchingService()
 
     async def score_project(self, project_id: UUID) -> ProjectScoringRead:
         logger.info("[SCORE] scoring started", project_id=str(project_id))
         job = await self._load_project_context(project_id)
+        weight_config = None
+        if self.weights is not None:
+            try:
+                weight_config = await self.weights.get_by_project_id(project_id)
+            except Exception as exc:
+                logger.warning("weight_config_load_failed", project_id=str(project_id), error=str(exc))
         try:
             resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
         except SQLAlchemyError as exc:
@@ -94,6 +106,7 @@ class ScoringEngineFacade:
                 document, job,
                 resume=norm_map.get(document.id),
                 extracted=ext_map.get(document.id),
+                weight_config=weight_config,
             )
             for document in resumes
         ]
@@ -110,7 +123,13 @@ class ScoringEngineFacade:
         if document.project_id != project_id: raise DocumentProjectMismatchException()
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentProjectMismatchException("Only project resumes can be scored.")
-        return await self._score(document, job)
+        weight_config = None
+        if self.weights is not None:
+            try:
+                weight_config = await self.weights.get_by_project_id(project_id)
+            except Exception:
+                weight_config = None
+        return await self._score(document, job, weight_config=weight_config)
 
     async def get_project_scores(self, project_id: UUID) -> list[CandidateScoreRead]:
         await self._verify_project(project_id)
@@ -140,6 +159,7 @@ class ScoringEngineFacade:
     async def _score(
         self, document: DocumentModel, job: Any,
         resume: Any = None, extracted: Any = None,
+        weight_config: Any = None,
     ) -> CandidateScoreRead:
         try:
             if resume is None:
@@ -181,7 +201,12 @@ class ScoringEngineFacade:
                 components=components, applicable_categories=applicable_categories
             )
             confidence = ConfidenceService.calculate(extracted)
-            passing_score = 70.0
+            if weight_config is None and self.weights is not None:
+                try:
+                    weight_config = await self.weights.get_by_project_id(document.project_id)
+                except Exception:
+                    weight_config = None
+            passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
             component_values = {
                 name: getattr(components, name).score

@@ -11,6 +11,7 @@ from app.db.mixins import TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.ranking import CandidateRankingModel
+    from app.models.weight_config import WeightConfigModel
 
 
 class ProjectStatusEnum(str, enum.Enum):
@@ -53,4 +54,7 @@ class ProjectModel(UUIDMixin, TimestampMixin, Base):
     )
     rankings: Mapped[list["CandidateRankingModel"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
+    )
+    weight_config: Mapped["WeightConfigModel | None"] = relationship(
+        "WeightConfigModel", back_populates="project", cascade="all, delete-orphan", uselist=False
     )
