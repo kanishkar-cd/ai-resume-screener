@@ -75,11 +75,15 @@ export default function Shortlist() {
             linksMap[item.candidate_id] = item.assessment_link
           }
         }
-
+        const freshProj = await api.getProject(projectId).catch(() => null)
+        if (freshProj) {
+          dispatch({ type: 'SELECT_PROJECT', payload: freshProj })
+        }
       } catch (err) {
         console.warn('Backend handoff warning:', err)
       }
     }
+
 
 
     dispatch({

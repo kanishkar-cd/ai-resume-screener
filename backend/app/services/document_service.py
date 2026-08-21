@@ -28,6 +28,7 @@ from app.schemas.document import (
     SortOrder,
 )
 from app.services.project_service import ProjectNotFoundException
+from app.services.redis_service import RedisService
 from app.services.storage_service import StorageService
 from app.utils.file_validation import validate_batch, validate_file
 
@@ -70,10 +71,13 @@ class DocumentService:
         repository: DocumentRepository,
         project_repository: ProjectRepository,
         storage: StorageService,
+        redis: RedisService | None = None,
     ) -> None:
         self.repository = repository
         self.project_repository = project_repository
         self.storage = storage
+        self.redis = redis or RedisService()
+
 
     async def upload_document(
         self,

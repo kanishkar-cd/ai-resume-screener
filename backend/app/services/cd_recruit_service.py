@@ -75,12 +75,22 @@ class CDRecruitService:
                         body=response.text,
                     )
                     raise CDRecruitException(
-                        f"CD-Recruit endpoint returned status {response.status_code}: {response.text}"
+                        f"CD-Recruit endpoint ({url}) returned status {response.status_code}: {response.text}"
                     )
                 data = response.json()
+        except httpx.TimeoutException as exc:
+            logger.error(
+                "[CD-RECRUIT] request timeout connecting to CD-Recruit partner service",
+                url=url,
+                timeout_seconds=self.settings.CD_RECRUIT_TIMEOUT_SECONDS,
+                error=str(exc),
+            )
+            raise CDRecruitException(
+                f"Timed out after {self.settings.CD_RECRUIT_TIMEOUT_SECONDS}s connecting to CD-Recruit service at {url}."
+            ) from exc
         except httpx.HTTPError as exc:
-            logger.exception("[CD-RECRUIT] connection error", error=str(exc))
-            raise CDRecruitException("Failed to connect to CD-Recruit service.") from exc
+            logger.error("[CD-RECRUIT] connection error connecting to CD-Recruit partner service", url=url, error=str(exc))
+            raise CDRecruitException(f"Failed to connect to CD-Recruit service at {url}: {exc}") from exc
         except CDRecruitException:
             raise
         except Exception as exc:

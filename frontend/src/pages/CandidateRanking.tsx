@@ -264,14 +264,11 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
               </div>
             </div>
 
-            {/* Recommendation banner */}
-            {recConfig && (
-              <div className={`px-6 py-3 flex items-center gap-2.5 border-b text-[12px] font-bold ${recConfig.cls}`}>
-                <recConfig.Icon size={14} className={recConfig.iconColor} />
-                <span>{recConfig.label} — {recConfig.shortLabel}</span>
-                <span className="ml-auto font-normal text-[11px] opacity-70">Rank #{candidate.rank}</span>
-              </div>
-            )}
+            {/* Rank subheader */}
+            <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
+              <span>Rank #{candidate.rank}</span>
+            </div>
+
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
@@ -523,10 +520,29 @@ export default function CandidateRanking() {
     let active = true
     setRankingsLoading(true)
     const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { skills: 50, experience: 0, projects: 50, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
-    Promise.all([api.getRankings(state.projectId, { page_size: 100 }), api.getProjectScores(state.projectId)])
-      .then(([response, scores]) => {
+
+    const loadData = async () => {
+      try {
+        let [response, scores] = await Promise.all([
+          api.getRankings(state.projectId!, { page_size: 100 }),
+          api.getProjectScores(state.projectId!),
+        ])
+
+        if ((!response.items || response.items.length === 0) && active) {
+          try {
+            await api.scoreProject(state.projectId!)
+            await api.rankProject(state.projectId!)
+            ;[response, scores] = await Promise.all([
+              api.getRankings(state.projectId!, { page_size: 100 }),
+              api.getProjectScores(state.projectId!),
+            ])
+          } catch {
+            // Ignore if project has no candidates or missing JD
+          }
+        }
+
         if (active) {
-          const freshMapped = mapRankings(response.items, scores, dummyConfig)
+          const freshMapped = mapRankings(response.items || [], scores || [], dummyConfig)
           const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
           const merged = freshMapped.map((c) => {
             const overrideStatus = existingStatusMap.get(c.id)
@@ -535,14 +551,19 @@ export default function CandidateRanking() {
           dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
           setFetchError(null)
         }
-      })
-      .catch((err) => {
-        if (!active) return
-        setFetchError(err instanceof Error ? err.message : 'Failed to fetch candidate rankings.')
-      })
-      .finally(() => { if (active) setRankingsLoading(false) })
+      } catch (err) {
+        if (active) {
+          setFetchError(err instanceof Error ? err.message : 'Failed to fetch candidate rankings.')
+        }
+      } finally {
+        if (active) setRankingsLoading(false)
+      }
+    }
+
+    loadData()
     return () => { active = false }
   }, [dispatch, mapRankings, state.projectId])
+
 
   // Derived data
   const filtered = candidates
@@ -697,7 +718,6 @@ export default function CandidateRanking() {
                     <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">Rank</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-28">Final Score</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recommendation</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Skill Match</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">AI Relevance</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-24">Action</th>
@@ -707,7 +727,6 @@ export default function CandidateRanking() {
                 <tbody className="divide-y divide-slate-50">
                   <AnimatePresence>
                     {filtered.map((candidate, idx) => {
-                      const rec = getRecommendationConfig(candidate)
                       const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
                       const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
 
@@ -770,13 +789,6 @@ export default function CandidateRanking() {
                             </span>
                           </td>
 
-                          {/* Recommendation */}
-                          <td className="px-4 py-3.5">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold ${rec.cls}`}>
-                              <rec.Icon size={11} className={rec.iconColor} />
-                              {rec.label}
-                            </span>
-                          </td>
 
                           {/* Skill Match Score (50 Marks) */}
                           <td className="px-4 py-3.5 text-center">

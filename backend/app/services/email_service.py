@@ -1,5 +1,7 @@
-from typing import Any
-import httpx
+import asyncio
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import structlog
 
 from app.core.config import Settings, get_settings
@@ -20,10 +22,95 @@ def mask_email(email: str) -> str:
 
 
 class EmailService:
-    """Service for dispatching transactional emails via Resend HTTP API."""
+    """Service for dispatching transactional emails via Python standard library smtplib."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+
+    async def send_email(
+        self,
+        to_email: str,
+        subject: str,
+        body_text: str,
+        body_html: str | None = None,
+    ) -> bool:
+        """Send an email using Python's built-in smtplib with optional STARTTLS."""
+        if not getattr(self.settings, "ENABLE_ASSESSMENT_EMAILS", True):
+            logger.info(
+                "[EMAIL_SERVICE] email delivery disabled by configuration",
+                to_email=mask_email(to_email),
+            )
+            return False
+
+        smtp_host = getattr(self.settings, "SMTP_HOST", None)
+        if not smtp_host or not smtp_host.strip():
+            logger.warning(
+                "[EMAIL_SERVICE] SMTP_HOST is not configured; skipping email delivery",
+                to_email=mask_email(to_email),
+            )
+            return False
+
+        from_email = getattr(self.settings, "SMTP_FROM_EMAIL", "kanishkar@clouddestinations.com")
+        if not from_email or not from_email.strip():
+            from_email = "kanishkar@clouddestinations.com"
+
+        if not to_email or not to_email.strip():
+            logger.warning("[EMAIL_SERVICE] missing recipient email address; skipping delivery")
+            return False
+
+        smtp_port = int(getattr(self.settings, "SMTP_PORT", 587))
+        smtp_username = getattr(self.settings, "SMTP_USERNAME", None)
+        smtp_password = getattr(self.settings, "SMTP_PASSWORD", None)
+        use_tls = bool(getattr(self.settings, "SMTP_USE_TLS", True))
+
+        msg = MIMEMultipart("alternative")
+        msg["From"] = from_email.strip()
+        msg["To"] = to_email.strip()
+        msg["Subject"] = subject
+
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        if body_html:
+            msg.attach(MIMEText(body_html, "html", "utf-8"))
+
+        def _send_sync() -> None:
+            with smtplib.SMTP(host=smtp_host.strip(), port=smtp_port, timeout=10) as server:
+                if use_tls:
+                    server.starttls()
+                if smtp_username and smtp_password:
+                    server.login(smtp_username.strip(), smtp_password)
+                server.send_message(msg)
+
+        logger.info(
+            "[EMAIL_SERVICE] dispatching email via SMTP",
+            to_email=mask_email(to_email),
+            from_email=mask_email(from_email),
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            use_tls=use_tls,
+        )
+
+        try:
+            await asyncio.to_thread(_send_sync)
+            logger.info(
+                "[EMAIL_SERVICE] email sent successfully via SMTP",
+                to_email=mask_email(to_email),
+            )
+            return True
+        except smtplib.SMTPException as exc:
+            logger.warning(
+                "[EMAIL_SERVICE] SMTP protocol error during email delivery",
+                to_email=mask_email(to_email),
+                smtp_host=smtp_host,
+                error=str(exc),
+            )
+            raise
+        except Exception as exc:
+            logger.warning(
+                "[EMAIL_SERVICE] exception during SMTP email delivery",
+                to_email=mask_email(to_email),
+                error=str(exc),
+            )
+            raise
 
     async def send_assessment_invitation(
         self,
@@ -32,26 +119,10 @@ class EmailService:
         assessment_link: str,
         requisition_ref: str,
     ) -> None:
-        if not self.settings.ENABLE_ASSESSMENT_EMAILS:
-            logger.info(
-                "[ASSESSMENT_EMAIL] assessment email delivery disabled by configuration",
-                candidate_email=mask_email(candidate_email),
-            )
-            return
-
-        api_key = self.settings.RESEND_API_KEY
-        if not api_key:
-            logger.warning(
-                "[ASSESSMENT_EMAIL] RESEND_API_KEY is not configured; skipping email delivery",
-                candidate_email=mask_email(candidate_email),
-            )
-            return
-
+        """Send a technical assessment invitation email to candidate."""
         if not candidate_email or not candidate_email.strip():
             logger.warning("[ASSESSMENT_EMAIL] missing candidate email address; skipping delivery")
             return
-
-
 
         if not assessment_link or not assessment_link.strip():
             logger.warning(
@@ -61,8 +132,7 @@ class EmailService:
             return
 
         subject = f"Action Required: Technical Assessment Invitation ({requisition_ref})"
-        
-        # HTML template
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -103,7 +173,6 @@ class EmailService:
         </html>
         """
 
-        # Plain text template fallback
         text_content = (
             f"Dear {candidate_name},\n\n"
             f"You have been invited to complete a technical assessment for requisition {requisition_ref}.\n\n"
@@ -112,44 +181,9 @@ class EmailService:
             f"Thank you,\nRecruitment Team"
         )
 
-        payload = {
-            "from": self.settings.RESEND_FROM_EMAIL,
-            "to": [candidate_email.strip()],
-            "subject": subject,
-            "html": html_content,
-            "text": text_content,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-        logger.info(
-            "[ASSESSMENT_EMAIL] dispatching assessment email",
-            candidate_email=mask_email(candidate_email),
-            requisition_ref=requisition_ref,
+        await self.send_email(
+            to_email=candidate_email,
+            subject=subject,
+            body_text=text_content,
+            body_html=html_content,
         )
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post("https://api.resend.com/emails", json=payload, headers=headers)
-                if resp.status_code >= 400:
-                    logger.warning(
-                        "[ASSESSMENT_EMAIL] resend api returned error status",
-                        status_code=resp.status_code,
-                        candidate_email=mask_email(candidate_email),
-                    )
-                    raise RuntimeError(f"Resend API error status {resp.status_code}: {resp.text}")
-                logger.info(
-                    "[ASSESSMENT_EMAIL] assessment email sent successfully",
-                    candidate_email=mask_email(candidate_email),
-                    status_code=resp.status_code,
-                )
-        except Exception as exc:
-            logger.warning(
-                "[ASSESSMENT_EMAIL] email delivery exception",
-                candidate_email=mask_email(candidate_email),
-                error=str(exc),
-            )
-            raise

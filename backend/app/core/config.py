@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres_password"
     POSTGRES_DB: str = "resume_screener_db"
     DATABASE_URL: str | None = None
+
+    # Redis settings for ephemeral caching and pipeline progress state
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str | None = None
+    REDIS_DB: int = 0
+    REDIS_URL: str | None = None
+    REDIS_ENABLED: bool = True
+    REDIS_CACHE_TTL_SECONDS: int = 300
+
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
@@ -109,9 +119,15 @@ class Settings(BaseSettings):
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
-    RESEND_API_KEY: str | None = None
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+    # SMTP Email Configuration
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "kanishkar@clouddestinations.com"
     ENABLE_ASSESSMENT_EMAILS: bool = True
+
 
 
 

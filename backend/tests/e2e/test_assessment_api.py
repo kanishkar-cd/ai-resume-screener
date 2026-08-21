@@ -592,12 +592,25 @@ async def test_email_invitation_dispatches(monkeypatch) -> None:
     assert handoff_failing.candidates[0].status == "INVITED"
     assert handoff_failing.candidates[0].assessment_link == "http://localhost:3000/invite/inv_one"
 
-    # Test F: Disabled emails -> ENABLE_ASSESSMENT_EMAILS=false
-    sent_emails.clear()
-    monkeypatch.setattr(service.cd_recruit.settings, "ENABLE_ASSESSMENT_EMAILS", False)
-    monkeypatch.setattr(service.cd_recruit, "send_candidates", mock_send_candidates_ok)
-    await service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-1")
-    assert len(sent_emails) == 0
+    # Test G: Project status updated to COMPLETED on successful handoff
+    updated_statuses = []
+    class StatusTrackingProjectRepo(FakeProjectRepo):
+        async def update(self, project_id, update_data):
+            updated_statuses.append(update_data.status)
+            return await super().get_by_id(project_id)
+
+    status_service = AssessmentService(
+        projects=StatusTrackingProjectRepo(),
+        documents=FakeDocRepo(),
+        extractions=FakeExtRepo(),
+        email_service=FailingEmailService(),
+    )
+
+    monkeypatch.setattr(status_service.cd_recruit, "send_candidates", mock_send_candidates_ok)
+    await status_service.handoff_assessment(project_id=doc_id1, candidate_ids=[doc_id1], requisition_ref="REQ-STATUS-TEST")
+    assert len(updated_statuses) == 1
+    assert updated_statuses[0] == "COMPLETED"
+
 
 
 

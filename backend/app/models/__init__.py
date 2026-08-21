@@ -11,6 +11,8 @@ from app.models.normalized_job_description import NormalizedJDModel
 from app.models.parsed_document import ParsedDocumentModel
 from app.models.project import ProjectModel, ProjectStatusEnum
 from app.models.weight_config import WeightConfigModel
+from app.models.ranking import CandidateRankingModel
+from app.models.scoring import CandidateScoreModel
 
 __all__ = [
     "DocumentModel",
@@ -25,4 +27,6 @@ __all__ = [
     "ProjectModel",
     "ProjectStatusEnum",
     "WeightConfigModel",
+    "CandidateRankingModel",
+    "CandidateScoreModel",
 ]

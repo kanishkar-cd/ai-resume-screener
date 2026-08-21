@@ -12,7 +12,9 @@ from app.schemas.assessment import AssessmentHandoffData, CandidateAssessmentIte
 from app.services.cd_recruit_service import CDRecruitService
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
+from app.schemas.project import ProjectStatus, ProjectUpdate
 from app.services.email_service import EmailService
+
 
 logger = structlog.get_logger(__name__)
 
@@ -240,6 +242,15 @@ class AssessmentService:
                         self.email_service, items_to_email, effective_req_ref
                     )
                 )
+
+
+        # Update project status to COMPLETED upon successful assessment handoff
+        if items and hasattr(self.projects, "update"):
+            update_res = self.projects.update(
+                project_id, ProjectUpdate(status=ProjectStatus.COMPLETED)
+            )
+            if asyncio.iscoroutine(update_res):
+                await update_res
 
 
         logger.info(
