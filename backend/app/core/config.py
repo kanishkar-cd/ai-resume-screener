@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str | None = None
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
     ENABLE_ASSESSMENT_EMAILS: bool = True
+    MAX_CONCURRENT_EMAILS: int = Field(default=5, ge=1, le=50)
+    MAX_EMAIL_RETRIES: int = Field(default=3, ge=0, le=10)
+    EMAIL_RETRY_BASE_DELAY: float = Field(default=2.0, ge=0.1, le=60.0)
 
 
 

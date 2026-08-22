@@ -3,7 +3,7 @@ from uuid import UUID
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exceptions import AppException, InternalServerException
+from app.core.exceptions import AppException, InternalServerException, ValidationException
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.project_repository import ProjectRepository
@@ -21,22 +21,26 @@ async def _dispatch_emails_background(
     email_service: EmailService,
     items_to_email: list[dict[str, str]],
     requisition_ref: str,
+    max_concurrency: int = 5,
 ) -> None:
-    """Send assessment invitation emails concurrently in the background."""
+    """Send assessment invitation emails in the background with bounded concurrency."""
+    semaphore = asyncio.Semaphore(max(1, int(max_concurrency)))
+
     async def _send_one(item: dict[str, str]) -> None:
-        try:
-            await email_service.send_assessment_invitation(
-                candidate_name=item["candidate_name"],
-                candidate_email=item["email"],
-                assessment_link=item["assessment_link"],
-                requisition_ref=requisition_ref,
-            )
-        except Exception as exc:
-            logger.warning(
-                "[ASSESSMENT_EMAIL] background delivery failed",
-                candidate_email=item.get("email"),
-                error=str(exc),
-            )
+        async with semaphore:
+            try:
+                await email_service.send_assessment_invitation(
+                    candidate_name=item["candidate_name"],
+                    candidate_email=item["email"],
+                    assessment_link=item["assessment_link"],
+                    requisition_ref=requisition_ref,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[ASSESSMENT_EMAIL] background delivery failed",
+                    candidate_email=item.get("email"),
+                    error=str(exc),
+                )
 
     if items_to_email:
         await asyncio.gather(*[_send_one(item) for item in items_to_email], return_exceptions=True)
@@ -123,7 +127,7 @@ class AssessmentService:
         persisted_req_ref = meta.get("req_ref") if isinstance(meta, dict) else None
         effective_req_ref = str(persisted_req_ref or requisition_ref or "").strip()
         if not effective_req_ref:
-            raise BadRequestException("Requisition reference (req_ref) is required.")
+            raise ValidationException("Requisition reference (req_ref) is required.")
 
         candidate_payloads = []
         candidate_meta_map = {}
@@ -155,7 +159,18 @@ class AssessmentService:
             orig_filename = getattr(document, "original_filename", None) or f"document_{str(doc_id)[:8]}.pdf"
 
             c_name = getattr(extracted, "candidate_name", None) if extracted else None
-            candidate_name = c_name or orig_filename or f"Candidate {str(doc_id)[:8]}"
+            generic_titles = {
+                "resume", "resumes", "curriculum vitae", "curriculum-vitae", "curriculum_vitae",
+                "cv", "biodata", "bio-data", "bio_data", "profile", "applicant", "candidate", "candidate profile",
+            }
+            if c_name and c_name.strip() and c_name.strip().casefold() not in generic_titles:
+                candidate_name = c_name.strip()
+            else:
+                stem = orig_filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
+                if stem and stem.casefold() not in generic_titles and not stem.lower().startswith("document_"):
+                    candidate_name = stem
+                else:
+                    candidate_name = f"Candidate {str(doc_id)[:8]}"
 
             c_email = getattr(extracted, "email", None) if extracted else None
             email = c_email or f"candidate_{str(doc_id)[:8]}@example.com"
@@ -235,9 +250,15 @@ class AssessmentService:
                 if item.assessment_link and item.email and item.email.strip()
             ]
             if items_to_email:
+                max_concurrency = int(
+                    getattr(self.email_service.settings, "MAX_CONCURRENT_EMAILS", 5)
+                )
                 asyncio.create_task(
                     _dispatch_emails_background(
-                        self.email_service, items_to_email, effective_req_ref
+                        self.email_service,
+                        items_to_email,
+                        effective_req_ref,
+                        max_concurrency=max_concurrency,
                     )
                 )
 

@@ -109,17 +109,34 @@ class ResumeExtractor:
         cleaned_email = re.sub(r"(?i)(?:www\.|https?://|linkedin\.com|github\.com).*", "", matched).strip(" ,.;:()")
         return cleaned_email or matched
 
-    @staticmethod
-    def _candidate_name(lines: list[str]) -> str | None:
+    GENERIC_DOCUMENT_TITLES = {
+        "resume",
+        "resumes",
+        "curriculum vitae",
+        "curriculum-vitae",
+        "curriculum_vitae",
+        "cv",
+        "biodata",
+        "bio-data",
+        "bio_data",
+        "profile",
+        "applicant",
+        "candidate",
+        "candidate profile",
+    }
+
+    @classmethod
+    def _candidate_name(cls, lines: list[str]) -> str | None:
         from app.services.pipeline.extraction_pipeline import SECTION_ALIASES
         all_headings = {alias for aliases in SECTION_ALIASES.values() for alias in aliases}
-        for line in lines[:5]:
+        for line in lines[:8]:
             if re.search(r"[@\d:/]|http", line):
                 continue
             words = line.split()
             if 1 <= len(words) <= 5:
                 clean = re.sub(r"[^\w\s.-]", "", line).strip()
-                if not clean or clean.casefold() in all_headings:
+                normalized = clean.casefold()
+                if not clean or normalized in all_headings or normalized in cls.GENERIC_DOCUMENT_TITLES:
                     continue
                 if not match_terms(clean, DESIGNATIONS):
                     return clean[:255]
