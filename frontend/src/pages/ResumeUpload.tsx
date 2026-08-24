@@ -101,27 +101,64 @@ export default function ResumeUpload() {
   }, [refreshResumes, state.projectId])
 
   useEffect(() => {
-    const normalizedIds = state.resumeDocumentIds.filter((id) => state.resumeProcessing[id]?.normalized)
-    if (!normalizedIds.length) return
-    const idsToFetch = normalizedIds.filter((id) => !profiles[id]?.normalized && !profiles[id]?.error)
+    // Only fetch profiles for normalized documents that are not already present in profiles state
+    const idsToFetch = state.resumeDocumentIds.filter(
+      (id) => state.resumeProcessing[id]?.normalized && !profiles[id]?.normalized && !profiles[id]?.error
+    )
     if (!idsToFetch.length) return
     let active = true
-    setProfiles((current) => {
-      const next = { ...current }
-      idsToFetch.forEach((id) => { next[id] = { ...next[id], loading: true, error: undefined } })
-      return next
-    })
-    Promise.all(idsToFetch.map(async (id) => {
-      try {
-        const [normalized, extracted, document] = await Promise.all([api.getNormalizedDocument(id), api.getExtractedDocument(id).catch(() => null), api.getDocument(id)])
-        if ('job_titles' in normalized) return [id, { normalized, extracted: extracted && 'candidate_name' in extracted ? extracted : null, document, loading: false }] as const
-        return [id, { error: 'Normalized resume data was not returned.', loading: false }] as const
-      } catch (err) {
-        return [id, { error: errorMessage(err, 'Unable to load normalized candidate profile'), loading: false }] as const
+
+    Promise.all(
+      idsToFetch.map(async (id) => {
+        try {
+          const [normalizedRes, extractedRes, documentRes] = await Promise.all([
+            api.getNormalizedDocument(id),
+            api.getExtractedDocument(id).catch(() => null),
+            api.getDocument(id).catch(() => null),
+          ])
+          const normalized = (normalizedRes && 'data' in normalizedRes) ? (normalizedRes as any).data : normalizedRes
+          const extracted = (extractedRes && 'data' in extractedRes) ? (extractedRes as any).data : extractedRes
+          const document = (documentRes && 'data' in documentRes) ? (documentRes as any).data : documentRes
+
+          if (normalized && typeof normalized === 'object' && 'job_titles' in normalized) {
+            return [
+              id,
+              {
+                normalized,
+                extracted: extracted && typeof extracted === 'object' && 'candidate_name' in extracted ? extracted : null,
+                document,
+                loading: false,
+              },
+            ] as const
+          }
+          return null
+        } catch {
+          return null
+        }
+      })
+    ).then((entries) => {
+      if (active) {
+        setProfiles((current) => {
+          const next = { ...current }
+          for (const entry of entries) {
+            if (entry) {
+              const [id, val] = entry
+              // Never overwrite an existing normalized profile
+              if (!next[id]?.normalized) {
+                next[id] = val as any
+              }
+            }
+          }
+          return next
+        })
       }
-    })).then((entries) => { if (active) setProfiles((current) => ({ ...current, ...Object.fromEntries(entries) })) })
-    return () => { active = false }
+    })
+    return () => {
+      active = false
+    }
   }, [normalizedCount, state.resumeDocumentIds, state.resumeProcessing, profiles])
+
+
 
 
   const upsertProcessing = useCallback(
@@ -234,27 +271,35 @@ export default function ResumeUpload() {
         })
         const normalizeResult = await api.normalizeDocument(documentId)
 
-        // Fetch candidate profile data immediately to avoid trailing loading delay
+        // Fetch complete candidate profile data directly after normalization completes
         try {
           const [normalized, extracted, document] = await Promise.all([
             api.getNormalizedDocument(documentId),
             api.getExtractedDocument(documentId).catch(() => null),
             api.getDocument(documentId),
           ])
-          if ('job_titles' in normalized) {
-            setProfiles((current) => ({
-              ...current,
-              [documentId]: {
-                normalized,
-                extracted: extracted && 'candidate_name' in extracted ? extracted : null,
-                document,
-                loading: false,
-              },
-            }))
-          }
-        } catch {
-          // Failure handling will fallback to useEffect if needed
+          setProfiles((current) => ({
+            ...current,
+            [documentId]: {
+              normalized: normalized as any,
+              extracted: extracted as any,
+              document: document as any,
+              loading: false,
+              error: undefined,
+            },
+          }))
+        } catch (err) {
+          setProfiles((current) => ({
+            ...current,
+            [documentId]: {
+              error: errorMessage(err, 'Unable to load candidate profile'),
+              loading: false,
+            },
+          }))
         }
+
+
+
 
         upsertProcessing({
           documentId,
@@ -445,25 +490,13 @@ export default function ResumeUpload() {
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
 
-  const [isScoringAndRanking, setIsScoringAndRanking] = useState(false)
-
-  const handleContinue = async () => {
-    if (!canProceedResumes || !state.projectId || busy || isScoringAndRanking) return
-    try {
-      setIsScoringAndRanking(true)
-      setUploadError(null)
-      // 1. Score candidates via existing backend endpoint
-      await api.scoreProject(state.projectId)
-      // 2. Rank candidates via existing backend endpoint
-      await api.rankProject(state.projectId)
-      completeAndAdvance()
-      navigate(`/projects/${state.projectId}/rankings`)
-    } catch (err) {
-      setUploadError(errorMessage(err, 'Failed to score and rank candidates'))
-    } finally {
-      setIsScoringAndRanking(false)
-    }
+  const handleContinue = () => {
+    if (!canProceedResumes || !state.projectId || busy) return
+    completeAndAdvance()
+    navigate(`/projects/${state.projectId}/rankings`)
   }
+
+
 
   const handleBack = () => {
     navigate(`/projects/${state.projectId}/job-description`)
@@ -656,17 +689,17 @@ export default function ResumeUpload() {
           </motion.button>
 
           <motion.button
-            onClick={() => void handleContinue()}
-            disabled={!canProceedResumes || busy || isScoringAndRanking}
-            whileHover={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 1.02 } : undefined}
-            whileTap={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 0.98 } : undefined}
+            onClick={handleContinue}
+            disabled={!canProceedResumes || busy}
+            whileHover={canProceedResumes && !busy ? { scale: 1.02 } : undefined}
+            whileTap={canProceedResumes && !busy ? { scale: 0.98 } : undefined}
             className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-              canProceedResumes && !busy && !isScoringAndRanking
+              canProceedResumes && !busy
                 ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
             }`}
           >
-            {isScoringAndRanking ? 'Scoring & Ranking Candidate Resumes…' : 'Continue to Candidate Ranking'}
+            Continue to Candidate Ranking
             <ArrowRight size={15} />
           </motion.button>
         </div>

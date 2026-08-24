@@ -190,6 +190,7 @@ class ScoringEngineFacade:
                     match_verdicts = []
             components = self.components.score(resume, job, config=None, projects=scoring_extracted.projects)
             applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
+            # pyrefly: ignore [bad-unpacking]
             weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
                 components, config=None, applicable_categories=applicable_categories
             )

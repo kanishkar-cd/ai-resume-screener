@@ -67,7 +67,7 @@ export default function Assessment() {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold mb-2 border border-teal-100">
-            <Award size={13} />
+            <CheckCircle2 size={13} />
             Technical Assessment Handoff
           </div>
           <h1 className="text-xl font-extrabold text-slate-900">
@@ -110,6 +110,7 @@ export default function Assessment() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-[11px] font-bold text-slate-400 uppercase border-b border-slate-100">
+                  <th className="py-3 px-3 text-center w-10">#</th>
                   <th className="py-3 px-4">Candidate</th>
                   <th className="py-3 px-4">Req Ref</th>
                   <th className="py-3 px-4 text-center">Status</th>
@@ -118,8 +119,13 @@ export default function Assessment() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                {assessmentList.map((item) => (
+                {assessmentList.map((item, idx) => (
                   <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-3 text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-[11px] font-bold">
+                        {idx + 1}
+                      </span>
+                    </td>
                     <td className="py-3.5 px-4">
                       <p className="font-bold text-slate-900">{item.candidateName}</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">{item.email}</p>
