@@ -13,6 +13,7 @@ from app.models.project import ProjectModel, ProjectStatusEnum
 from app.models.weight_config import WeightConfigModel
 from app.models.ranking import CandidateRankingModel
 from app.models.scoring import CandidateScoreModel
+from app.models.assessment_invitation import CandidateAssessmentModel
 
 __all__ = [
     "DocumentModel",
@@ -29,4 +30,5 @@ __all__ = [
     "WeightConfigModel",
     "CandidateRankingModel",
     "CandidateScoreModel",
+    "CandidateAssessmentModel",
 ]

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     assessment,
     documents,
+    email,
     extraction,
     health,
     normalization,
@@ -27,4 +28,6 @@ v1_router.include_router(normalization.router, prefix="/documents", tags=["docum
 v1_router.include_router(scoring.router, tags=["scoring"])
 v1_router.include_router(ranking.router, tags=["ranking"])
 v1_router.include_router(reporting.router, tags=["reporting"])
-v1_router.include_router(assessment.router, tags=["assessment"])
+v1_router.include_router(assessment.router, tags=["assessment"])
+v1_router.include_router(email.router, prefix="/email", tags=["email"])
+

@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
-    # SMTP Email Configuration
+    # SMTP Email Configuration (Gmail Provider)
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USERNAME: str | None = None
@@ -127,6 +127,16 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_FROM_EMAIL: str = "kanishkar@clouddestinations.com"
     ENABLE_ASSESSMENT_EMAILS: bool = True
+
+    # Microsoft Outlook / Microsoft Graph OAuth Configuration
+    OUTLOOK_CLIENT_ID: str | None = None
+    OUTLOOK_CLIENT_SECRET: str | None = None
+    OUTLOOK_TENANT_ID: str = "common"
+    OUTLOOK_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/outlook/callback"
+    OUTLOOK_SENDER_EMAIL: str = "kanishkar@clouddestinations.com"
+    OUTLOOK_REFRESH_TOKEN: str | None = None
+    DEFAULT_EMAIL_PROVIDER: str = "gmail"
+
 
 
 

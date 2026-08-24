@@ -1,31 +1,32 @@
-import asyncio
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 import structlog
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import ValidationException
+from app.services.email_providers.base import BaseEmailProvider
+from app.services.email_providers.gmail_provider import GmailProvider, mask_email
+from app.services.email_providers.outlook_provider import OutlookProvider
 
 logger = structlog.get_logger(__name__)
 
 
-def mask_email(email: str) -> str:
-    """Mask email address for safe log output (e.g. j***e@example.com)."""
-    if not email or "@" not in email:
-        return "***"
-    user, domain = email.split("@", 1)
-    if len(user) <= 2:
-        masked_user = user[0] + "*"
-    else:
-        masked_user = user[0] + "*" * (len(user) - 2) + user[-1]
-    return f"{masked_user}@{domain}"
-
-
 class EmailService:
-    """Service for dispatching transactional emails via Python standard library smtplib."""
+    """Manager service for dispatching emails using configured providers (Gmail / Outlook)."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+        self.providers: dict[str, BaseEmailProvider] = {
+            "gmail": GmailProvider(settings=self.settings),
+            "outlook": OutlookProvider(settings=self.settings),
+        }
+
+    def get_provider(self, provider_name: str | None = None) -> BaseEmailProvider:
+        """Retrieve the specified email provider instance."""
+        p_name = (provider_name or getattr(self.settings, "DEFAULT_EMAIL_PROVIDER", "gmail")).strip().lower()
+        if p_name not in self.providers:
+            raise ValidationException(
+                f"Unsupported email provider '{provider_name}'. Supported providers: gmail, outlook."
+            )
+        return self.providers[p_name]
 
     async def send_email(
         self,
@@ -33,84 +34,22 @@ class EmailService:
         subject: str,
         body_text: str,
         body_html: str | None = None,
+        provider: str = "gmail",
+        cc: list[str] | str | None = None,
+        bcc: list[str] | str | None = None,
+        attachments: list[dict] | None = None,
     ) -> bool:
-        """Send an email using Python's built-in smtplib with optional STARTTLS."""
-        if not getattr(self.settings, "ENABLE_ASSESSMENT_EMAILS", True):
-            logger.info(
-                "[EMAIL_SERVICE] email delivery disabled by configuration",
-                to_email=mask_email(to_email),
-            )
-            return False
-
-        smtp_host = getattr(self.settings, "SMTP_HOST", None)
-        if not smtp_host or not smtp_host.strip():
-            logger.warning(
-                "[EMAIL_SERVICE] SMTP_HOST is not configured; skipping email delivery",
-                to_email=mask_email(to_email),
-            )
-            return False
-
-        from_email = getattr(self.settings, "SMTP_FROM_EMAIL", "kanishkar@clouddestinations.com")
-        if not from_email or not from_email.strip():
-            from_email = "kanishkar@clouddestinations.com"
-
-        if not to_email or not to_email.strip():
-            logger.warning("[EMAIL_SERVICE] missing recipient email address; skipping delivery")
-            return False
-
-        smtp_port = int(getattr(self.settings, "SMTP_PORT", 587))
-        smtp_username = getattr(self.settings, "SMTP_USERNAME", None)
-        smtp_password = getattr(self.settings, "SMTP_PASSWORD", None)
-        use_tls = bool(getattr(self.settings, "SMTP_USE_TLS", True))
-
-        msg = MIMEMultipart("alternative")
-        msg["From"] = from_email.strip()
-        msg["To"] = to_email.strip()
-        msg["Subject"] = subject
-
-        msg.attach(MIMEText(body_text, "plain", "utf-8"))
-        if body_html:
-            msg.attach(MIMEText(body_html, "html", "utf-8"))
-
-        def _send_sync() -> None:
-            with smtplib.SMTP(host=smtp_host.strip(), port=smtp_port, timeout=10) as server:
-                if use_tls:
-                    server.starttls()
-                if smtp_username and smtp_password:
-                    server.login(smtp_username.strip(), smtp_password)
-                server.send_message(msg)
-
-        logger.info(
-            "[EMAIL_SERVICE] dispatching email via SMTP",
-            to_email=mask_email(to_email),
-            from_email=mask_email(from_email),
-            smtp_host=smtp_host,
-            smtp_port=smtp_port,
-            use_tls=use_tls,
+        """Send an email using the designated provider (gmail or outlook)."""
+        provider_instance = self.get_provider(provider)
+        return await provider_instance.send_email(
+            to_email=to_email,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
         )
-
-        try:
-            await asyncio.to_thread(_send_sync)
-            logger.info(
-                "[EMAIL_SERVICE] email sent successfully via SMTP",
-                to_email=mask_email(to_email),
-            )
-            return True
-        except smtplib.SMTPException as exc:
-            logger.warning(
-                "[EMAIL_SERVICE] SMTP protocol error during email delivery",
-                to_email=mask_email(to_email),
-                smtp_host=smtp_host,
-                error=str(exc),
-            )
-            raise
-        except Exception as exc:
-            logger.warning(
-                "[EMAIL_SERVICE] exception during SMTP email delivery",
-                to_email=mask_email(to_email),
-                error=str(exc),
-            )
-            raise
 
     async def send_assessment_invitation(
         self,
@@ -118,6 +57,7 @@ class EmailService:
         candidate_email: str,
         assessment_link: str,
         requisition_ref: str,
+        provider: str = "gmail",
     ) -> None:
         """Send a technical assessment invitation email to candidate."""
         if not candidate_email or not candidate_email.strip():
@@ -186,4 +126,5 @@ class EmailService:
             subject=subject,
             body_text=text_content,
             body_html=html_content,
+            provider=provider,
         )
