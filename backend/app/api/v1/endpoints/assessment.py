@@ -48,9 +48,32 @@ async def handoff_assessment(
     payload: AssessmentHandoffRequest,
     service: AssessmentDependency,
 ) -> AssessmentHandoffResponse:
+    kwargs = {}
+    if payload.provider and payload.provider.lower() != "gmail":
+        kwargs["provider"] = payload.provider
+
     data = await service.handoff_assessment(
         project_id=project_id,
         candidate_ids=payload.candidate_ids,
         requisition_ref=payload.requisition_ref,
+        **kwargs,
     )
     return AssessmentHandoffResponse(data=data)
+
+
+@router.get(
+    "/projects/{project_id}/assessment/status",
+    status_code=status.HTTP_200_OK,
+    summary="Get CD-Recruit evaluation status for project requisition",
+    description="Queries current assessment evaluation status for the given project.",
+    responses=ERRORS,
+)
+async def get_assessment_status(
+    project_id: UUID,
+    service: AssessmentDependency,
+) -> dict:
+    from app.services.cd_recruit_poller import CDRecruitStatusPoller
+    poller = CDRecruitStatusPoller(db=service.projects.db)
+    requisition_ref = f"REQ-{project_id}"
+    return await poller.poll_requisition(requisition_ref)
+

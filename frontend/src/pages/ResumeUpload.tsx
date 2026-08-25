@@ -490,10 +490,52 @@ export default function ResumeUpload() {
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
 
-  const handleContinue = () => {
-    if (!canProceedResumes || !state.projectId || busy) return
-    completeAndAdvance()
-    navigate(`/projects/${state.projectId}/rankings`)
+  const [isScoringAndRanking, setIsScoringAndRanking] = useState(false)
+
+  const handleContinue = async () => {
+    if (!canProceedResumes || !state.projectId || busy || isScoringAndRanking) return
+    setIsScoringAndRanking(true)
+    try {
+      setUploadError(null)
+      const projectId = state.projectId
+
+      const normalizedCount = state.resumeDocumentIds.filter(
+        (id) => state.resumeProcessing[id]?.normalized
+      ).length
+
+      let needsInitialization = true
+
+      if (normalizedCount > 0) {
+        try {
+          const [scores, rankingsRes] = await Promise.all([
+            api.getProjectScores(projectId).catch(() => []),
+            api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+          ])
+
+          const scoreCount = Array.isArray(scores) ? scores.length : 0
+          const rankingsItems = rankingsRes && Array.isArray(rankingsRes.items) ? rankingsRes.items : []
+          const rankingCount = rankingsItems.length
+
+          if (scoreCount >= normalizedCount && rankingCount >= normalizedCount) {
+            needsInitialization = false
+          }
+        } catch {
+          needsInitialization = true
+        }
+      }
+
+      if (needsInitialization) {
+        await api.scoreProject(projectId)
+        await api.rankProject(projectId)
+      }
+
+      completeAndAdvance()
+      navigate(`/projects/${projectId}/rankings`)
+    } catch (err) {
+      setUploadError(errorMessage(err, 'Failed to advance to candidate rankings'))
+    } finally {
+      setIsScoringAndRanking(false)
+    }
   }
 
 
@@ -689,17 +731,17 @@ export default function ResumeUpload() {
           </motion.button>
 
           <motion.button
-            onClick={handleContinue}
-            disabled={!canProceedResumes || busy}
-            whileHover={canProceedResumes && !busy ? { scale: 1.02 } : undefined}
-            whileTap={canProceedResumes && !busy ? { scale: 0.98 } : undefined}
+            onClick={() => void handleContinue()}
+            disabled={!canProceedResumes || busy || isScoringAndRanking}
+            whileHover={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 1.02 } : undefined}
+            whileTap={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 0.98 } : undefined}
             className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-              canProceedResumes && !busy
+              canProceedResumes && !busy && !isScoringAndRanking
                 ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
             }`}
           >
-            Continue to Candidate Ranking
+            {isScoringAndRanking ? 'Scoring & Ranking Candidate Resumes…' : 'Continue to Candidate Ranking'}
             <ArrowRight size={15} />
           </motion.button>
         </div>

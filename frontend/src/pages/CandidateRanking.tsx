@@ -264,9 +264,9 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
               </div>
             </div>
 
-            {/* Candidate subheader */}
+            {/* Rank subheader */}
             <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
-              <span>Candidate Evaluation Details</span>
+              <span>Rank #{candidate.rank}</span>
             </div>
 
 
@@ -512,7 +512,6 @@ export default function CandidateRanking() {
     })
   }, [state.upload.resumes])
 
-  const [loadingPhase, setLoadingPhase] = useState<'skills' | 'ai' | 'ranking'>('skills')
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   // Load rankings from backend
@@ -520,7 +519,6 @@ export default function CandidateRanking() {
     if (!state.projectId) { setRankingsLoading(false); return }
     let active = true
     setRankingsLoading(true)
-    setLoadingPhase('skills')
     const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { skills: 50, experience: 0, projects: 50, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
 
     const loadData = async () => {
@@ -532,19 +530,7 @@ export default function CandidateRanking() {
 
         if ((!response.items || response.items.length === 0) && active) {
           try {
-            setLoadingPhase('skills')
-            const phaseTimer = setTimeout(() => {
-              if (active) setLoadingPhase('ai')
-            }, 1800)
-            const phaseTimer2 = setTimeout(() => {
-              if (active) setLoadingPhase('ranking')
-            }, 4000)
-
             await api.scoreProject(state.projectId!)
-            clearTimeout(phaseTimer)
-            clearTimeout(phaseTimer2)
-            if (active) setLoadingPhase('ranking')
-
             await api.rankProject(state.projectId!)
             ;[response, scores] = await Promise.all([
               api.getRankings(state.projectId!, { page_size: 100 }),
@@ -717,78 +703,19 @@ export default function CandidateRanking() {
             </p>
           </div>
 
-          {/* Table / Enhanced Loading State */}
+          {/* Table */}
           {rankingsLoading ? (
-            <div className="py-16 px-6 text-center space-y-6 max-w-lg mx-auto">
-              <div className="relative w-16 h-16 mx-auto">
-                <motion.div
-                  className="w-16 h-16 rounded-full border-4 border-blue-100 border-t-blue-600"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Sparkles size={22} className="text-blue-600 animate-pulse" />
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  {loadingPhase === 'skills'
-                    ? '1/3 Deterministic Skill Matching…'
-                    : loadingPhase === 'ai'
-                      ? '2/3 AI Evidence & JD Relevance Evaluation…'
-                      : '3/3 Calculating Scores & Ranking Candidates…'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Evaluating candidate profiles against job requirements using the 50 + 50 evaluation model.
-                </p>
-              </div>
-
-              {/* Enhanced Stage Indicators */}
-              <div className="space-y-2.5 text-left bg-slate-50/80 border border-slate-100 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${loadingPhase === 'skills' ? 'bg-blue-600 text-white animate-pulse' : 'bg-emerald-500 text-white'}`}>
-                      {loadingPhase === 'skills' ? '1' : '✓'}
-                    </div>
-                    <span>Deterministic Skill Match (50 Marks)</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">
-                    {loadingPhase === 'skills' ? 'In progress…' : 'Completed'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${loadingPhase === 'ai' ? 'bg-blue-600 text-white animate-pulse' : loadingPhase === 'ranking' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                      {loadingPhase === 'ranking' ? '✓' : '2'}
-                    </div>
-                    <span>AI Relevance &amp; Evidence Matching (50 Marks)</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">
-                    {loadingPhase === 'ai' ? 'In progress…' : loadingPhase === 'ranking' ? 'Completed' : 'Queued'}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${loadingPhase === 'ranking' ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
-                      3
-                    </div>
-                    <span>Composite Final Scoring &amp; Ranking</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-400">
-                    {loadingPhase === 'ranking' ? 'Finalizing…' : 'Queued'}
-                  </span>
-                </div>
-              </div>
+            <div className="py-16 text-center text-slate-400">
+              <motion.div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full mx-auto mb-3"
+                animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
+              <p className="text-[13px]">Loading candidate rankings…</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-left">
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-12 text-center">#</th>
+                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">Rank</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-28">Final Score</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Skill Match</th>
@@ -821,11 +748,16 @@ export default function CandidateRanking() {
                           className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
                           onClick={() => setSelectedCandidate(candidate)}
                         >
-                          {/* Number */}
-                          <td className="px-4 py-3.5 text-center">
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-[11px] font-bold">
-                              {idx + 1}
-                            </span>
+                          {/* Rank */}
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-1">
+                              {candidate.rank <= 3 && (
+                                <span className="text-[15px]">
+                                  {candidate.rank === 1 ? '🥇' : candidate.rank === 2 ? '🥈' : '🥉'}
+                                </span>
+                              )}
+                              <span className="text-[13px] font-bold text-slate-400">#{candidate.rank}</span>
+                            </div>
                           </td>
 
                           {/* Candidate */}

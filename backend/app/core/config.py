@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "postgres_password"
     POSTGRES_DB: str = "resume_screener_db"
     DATABASE_URL: str | None = None
+
+    # Redis settings for ephemeral caching and pipeline progress state
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str | None = None
+    REDIS_DB: int = 0
+    REDIS_URL: str | None = None
+    REDIS_ENABLED: bool = True
+    REDIS_CACHE_TTL_SECONDS: int = 300
+
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
@@ -109,12 +119,28 @@ class Settings(BaseSettings):
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
-    RESEND_API_KEY: str | None = None
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
+    # SMTP Email Configuration (Gmail Provider)
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "kanishkar@clouddestinations.com"
     ENABLE_ASSESSMENT_EMAILS: bool = True
     MAX_CONCURRENT_EMAILS: int = Field(default=5, ge=1, le=50)
     MAX_EMAIL_RETRIES: int = Field(default=3, ge=0, le=10)
     EMAIL_RETRY_BASE_DELAY: float = Field(default=2.0, ge=0.1, le=60.0)
+
+    # Microsoft Outlook / Microsoft Graph OAuth Configuration
+    OUTLOOK_CLIENT_ID: str | None = None
+    OUTLOOK_CLIENT_SECRET: str | None = None
+    OUTLOOK_TENANT_ID: str = "common"
+    OUTLOOK_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/outlook/callback"
+    OUTLOOK_SENDER_EMAIL: str = "kanishkar@clouddestinations.com"
+    OUTLOOK_REFRESH_TOKEN: str | None = None
+    DEFAULT_EMAIL_PROVIDER: str = "gmail"
+
+
 
 
 
