@@ -90,8 +90,9 @@ class Settings(BaseSettings):
 
     ENABLE_AI_INSIGHTS: bool = False
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    GROQ_TIMEOUT_SECONDS: float = 5.0
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_TIMEOUT_SECONDS: float = 30.0
     GROQ_MAX_RETRIES: int = 1
 
     ENABLE_OCR_FALLBACK: bool = False

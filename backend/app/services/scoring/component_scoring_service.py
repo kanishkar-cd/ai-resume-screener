@@ -35,7 +35,14 @@ class ComponentScoringService:
     def _percentage(matched: list[str], required: list[str]) -> float:
         return round(min(100.0, len(matched) / len(required) * 100), 2) if required else 100.0
 
-    def score(self, resume: Any, job: Any, config: Any, projects: list[dict[str, Any]] | None = None) -> ComponentScores:
+    def score(
+        self,
+        resume: Any,
+        job: Any,
+        config: Any,
+        projects: list[dict[str, Any]] | None = None,
+        match_verdicts: list[Any] | None = None,
+    ) -> ComponentScores:
         candidate_skills = list(resume.skills or [])
         job_req_skills = list(getattr(job, "required_skills", None) or [])
         if not job_req_skills:
@@ -48,17 +55,57 @@ class ComponentScoringService:
 
         skills = self._match(candidate_skills, required_skills, "required skills")
 
+        # Experience & contextual responsibilities evaluation
         candidate_months = sum(item.get("duration_months") or 0 for item in (resume.experience or []))
         job_months = max([item.get("minimum_months") or 0 for item in (job.experience_requirements or [])] or [0])
         min_exp = float(getattr(config, "min_experience_years", 0) or 0)
         required_months = max(job_months, round(min_exp * 12))
-        experience_score = min(100.0, candidate_months / required_months * 100) if required_months else 100.0
-        experience = ComponentScoreDetail(
-            score=round(experience_score, 2), matched_items=[f"{candidate_months} months"],
-            missing_items=[] if candidate_months >= required_months else [f"{required_months - candidate_months} months"],
-            explanation=f"Candidate experience is {candidate_months} months against {required_months} required months.",
-        )
 
+        # Check for Groq LLM responsibility verdicts
+        responsibility_verdicts = [
+            v for v in (match_verdicts or [])
+            if str(getattr(v, "requirement_id", "")).startswith("responsibility:")
+        ]
+
+        # Helper to check if verdict is matched
+        def _is_matched(v: Any) -> bool:
+            st = getattr(v, "status", None)
+            val = getattr(st, "value", st)
+            return str(val).upper() == "MATCHED" or str(st).upper() in {"MATCHED", "MATCHSTATUS.MATCHED"}
+
+        if required_months > 0:
+            duration_score = min(100.0, candidate_months / required_months * 100)
+            if responsibility_verdicts:
+                matched_resp = sum(1 for v in responsibility_verdicts if _is_matched(v))
+                resp_score = (matched_resp / len(responsibility_verdicts)) * 100.0
+                exp_score = round(0.5 * duration_score + 0.5 * resp_score, 2)
+                exp_explanation = f"Experience duration is {candidate_months}/{required_months} months; demonstrated {matched_resp}/{len(responsibility_verdicts)} role responsibilities."
+            else:
+                exp_score = round(duration_score, 2)
+                exp_explanation = f"Candidate experience is {candidate_months} months against {required_months} required months."
+
+            experience = ComponentScoreDetail(
+                score=exp_score,
+                matched_items=[f"{candidate_months} months"],
+                missing_items=[] if candidate_months >= required_months else [f"{required_months - candidate_months} months"],
+                explanation=exp_explanation,
+            )
+        elif responsibility_verdicts:
+            matched_resp = sum(1 for v in responsibility_verdicts if _is_matched(v))
+            resp_score = round((matched_resp / len(responsibility_verdicts)) * 100.0, 2)
+            experience = ComponentScoreDetail(
+                score=resp_score,
+                matched_items=[getattr(v, "requirement_id", "") for v in responsibility_verdicts if _is_matched(v)],
+                missing_items=[getattr(v, "requirement_id", "") for v in responsibility_verdicts if not _is_matched(v)],
+                explanation=f"Demonstrated {matched_resp} of {len(responsibility_verdicts)} role responsibilities via candidate evidence.",
+            )
+        else:
+            experience = ComponentScoreDetail(
+                score=100.0,
+                matched_items=[f"{candidate_months} months"],
+                missing_items=[],
+                explanation=f"Candidate experience is {candidate_months} months against 0 required months (N/A).",
+            )
 
         projects_list = projects if projects is not None else getattr(resume, "projects", [])
         projects_score = self._projects_score(projects_list, job)
@@ -79,13 +126,81 @@ class ComponentScoringService:
         )
 
     def _projects_score(self, projects: list[dict[str, Any]], job: Any) -> ComponentScoreDetail:
-        project_terms: list[str] = []
-        for project in projects or []:
-            project_terms.extend(project.get("technologies") or [])
-            if project.get("name"):
-                project_terms.append(project["name"])
         project_keywords = [k for k in list(job.keywords or []) if k.casefold() not in {t.casefold() for t in DESIGNATIONS}]
-        return self._match(project_terms, project_keywords, "job keywords")
+        if not project_keywords:
+            project_keywords = list(getattr(job, "required_skills", None) or [])
+            if not project_keywords:
+                project_keywords = list(getattr(job, "skills", None) or [])
+
+        if not project_keywords:
+            return ComponentScoreDetail(
+                score=100.0,
+                matched_items=[],
+                missing_items=[],
+                explanation="No specific project requirements configured (N/A).",
+            )
+
+        if not projects:
+            return ComponentScoreDetail(
+                score=0.0,
+                matched_items=[],
+                missing_items=project_keywords,
+                explanation="No candidate projects found.",
+            )
+
+        # Extract all project terms from technologies, names, and descriptions
+        project_terms: list[str] = []
+        project_text_blobs: list[str] = []
+        for project in projects or []:
+            techs = project.get("technologies") or []
+            project_terms.extend(techs)
+            name = project.get("name") or ""
+            if name:
+                project_terms.append(name)
+            desc = project.get("description") or ""
+            if desc:
+                project_text_blobs.append(desc)
+                # Also tokenize description words
+                project_terms.extend(re.findall(r"[A-Za-z0-9+#.]+", desc))
+
+        candidate_keys = self._keys(project_terms)
+        combined_text = " ".join([*project_terms, *project_text_blobs]).casefold()
+
+        matched_display: list[str] = []
+        missing_display: list[str] = []
+        satisfied_groups = 0
+
+        raw_items = self._deduplicate(project_keywords)
+        for item in raw_items:
+            alternatives = [alt.strip() for alt in re.split(r"\s+(?:or|\/|\|)\s+|\s*,\s*or\s+", item, flags=re.IGNORECASE) if alt.strip()]
+            if not alternatives:
+                alternatives = [item.strip()]
+
+            matched_alt = None
+            for alt in alternatives:
+                alt_cf = alt.casefold()
+                if alt_cf in candidate_keys:
+                    matched_alt = alt
+                    break
+                # Check for phrase / regex match inside project text
+                escaped = re.escape(alt_cf)
+                if re.search(rf"(?:\b|_){escaped}(?:\b|_)", combined_text, re.IGNORECASE):
+                    matched_alt = alt
+                    break
+
+            if matched_alt:
+                satisfied_groups += 1
+                matched_display.append(matched_alt)
+            else:
+                missing_display.append(item)
+
+        score = round(min(100.0, (satisfied_groups / len(raw_items)) * 100.0), 2)
+        return ComponentScoreDetail(
+            score=score,
+            matched_items=matched_display,
+            missing_items=missing_display,
+            explanation=f"Matched {satisfied_groups} of {len(raw_items)} project competencies.",
+        )
 
     def _certifications_score(self, resume: Any, job: Any, config: Any) -> ComponentScoreDetail:
         req_certs = list(getattr(config, "required_certifications", None) or [])

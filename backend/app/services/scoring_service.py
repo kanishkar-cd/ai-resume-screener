@@ -188,7 +188,11 @@ class ScoringEngineFacade:
                         match_verdicts.append(verdict)
                 except Exception:
                     match_verdicts = []
-            components = self.components.score(resume, job, config=None, projects=scoring_extracted.projects)
+            components = self.components.score(
+                resume, job, config=None,
+                projects=scoring_extracted.projects,
+                match_verdicts=match_verdicts,
+            )
             applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
             weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
                 components, config=None, applicable_categories=applicable_categories
@@ -268,7 +272,7 @@ class ScoringEngineFacade:
                 strengths=strengths,
                 weaknesses=weaknesses,
                 match_verdicts=match_verdicts,
-            ), commit=False, refresh=False)
+            ), commit=True, refresh=True)
             logger.info(
                 "[SCORE] candidate scored",
                 project_id=str(document.project_id),

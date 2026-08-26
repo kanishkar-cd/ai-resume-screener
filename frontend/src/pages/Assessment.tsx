@@ -2,14 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Award,
   CheckCircle2,
-  Clock,
-  Send,
-  Building2,
-  FileText,
-  Download,
   ArrowLeft,
-  Sparkles,
-  ExternalLink,
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
@@ -113,8 +106,6 @@ export default function Assessment() {
                   <th className="py-3 px-4">Candidate</th>
                   <th className="py-3 px-4">Req Ref</th>
                   <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4">Assessment Link</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
@@ -132,36 +123,6 @@ export default function Assessment() {
                         <CheckCircle2 size={12} />
                         {item.status || 'Sent'}
                       </span>
-                    </td>
-                    <td className="py-3.5 px-4 max-w-xs truncate">
-                      {item.assessmentLink ? (
-                        <a
-                          href={item.assessmentLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-[11px] text-teal-600 hover:underline truncate block"
-                          title={item.assessmentLink}
-                        >
-                          {item.assessmentLink}
-                        </a>
-                      ) : (
-                        <span className="text-slate-400 text-[11px] italic">Link unavailable</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      {item.assessmentLink ? (
-                        <a
-                          href={item.assessmentLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-bold hover:bg-teal-700 transition-colors shadow-sm"
-                        >
-                          <ExternalLink size={13} />
-                          Open Assessment
-                        </a>
-                      ) : (
-                        <span className="text-xs text-slate-400 font-medium">Link unavailable</span>
-                      )}
                     </td>
                   </tr>
                 ))}
