@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
+# pyrefly: ignore [missing-import]
 import structlog
 
 from app.core.config import Settings, get_settings
