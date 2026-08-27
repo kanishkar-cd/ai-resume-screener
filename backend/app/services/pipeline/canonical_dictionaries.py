@@ -15,7 +15,9 @@ SKILL_ALIASES = {
     "lambda": "AWS Lambda", "aws lambda": "AWS Lambda",
     "api gateway": "AWS API Gateway", "aws api gateway": "AWS API Gateway",
     "s3": "AWS S3", "aws s3": "AWS S3", "ec2": "AWS EC2", "aws ec2": "AWS EC2",
-    "graphql": "GraphQL", "rest": "REST API", "rest api": "REST API", "restful": "REST API",
+    "graphql": "GraphQL", "rest": "REST API", "rest api": "REST API", "rest apis": "REST API",
+    "restful": "REST API", "restful api": "REST API", "restful apis": "REST API",
+    "restful web services": "REST API", "rest web services": "REST API",
     "linux": "Linux", "unix": "Linux", "gitlab": "GitLab", "ci/cd": "CI/CD", "cicd": "CI/CD",
     "golang": "Go", "go": "Go", "spring": "Spring Boot", "spring boot": "Spring Boot",
     "express": "Express", "express.js": "Express", "vue": "Vue", "vue.js": "Vue",
@@ -27,6 +29,71 @@ SKILL_ALIASES = {
     "tensorflow": "TensorFlow", "pytorch": "PyTorch", "pytest": "Pytest",
     "bash": "Bash", "shell": "Shell", "mysql": "MySQL", "sqlite": "SQLite", "oracle": "Oracle",
     "embedded systems": "Embedded Systems", "plc programming": "PLC Programming", "plc": "PLC Programming", "iot": "IoT",
+    # OOP & DSA & Process aliases
+    "oop": "Object-Oriented Programming", "oops": "Object-Oriented Programming",
+    "object oriented programming": "Object-Oriented Programming",
+    "object-oriented programming": "Object-Oriented Programming",
+    "oop concepts": "Object-Oriented Programming",
+    "dsa": "Data Structures and Algorithms",
+    "data structures and algorithms": "Data Structures and Algorithms",
+    "data structures & algorithms": "Data Structures and Algorithms",
+    "data structures": "Data Structures and Algorithms",
+    "debugging": "Software Development and Debugging",
+    "software development and debugging": "Software Development and Debugging",
+    "sdlc": "Software Development Lifecycle",
+    "software development lifecycle": "Software Development Lifecycle",
+    # Generic Category Requirement Aliases
+    "a similar programming language": "PROGRAMMING_LANGUAGE",
+    "similar programming language": "PROGRAMMING_LANGUAGE",
+    "another programming language": "PROGRAMMING_LANGUAGE",
+    "programming language": "PROGRAMMING_LANGUAGE",
+    "programming languages": "PROGRAMMING_LANGUAGE",
+    "any programming language": "PROGRAMMING_LANGUAGE",
+    "relational database": "RELATIONAL_DATABASE",
+    "relational databases": "RELATIONAL_DATABASE",
+    "rdbms": "RELATIONAL_DATABASE",
+    "sql database": "RELATIONAL_DATABASE",
+    "sql databases": "RELATIONAL_DATABASE",
+    "version control": "VERSION_CONTROL",
+    "version control system": "VERSION_CONTROL",
+    "version control systems": "VERSION_CONTROL",
+    "version-control systems": "VERSION_CONTROL",
+    "version-control system": "VERSION_CONTROL",
+    "vcs": "VERSION_CONTROL",
+}
+
+SKILL_CATEGORIES: dict[str, set[str]] = {
+    "PROGRAMMING_LANGUAGE": {
+        "Python", "Java", "JavaScript", "TypeScript", "Go", "Rust", "C++", "C#",
+        "Ruby", "PHP", "Swift", "Kotlin", "Scala", "R", "MATLAB", "Perl",
+        "Bash", "Shell", "PowerShell",
+    },
+    "RELATIONAL_DATABASE": {
+        "PostgreSQL", "MySQL", "SQLite", "Oracle", "SQL", "SQL Server", "MariaDB",
+    },
+    "VERSION_CONTROL": {
+        "Git", "GitLab", "GitHub", "Bitbucket", "SVN",
+    },
+}
+
+CATEGORY_REQUIREMENT_ALIASES: dict[str, str] = {
+    "a similar programming language": "PROGRAMMING_LANGUAGE",
+    "similar programming language": "PROGRAMMING_LANGUAGE",
+    "another programming language": "PROGRAMMING_LANGUAGE",
+    "programming language": "PROGRAMMING_LANGUAGE",
+    "programming languages": "PROGRAMMING_LANGUAGE",
+    "any programming language": "PROGRAMMING_LANGUAGE",
+    "relational database": "RELATIONAL_DATABASE",
+    "relational databases": "RELATIONAL_DATABASE",
+    "rdbms": "RELATIONAL_DATABASE",
+    "sql database": "RELATIONAL_DATABASE",
+    "sql databases": "RELATIONAL_DATABASE",
+    "version control": "VERSION_CONTROL",
+    "version control system": "VERSION_CONTROL",
+    "version control systems": "VERSION_CONTROL",
+    "version-control systems": "VERSION_CONTROL",
+    "version-control system": "VERSION_CONTROL",
+    "vcs": "VERSION_CONTROL",
 }
 
 DEGREE_ALIASES = {

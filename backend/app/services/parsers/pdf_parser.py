@@ -20,7 +20,13 @@ def parse_pdf(path: Path) -> ParseOutput:
     page_count: int | None = None
     try:
         with fitz.open(path) as document:
-            pages = [page.get_text("text") for page in document]
+            for page in document:
+                # Use block extraction sorted by vertical then horizontal position to preserve column layout
+                blocks = page.get_text("blocks")
+                # Sort text blocks by top-to-bottom (y0), then left-to-right (x0)
+                sorted_blocks = sorted(blocks, key=lambda b: (round(b[1] / 10) * 10, b[0]))
+                page_text = "\n".join(b[4].strip() for b in sorted_blocks if len(b) >= 5 and b[4].strip())
+                pages.append(page_text)
             page_count = len(document) if hasattr(document, "__len__") else getattr(document, "page_count", 0)
     except Exception as exc:
         logger.warning("pymupdf_text_extraction_error", path=str(path), error=str(exc))

@@ -2,6 +2,9 @@ import re
 from typing import Any
 
 from app.schemas.scoring import ComponentScoreDetail, ComponentScores
+from app.services.pipeline.canonical_dictionaries import (
+    CATEGORY_REQUIREMENT_ALIASES, SKILL_CATEGORIES,
+)
 from app.services.pipeline.extraction_pipeline import DESIGNATIONS
 
 
@@ -247,8 +250,27 @@ class ComponentScoringService:
             if not alternatives:
                 alternatives = [item.strip()]
 
-            # Check if any alternative is present in the candidate's skills/items
-            matched_alt = next((alt for alt in alternatives if alt.casefold() in candidate_keys), None)
+            matched_alt = None
+            for alt in alternatives:
+                alt_clean = alt.strip()
+                alt_cf = alt_clean.casefold()
+
+                # Check if alternative is a category requirement (e.g. PROGRAMMING_LANGUAGE)
+                category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else (
+                    CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
+                )
+
+                if category_name and category_name in SKILL_CATEGORIES:
+                    category_members = {m.casefold() for m in SKILL_CATEGORIES[category_name]}
+                    # Match if candidate possesses any skill belonging to the category
+                    matched_member = next((k for k in candidate_keys if k in category_members), None)
+                    if matched_member:
+                        orig_skill = next((s for s in candidate if s.strip().casefold() == matched_member), matched_member.title())
+                        matched_alt = orig_skill
+                        break
+                elif alt_cf in candidate_keys:
+                    matched_alt = alt_clean
+                    break
 
             if matched_alt:
                 satisfied_groups += 1

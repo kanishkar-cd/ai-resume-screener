@@ -391,6 +391,66 @@ def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
     assert final_b == pytest.approx(round(skill_50_b + evidence_50_b, 2), 0.01)
 
 
+def test_generic_category_requirement_matching() -> None:
+    service = ComponentScoringService()
+
+    # Requirement: "a similar programming language"
+    # Candidate skills: TypeScript, Rust
+    detail = service._match(["TypeScript", "Rust"], ["a similar programming language"], "required skills")
+    assert detail.score == 100.0
+    assert detail.matched_items == ["TypeScript"]
+    assert detail.missing_items == []
+
+    # Requirement: "version-control systems"
+    # Candidate skill: Git
+    detail_vcs = service._match(["Git"], ["version-control systems"], "required skills")
+    assert detail_vcs.score == 100.0
+    assert detail_vcs.matched_items == ["Git"]
+
+    # Requirement: "relational databases"
+    # Candidate skill: PostgreSQL
+    detail_db = service._match(["PostgreSQL"], ["relational databases"], "required skills")
+    assert detail_db.score == 100.0
+    assert detail_db.matched_items == ["PostgreSQL"]
+
+
+def test_rest_apis_alias_matching() -> None:
+    from app.services.pipeline.canonical_dictionaries import SKILL_ALIASES
+    from app.services.pipeline.normalization_rules import NormalizationAudit, canonicalize
+
+    audit = NormalizationAudit()
+    jd_skill = canonicalize("REST APIs", SKILL_ALIASES, "skills", audit)
+    candidate_skill = canonicalize("RESTful APIs", SKILL_ALIASES, "skills", audit)
+
+    assert jd_skill == "REST API"
+    assert candidate_skill == "REST API"
+
+    service = ComponentScoringService()
+    detail = service._match([candidate_skill], [jd_skill], "required skills")
+    assert detail.score == 100.0
+    assert detail.matched_items == ["REST API"]
+
+
+def test_aswin_suriya_c_candidate_scoring() -> None:
+    service = ComponentScoringService()
+
+    from app.services.pipeline.canonical_dictionaries import SKILL_ALIASES
+    from app.services.pipeline.normalization_rules import NormalizationAudit, canonicalize
+
+    audit = NormalizationAudit()
+    raw_skills = ["Python", "Java", "JavaScript", "TypeScript", "Rust", "RESTful APIs"]
+    norm_skills = [canonicalize(s, SKILL_ALIASES, "skills", audit) for s in raw_skills]
+
+    raw_reqs = ["a similar programming language", "REST APIs"]
+    norm_reqs = [canonicalize(r, SKILL_ALIASES, "skills", audit) for r in raw_reqs]
+
+    detail = service._match(norm_skills, norm_reqs, "required skills")
+    assert detail.score == 100.0
+    assert "REST API" in detail.matched_items
+    assert len(detail.matched_items) == 2
+
+
+
 
 
 
