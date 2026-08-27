@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -266,12 +267,14 @@ class GroqMatchEvaluator:
 
         payload = self._payload(requirements, evidence)
         parsed: LLMVerdictBatch | None = None
-        client = self._get_client(self.settings.AI_EXTRACTION_TIMEOUT_SECONDS)
-        for attempt in range(2):
+        client = self._get_client(self.settings.GROQ_TIMEOUT_SECONDS)
+        for attempt in range(max(2, self.settings.GROQ_MAX_RETRIES + 1)):
             try:
                 response = await client.post(
                     f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.GROQ_API_KEY}"}, json=payload,
+                    headers={"Authorization": f"Bearer {self.settings.GROQ_API_KEY}"},
+                    json=payload,
+                    timeout=self.settings.GROQ_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
@@ -279,6 +282,8 @@ class GroqMatchEvaluator:
                 break
             except Exception as exc:
                 logger.warning("hybrid_match_llm_attempt_failed", attempt=attempt + 1, error_type=type(exc).__name__)
+                if attempt < max(2, self.settings.GROQ_MAX_RETRIES + 1) - 1:
+                    await asyncio.sleep(5.0)
         if parsed is None:
             return []
         validated = self._validate(parsed, requirements, evidence, allowed_evidence)
@@ -383,17 +388,20 @@ class HybridMatchingService:
             project["technologies"] = list(project.get("technologies") or [])
         requirement_by_id = {item.requirement_id: item for item in requirements}
         for verdict in fused:
-            requirement = requirement_by_id[verdict.requirement_id]
-            if verdict.status != MatchStatus.MATCHED or requirement.kind != RequirementKind.PROJECT_RELEVANCE:
+            requirement = requirement_by_id.get(verdict.requirement_id)
+            if not requirement or verdict.status != MatchStatus.MATCHED or requirement.kind != RequirementKind.PROJECT_RELEVANCE:
                 continue
             for evidence_id in verdict.evidence_ids:
                 if not evidence_id.startswith("project:"):
                     continue
-                index = int(evidence_id.split(":", 1)[1]) - 1
-                if 0 <= index < len(projects):
-                    technologies = projects[index].setdefault("technologies", [])
-                    if _key(requirement.text) not in {_key(value) for value in technologies}:
-                        technologies.append(requirement.text)
+                try:
+                    index = int(evidence_id.split(":", 1)[1]) - 1
+                    if 0 <= index < len(projects):
+                        technologies = projects[index].setdefault("technologies", [])
+                        if _key(requirement.text) not in {_key(value) for value in technologies}:
+                            technologies.append(requirement.text)
+                except Exception:
+                    pass
         enriched = SimpleNamespace(projects=projects)
         counts = {status.value: sum(v.status == status for v in fused) for status in MatchStatus}
         logger.info("hybrid_requirement_matching_completed", requirement_count=len(requirements), **counts)

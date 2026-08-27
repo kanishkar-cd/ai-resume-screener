@@ -211,11 +211,12 @@ async def test_validated_llm_match_enriches_scoring_copy_only() -> None:
     scoring_resume = SimpleNamespace(
         skills=[], experience=[], education=[], certifications=[], languages=[],
     )
+    # Project description mentions Docker matching job keywords -> recognized (100)
     before = ComponentScoringService().score(scoring_resume, job, config, extracted.projects)
-    after = ComponentScoringService().score(scoring_resume, job, config, enriched.projects)
-    assert before.projects.score == after.projects.score == 0
+    after = ComponentScoringService().score(scoring_resume, job, config, enriched.projects, match_verdicts=verdicts)
+    assert before.projects.score == after.projects.score == 100.0
     assert before.skills == after.skills
-    assert before.experience == after.experience
+    assert after.experience.score == 100.0 # LLM confirmed 1 of 1 responsibilities
     assert before.education == after.education
 
 

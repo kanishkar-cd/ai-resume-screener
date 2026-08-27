@@ -323,5 +323,74 @@ def test_ai_relevance_with_all_some_and_no_applicable_categories() -> None:
     assert score_none == 50.0
 
 
+def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
+    """Verify that projects genuinely contribute, 0 projects score 0, and 50+50 reconciles strictly to 100."""
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+    from app.services.scoring.component_scoring_service import ComponentScoringService
+    from types import SimpleNamespace
+
+    service = ComponentScoringService()
+
+    # JD with required skills and keywords
+    job = SimpleNamespace(
+        skills=["Python", "FastAPI", "React"],
+        required_skills=["Python", "FastAPI", "React"],
+        experience_requirements=[{"minimum_months": 24}],
+        degree_requirements=["Bachelor of Technology"],
+        keywords=["Docker"],
+    )
+    config = SimpleNamespace(
+        mandatory_skills=[],
+        min_experience_years=2,
+        required_degree="Bachelor of Technology",
+        required_certifications=[],
+        required_languages=[],
+    )
+
+    # Candidate A: Has projects matching Docker and FastAPI
+    cand_a_resume = SimpleNamespace(
+        skills=["Python", "FastAPI"],
+        experience=[{"duration_months": 24}],
+        education=[{"degree": "Bachelor of Technology"}],
+        certifications=[],
+        languages=[],
+    )
+    cand_a_projects = [
+        {"name": "Microservices", "technologies": ["Docker", "FastAPI"], "description": "Built cloud backend"}
+    ]
+    scores_a = service.score(cand_a_resume, job, config, cand_a_projects)
+    assert scores_a.skills.score == pytest.approx(66.67, 0.01) # 2 of 3 skills
+    assert scores_a.projects.score == 100.0 # matched Docker
+    assert scores_a.experience.score == 100.0
+    assert scores_a.education.score == 100.0
+
+    app_cats = WeightCalculationService.applicable_categories(job, config)
+    final_a = WeightCalculationService.final_score(0, 0, 0, components=scores_a, applicable_categories=app_cats)
+    
+    skill_50_a = (scores_a.skills.score / 100.0) * 50.0
+    evidence_50_a = (sum([scores_a.experience.score, scores_a.projects.score, scores_a.education.score]) / 3.0 / 100.0) * 50.0
+    assert final_a == pytest.approx(round(skill_50_a + evidence_50_a, 2), 0.01)
+
+    # Candidate B: Has 0 projects -> projects score must be 0 (no artificial 100)
+    cand_b_resume = SimpleNamespace(
+        skills=["Python"],
+        experience=[{"duration_months": 12}],
+        education=[{"degree": "High School"}], # below required B.Tech (rank 1 vs 3)
+        certifications=[],
+        languages=[],
+    )
+    scores_b = service.score(cand_b_resume, job, config, [])
+    assert scores_b.projects.score == 0.0
+    assert "No candidate projects found." in scores_b.projects.explanation
+    assert scores_b.education.score == 50.0 # non-qualifying degree (rank 1 vs rank 3)
+    assert scores_b.experience.score == 50.0 # 12 of 24 months
+
+    final_b = WeightCalculationService.final_score(0, 0, 0, components=scores_b, applicable_categories=app_cats)
+    skill_50_b = (scores_b.skills.score / 100.0) * 50.0
+    evidence_50_b = (sum([scores_b.experience.score, scores_b.projects.score, scores_b.education.score]) / 3.0 / 100.0) * 50.0
+    assert final_b == pytest.approx(round(skill_50_b + evidence_50_b, 2), 0.01)
+
+
+
 
 

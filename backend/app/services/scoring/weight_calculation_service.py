@@ -12,14 +12,14 @@ class WeightCalculationService:
         req_deg = getattr(config, "required_degree", None)
         req_certs = getattr(config, "required_certifications", None) or []
         req_langs = getattr(config, "required_languages", None) or []
+        job_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
+        has_resp = bool(getattr(job, "responsibilities", None) or [])
+        has_exp = bool(min_exp > 0 or any((item.get("minimum_months") or 0) > 0 for item in job_experience) or has_resp)
         return {
             name for name, applies in {
-                "skills": bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills),
-                "experience": bool(
-                    min_exp > 0
-                    or any((item.get("minimum_months") or 0) > 0 for item in job_experience)
-                ),
-                "projects": bool(getattr(job, "keywords", None) or []),
+                "skills": job_skills,
+                "experience": has_exp,
+                "projects": bool(job_skills or (getattr(job, "keywords", None) or [])),
                 "education": bool(
                     req_deg
                     or (getattr(job, "degree_requirements", None) or [])

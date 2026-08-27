@@ -264,19 +264,14 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
               </div>
             </div>
 
-            {/* Rank subheader */}
+            {/* S.No subheader */}
             <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
-              <span>Rank #{candidate.rank}</span>
+              <span>S.No {candidate.rank}</span>
             </div>
 
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-              {/* Candidate profile (from backend, if available) */}
-              {loadingProfile && <div className="rounded-xl border border-slate-200 p-4 text-[12px] text-slate-500">Loading candidate profile…</div>}
-              {profileError && <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-[12px] text-amber-700">Profile unavailable: {profileError}</div>}
-              {resumeProfile && <CandidateProfile normalized={resumeProfile.normalized} extracted={resumeProfile.extracted} document={resumeProfile.document} />}
-
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
               {/* Knockout notice */}
               {candidate.isKnockedOut && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-1">
@@ -297,34 +292,133 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                 </div>
               )}
 
-              {/* Why this candidate matches */}
-              <div className="rounded-xl bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles size={14} className="text-blue-500" />
-                  <p className="text-[11px] font-bold text-blue-600 uppercase tracking-widest">
-                    Why this candidate {loadingInsights ? '(Loading...)' : ''}
+              {/* AI Evaluation Answer */}
+              <div className="rounded-xl bg-gradient-to-br from-blue-50/80 to-indigo-50/40 border border-blue-100/80 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-blue-600" />
+                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-widest">
+                    AI Screening Assessment {loadingInsights ? '(Analyzing...)' : ''}
                   </p>
                 </div>
-                <p className="text-[13px] text-slate-700 leading-relaxed">{aiSummaryText}</p>
+                <p className="text-[13px] text-slate-800 leading-relaxed font-normal">{aiSummaryText}</p>
                 {insights?.score_explanation && (
-                  <p className="mt-2 text-[12px] text-slate-500 italic">{insights.score_explanation}</p>
+                  <p className="pt-1 text-[12px] text-slate-500 italic border-t border-blue-100/60">{insights.score_explanation}</p>
                 )}
               </div>
+
+              {/* 50 + 50 Score Model Breakdown */}
+              <div className="space-y-2.5">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">50 + 50 Scoring Breakdown</p>
+                
+                {(() => {
+                  const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
+                  const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
+                  const finalScore100 = Math.round(candidate.overallScore)
+                  const aiRelevance50 = Math.max(0, Math.min(50, finalScore100 - skillScore50))
+
+                  return (
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Skill Match (50) */}
+                      <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-700 font-bold">1. Skill Match</span>
+                          <span className="text-[12px] font-extrabold text-blue-700">{skillScore50} / 50</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full rounded-full bg-blue-600"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(skillScore50 / 50) * 100}%` }}
+                            transition={{ duration: 0.5 }}
+                          />
+                        </div>
+                        <p className="text-[9.5px] text-slate-500">Deterministic skill requirements matched.</p>
+                      </div>
+
+                      {/* AI Relevance (50) */}
+                      <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-700 font-bold">2. AI Relevance</span>
+                          <span className="text-[12px] font-extrabold text-emerald-700">{aiRelevance50} / 50</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full rounded-full bg-emerald-600"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(aiRelevance50 / 50) * 100}%` }}
+                            transition={{ duration: 0.5, delay: 0.1 }}
+                          />
+                        </div>
+                        <p className="text-[9.5px] text-slate-500">LLM contextual analysis of experience & projects.</p>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Requirement-level AI verdicts and reasoning */}
+              {(candidate.matchVerdicts?.length ?? 0) > 0 && (
+                <div className="space-y-2.5">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">AI Requirement Evaluation & Reasoning</p>
+                  <div className="space-y-2">
+                    {candidate.matchVerdicts!.map((verdict) => {
+                      const isMatched = verdict.status === 'MATCHED'
+                      const isNoMatch = verdict.status === 'NO_MATCH'
+                      const reqText = requirementLabels.get(verdict.requirement_id) || verdict.requirement_id
+                      const method = verdict.method || ''
+                      const isLlm = typeof method === 'string' && method.toLowerCase().includes('llm')
+                      
+                      return (
+                        <div
+                          key={verdict.requirement_id}
+                          className={`rounded-xl border p-3.5 space-y-1.5 transition-all ${
+                            isMatched
+                              ? 'bg-emerald-50/40 border-emerald-100'
+                              : isNoMatch
+                              ? 'bg-rose-50/30 border-rose-100'
+                              : 'bg-slate-50 border-slate-100'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[12px] font-semibold text-slate-800 leading-snug">{reqText}</p>
+                            <span
+                              className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                                isMatched
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isNoMatch
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {isMatched ? (isLlm ? 'AI Confirmed' : 'Matched') : isNoMatch ? (isLlm ? 'AI Unmet' : 'Unmet') : 'Unresolved'}
+                            </span>
+                          </div>
+                          {verdict.reasoning && (
+                            <p className="text-[11.5px] text-slate-600 leading-relaxed bg-white/70 rounded-lg p-2 border border-slate-100">
+                              <span className="font-semibold text-slate-700 mr-1">AI Reason:</span>
+                              {verdict.reasoning}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Key matched requirements */}
               {displayStrengths.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <TrendingUp size={13} className="text-emerald-500" />
-                    <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">Key Matched Requirements</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp size={13} className="text-emerald-600" />
+                    <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest">Key Strengths</p>
                   </div>
                   <ul className="space-y-1.5">
                     {displayStrengths.map((s, i) => (
-                      <motion.li key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.05 }}
-                        className="flex items-start gap-2 text-[12.5px] text-slate-700">
+                      <li key={i} className="flex items-start gap-2 text-[12px] text-slate-700">
                         <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
                         {s}
-                      </motion.li>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -333,107 +427,18 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
               {/* Missing requirements */}
               {displayWeaknesses.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <AlertCircle size={13} className="text-amber-500" />
-                    <p className="text-[11px] font-bold text-amber-600 uppercase tracking-widest">Missing / Unclear Requirements</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle size={13} className="text-amber-600" />
+                    <p className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">Missing / Unclear Qualifications</p>
                   </div>
                   <ul className="space-y-1.5">
                     {displayWeaknesses.map((w, i) => (
-                      <motion.li key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + i * 0.05 }}
-                        className="flex items-start gap-2 text-[12.5px] text-slate-600">
-                        <AlertCircle size={13} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                      <li key={i} className="flex items-start gap-2 text-[12px] text-slate-600">
+                        <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
                         {w}
-                      </motion.li>
+                      </li>
                     ))}
                   </ul>
-                </div>
-              )}
-
-              {/* 50 + 50 Score Model Breakdown */}
-              <div>
-                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Evaluation Score Breakdown (50 + 50 Model)</p>
-                
-                {(() => {
-                  const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
-                  const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
-                  const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills')
-                  const avgNonSkill = nonSkillScores.length
-                    ? nonSkillScores.reduce((acc, curr) => acc + curr.score, 0) / nonSkillScores.length
-                    : candidate.overallScore
-                  const aiRelevance50 = Math.round((avgNonSkill / 100) * 50)
-
-                  return (
-                    <div className="space-y-3">
-                      {/* Skill Match (50) */}
-                      <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] text-slate-800 font-bold">1. Deterministic Skill Match</span>
-                          <span className="text-[13px] font-extrabold text-blue-700">{skillScore50} / 50 Marks</span>
-                        </div>
-                        <div className="w-full h-2 bg-blue-100 rounded-full overflow-hidden">
-                          <motion.div
-                            className="h-full rounded-full bg-blue-600"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(skillScore50 / 50) * 100}%` }}
-                            transition={{ duration: 0.5 }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500">Calculated from matched required skills against JD requirements.</p>
-                      </div>
-
-                      {/* AI Relevance (50) */}
-                      <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px] text-slate-800 font-bold">2. AI JD Relevance & Evidence</span>
-                          <span className="text-[13px] font-extrabold text-emerald-700">{aiRelevance50} / 50 Marks</span>
-                        </div>
-                        <div className="w-full h-2 bg-emerald-100 rounded-full overflow-hidden">
-                          <motion.div
-                            className="h-full rounded-full bg-emerald-600"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(aiRelevance50 / 50) * 100}%` }}
-                            transition={{ duration: 0.5, delay: 0.1 }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500">LLM evaluation of candidate projects, experience, education, and evidence against JD context.</p>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Final score */}
-                <div className="mt-3 rounded-xl bg-slate-900 text-white p-4 flex items-center justify-between shadow-sm">
-                  <div>
-                    <p className="text-[12px] font-bold text-slate-300">Final Score</p>
-                    <p className="text-[10px] text-slate-400">Skill Match (50) + AI Relevance (50)</p>
-                  </div>
-                  <p className="text-[26px] font-extrabold text-white">
-                    {candidate.overallScore}
-                    <span className="text-[13px] font-normal text-slate-400 ml-1">/ 100</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Requirement-level verdicts (collapsed section) */}
-              {(candidate.matchVerdicts?.length ?? 0) > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Requirement Matches</p>
-                  <div className="space-y-2">
-                    {candidate.matchVerdicts!.filter(v => v.status === 'MATCHED').map((verdict) => (
-                      <div key={verdict.requirement_id} className={`rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3 ${verdictStatusClass(verdict.status)}`}>
-                        <p className="text-[12px] font-medium">{requirementLabels.get(verdict.requirement_id) || verdict.requirement_id}</p>
-                        <span className="shrink-0 text-[10px] font-bold uppercase">{verdictStatusLabel(verdict.status)}</span>
-                      </div>
-                    ))}
-                    {candidate.matchVerdicts!.filter(v => v.status === 'NO_MATCH').map((verdict) => (
-                      <div key={verdict.requirement_id} className={`rounded-lg border px-3 py-2.5 flex items-center justify-between gap-3 ${verdictStatusClass(verdict.status)}`}>
-                        <p className="text-[12px] font-medium">{requirementLabels.get(verdict.requirement_id) || verdict.requirement_id}</p>
-                        <span className="shrink-0 text-[10px] font-bold uppercase">{verdictStatusLabel(verdict.status)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {jdError && <p className="mt-2 text-[11px] text-amber-600">JD details unavailable: {jdError}</p>}
-                  {(loadingJd || loadingProfile) && <p className="mt-2 text-[11px] text-slate-400">Loading requirements…</p>}
                 </div>
               )}
             </div>
@@ -503,7 +508,7 @@ export default function CandidateRanking() {
             isApplicable, explanation,
           }
         }),
-        matchVerdicts: persistedScore.match_verdicts || [],
+        matchVerdicts: persistedScore.match_verdicts || (persistedScore as any).matchVerdicts || [],
         passingScore: persistedScore.passing_score ?? config.passing_score,
         effectiveWeights: persistedScore.effective_weights,
         scoreBreakdown: persistedScore.score_breakdown || [],
@@ -715,7 +720,7 @@ export default function CandidateRanking() {
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-left">
-                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">Rank</th>
+                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">S.No</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-28">Final Score</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Skill Match</th>
@@ -729,13 +734,8 @@ export default function CandidateRanking() {
                     {filtered.map((candidate, idx) => {
                       const skillScoreObj = candidate.scores.find((s) => s.criterionId === 'skills')
                       const skillScore50 = Math.round(((skillScoreObj?.score ?? 0) / 100) * 50)
-
-                      // Calculate AI relevance (50 marks max) from non-skill categories
-                      const nonSkillScores = candidate.scores.filter((s) => s.criterionId !== 'skills' && s.isApplicable)
-                      const avgNonSkill = nonSkillScores.length
-                        ? nonSkillScores.reduce((acc, curr) => acc + curr.score, 0) / nonSkillScores.length
-                        : candidate.overallScore
-                      const aiRelevance50 = Math.round((avgNonSkill / 100) * 50)
+                      const finalScore100 = Math.round(candidate.overallScore)
+                      const aiRelevance50 = Math.max(0, Math.min(50, finalScore100 - skillScore50))
 
 
                       return (
@@ -748,16 +748,9 @@ export default function CandidateRanking() {
                           className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
                           onClick={() => setSelectedCandidate(candidate)}
                         >
-                          {/* Rank */}
+                          {/* S.No */}
                           <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-1">
-                              {candidate.rank <= 3 && (
-                                <span className="text-[15px]">
-                                  {candidate.rank === 1 ? '🥇' : candidate.rank === 2 ? '🥈' : '🥉'}
-                                </span>
-                              )}
-                              <span className="text-[13px] font-bold text-slate-400">#{candidate.rank}</span>
-                            </div>
+                            <span className="text-[13px] font-bold text-slate-500">{idx + 1}</span>
                           </td>
 
                           {/* Candidate */}
@@ -767,25 +760,16 @@ export default function CandidateRanking() {
                                 {candidate.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
                               </div>
                               <div>
-                                <p className="text-[13px] font-semibold text-slate-800 leading-tight">{candidate.name}</p>
-                                <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
-                                  <Mail size={9} />
-                                  <span>{candidate.email}</span>
-                                </div>
-                                {candidate.currentTitle && (
-                                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                                    <Briefcase size={9} />
-                                    <span>{candidate.currentTitle}</span>
-                                  </div>
-                                )}
+                                <div className="font-bold text-slate-800 text-[13px]">{candidate.name}</div>
+                                <div className="text-[11px] text-slate-400 font-normal">{candidate.email}</div>
                               </div>
                             </div>
                           </td>
 
                           {/* Final Score */}
                           <td className="px-4 py-3.5 text-center">
-                            <span className={`inline-block px-2.5 py-1 rounded-lg text-[13px] font-extrabold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
-                              {candidate.overallScore} / 100
+                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-[13px] font-bold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
+                              {Math.round(candidate.overallScore)} / 100
                             </span>
                           </td>
 
@@ -799,9 +783,21 @@ export default function CandidateRanking() {
 
                           {/* AI Relevance Score (50 Marks) */}
                           <td className="px-4 py-3.5 text-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11.5px] font-extrabold border border-emerald-100">
-                              {aiRelevance50} / 50
-                            </span>
+                            {aiRelevance50 !== null ? (
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-extrabold border ${
+                                aiRelevance50 >= 35
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                  : aiRelevance50 > 0
+                                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                              }`}>
+                                {aiRelevance50} / 50
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-500 text-[11px] font-medium border border-slate-200">
+                                AI Review Unavailable
+                              </span>
+                            )}
                           </td>
 
                           {/* Action (status change) */}
