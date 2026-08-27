@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Search,
   Briefcase,
-  Wifi,
   Trash2,
   Loader2,
   X,
@@ -185,7 +184,7 @@ export default function Dashboard() {
       )}
 
       {/* Modern KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         {/* Active Requisitions */}
         <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
           <div>
@@ -211,20 +210,6 @@ export default function Dashboard() {
           </div>
           <div className="w-11 h-11 rounded-xl bg-indigo-50/80 group-hover:bg-indigo-600 text-indigo-600 group-hover:text-white flex items-center justify-center transition-colors">
             <Building2 size={20} />
-          </div>
-        </div>
-
-        {/* Backend Connection Status */}
-        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-emerald-200 transition-all flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Backend Service</p>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${error ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`} />
-              <p className="text-base font-extrabold text-slate-900">{error ? 'Offline' : 'Connected'}</p>
-            </div>
-          </div>
-          <div className="w-11 h-11 rounded-xl bg-emerald-50/80 group-hover:bg-emerald-600 text-emerald-600 group-hover:text-white flex items-center justify-center transition-colors">
-            <Wifi size={20} />
           </div>
         </div>
       </div>
