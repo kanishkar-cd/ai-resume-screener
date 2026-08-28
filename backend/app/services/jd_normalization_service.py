@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import UUID
 
+# pyrefly: ignore [missing-import]
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -29,7 +30,7 @@ from app.schemas.normalized_jd import (
     NormalizedJDRead,
 )
 from app.services.document_service import DocumentNotFoundException
-from app.services.jd_extraction_service import ExtractedJDNotFoundException
+from app.services.jd_extraction_service import ExtractedJDNotFoundException, _is_valid_skill, _canonicalize_skill_name
 
 logger = structlog.get_logger(__name__)
 
@@ -109,16 +110,24 @@ def _canonicalize_degree(raw: str) -> tuple[str, str]:
 
 
 def _canonicalize_skills(raw_skills: list[str]) -> tuple[list[str], list[NormalizationChange]]:
-    """Deduplicate skills preserving original display casing and list order."""
+    """Deduplicate and canonicalize skills preserving original display casing and list order, filtering out invalid terms."""
     changes: list[NormalizationChange] = []
     seen: dict[str, str] = {}
     for skill in raw_skills:
         cleaned = re.sub(r"\s+", " ", skill).strip()
-        if not cleaned:
+        if not cleaned or not _is_valid_skill(cleaned):
             continue
-        key = cleaned.casefold()
+        canonical = _canonicalize_skill_name(cleaned)
+        key = canonical.casefold()
         if key not in seen:
-            seen[key] = cleaned
+            seen[key] = canonical
+            if canonical != cleaned:
+                changes.append(NormalizationChange(
+                    field="skills",
+                    source=cleaned,
+                    canonical=canonical,
+                    rule="skill_canonical_map",
+                ))
     return list(seen.values()), changes
 
 
@@ -145,10 +154,12 @@ def _stable_casefold(values: list[str]) -> list[str]:
     result: list[str] = []
     for value in values:
         cleaned = re.sub(r"\s+", " ", value).strip()
-        key = cleaned.casefold()
-        if cleaned and key not in seen:
-            seen.add(key)
-            result.append(cleaned)
+        if cleaned and _is_valid_skill(cleaned):
+            canonical = _canonicalize_skill_name(cleaned)
+            key = canonical.casefold()
+            if key not in seen:
+                seen.add(key)
+                result.append(canonical)
     return result
 
 

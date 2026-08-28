@@ -297,3 +297,76 @@ async def test_multi_candidate_isolation_and_evidence_prefilter_fallback() -> No
     assert resp2_cand2.method == MatchMethod.LLM_REJECTED
     assert resp2_cand2.status == MatchStatus.NO_MATCH
 
+
+def test_arjun_kumar_software_engineer_deterministic_matching() -> None:
+    """Verify deterministic matching for slash alternatives (Java/Python/JavaScript), SQL and relational databases, Docker, Git, and Cloud platforms."""
+    matcher = DeterministicRequirementMatcher()
+    resume = SimpleNamespace(
+        skills=["Python", "FastAPI", "REST APIs", "PostgreSQL", "Redis", "Docker", "Git", "React", "TypeScript"],
+        education=[{"degree": "B.E.", "field_of_study": "Computer Science and Engineering"}],
+        certifications=["AWS Cloud Practitioner"],
+        languages=[],
+        experience=[
+            {
+                "title": "Software Engineer",
+                "company": "TechNova Solutions",
+                "description": "Developed FastAPI REST services, PostgreSQL data models and Redis-backed application workflows. Built React/TypeScript interfaces.",
+                "responsibilities": ["Developed FastAPI REST services", "PostgreSQL data models", "Redis-backed application workflows"],
+            },
+            {
+                "title": "Junior Software Engineer",
+                "company": "CodeBridge Technologies",
+                "description": "Implemented backend features, unit tests and API integrations. Worked with Git, Docker and SQL-based applications.",
+                "responsibilities": ["Implemented backend features", "unit tests", "Worked with Git, Docker and SQL-based applications"],
+            },
+        ],
+    )
+    extracted = SimpleNamespace(
+        candidate_name="Arjun Kumar",
+        skills=resume.skills,
+        education=resume.education,
+        certifications=resume.certifications,
+        languages=[],
+        experience=resume.experience,
+        projects=[],
+    )
+    evidence = EvidenceBuilder.build(extracted)
+
+    # 1. Java/Python/JavaScript -> Must MATCH via Python
+    v_lang = matcher.match(Requirement(requirement_id="skill:1", kind=RequirementKind.SKILL, text="Java/Python/JavaScript"), resume, evidence)
+    assert v_lang.status == MatchStatus.MATCHED
+    assert v_lang.method in {MatchMethod.EXACT, MatchMethod.ALIAS}
+
+    # 2. SQL and relational databases -> Must MATCH via PostgreSQL / SQL
+    v_sql = matcher.match(Requirement(requirement_id="skill:2", kind=RequirementKind.SKILL, text="SQL and relational databases"), resume, evidence)
+    assert v_sql.status == MatchStatus.MATCHED
+
+    # 3. cloud platforms such as AWS/Azure/GCP -> Must MATCH via AWS Cloud Practitioner
+    v_cloud = matcher.match(Requirement(requirement_id="skill:3", kind=RequirementKind.SKILL, text="cloud platforms such as AWS/Azure/GCP"), resume, evidence)
+    assert v_cloud.status == MatchStatus.MATCHED
+
+    # 4. Docker -> Must MATCH
+    v_docker = matcher.match(Requirement(requirement_id="skill:4", kind=RequirementKind.SKILL, text="Docker"), resume, evidence)
+    assert v_docker.status == MatchStatus.MATCHED
+
+    # 5. Git -> Must MATCH
+    v_git = matcher.match(Requirement(requirement_id="skill:5", kind=RequirementKind.SKILL, text="Git"), resume, evidence)
+    assert v_git.status == MatchStatus.MATCHED
+
+    # 6. REST APIs -> Must MATCH
+    v_rest = matcher.match(Requirement(requirement_id="skill:6", kind=RequirementKind.SKILL, text="REST APIs"), resume, evidence)
+    assert v_rest.status == MatchStatus.MATCHED
+
+    # 7. unit/integration testing -> Must MATCH via unit tests
+    v_test = matcher.match(Requirement(requirement_id="skill:7", kind=RequirementKind.SKILL, text="unit/integration testing"), resume, evidence)
+    assert v_test.status == MatchStatus.MATCHED
+
+    # 8. Bachelor's Degree -> Must MATCH
+    v_deg = matcher.match(Requirement(requirement_id="degree:1", kind=RequirementKind.DEGREE, text="Bachelor's Degree"), resume, evidence)
+    assert v_deg.status == MatchStatus.MATCHED
+
+    # 9. Computer Science, Engineering, Information Technology -> Must MATCH
+    v_disc = matcher.match(Requirement(requirement_id="degree:2", kind=RequirementKind.DEGREE, text="Computer Science, Engineering, Information Technology"), resume, evidence)
+    assert v_disc.status == MatchStatus.MATCHED
+
+

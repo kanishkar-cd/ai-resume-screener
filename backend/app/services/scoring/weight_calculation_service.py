@@ -3,6 +3,17 @@ from typing import Any
 from app.schemas.scoring import ComponentScores, WeightedScores
 
 
+COMPONENT_WEIGHTS: dict[str, float] = {
+    "required_skills": 30.0,
+    "responsibilities": 25.0,
+    "projects": 20.0,
+    "preferred_skills": 15.0,
+    "experience": 5.0,
+    "certifications": 3.0,
+    "education": 2.0,
+}
+
+
 class WeightCalculationService:
     @staticmethod
     def applicable_categories(job: Any, config: Any = None) -> set[str]:
@@ -12,19 +23,25 @@ class WeightCalculationService:
         req_deg = getattr(config, "required_degree", None)
         req_certs = getattr(config, "required_certifications", None) or []
         req_langs = getattr(config, "required_languages", None) or []
-        job_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
+
+        has_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
         has_resp = bool(getattr(job, "responsibilities", None) or [])
-        has_exp = bool(min_exp > 0 or any((item.get("minimum_months") or 0) > 0 for item in job_experience) or has_resp)
+        has_proj = bool((getattr(job, "project_requirements", None) or []) or (getattr(config, "required_projects", None) if config else None))
+        has_pref = bool(getattr(job, "preferred_skills", None) or [])
+        has_exp = bool(min_exp > 0 or any((item.get("minimum_months") or 0) > 0 for item in job_experience))
+        has_edu = bool(req_deg or (getattr(job, "degree_requirements", None) or []))
+        has_certs = bool(req_certs or (getattr(job, "certifications", None) or []))
+
         return {
             name for name, applies in {
-                "skills": job_skills,
+                "required_skills": has_skills,
+                "skills": has_skills,
+                "responsibilities": has_resp,
+                "projects": has_proj,
+                "preferred_skills": has_pref,
                 "experience": has_exp,
-                "projects": bool(job_skills or (getattr(job, "keywords", None) or [])),
-                "education": bool(
-                    req_deg
-                    or (getattr(job, "degree_requirements", None) or [])
-                ),
-                "certifications": bool(req_certs),
+                "education": has_edu,
+                "certifications": has_certs,
                 "languages": bool(req_langs),
             }.items() if applies
         }
@@ -32,77 +49,101 @@ class WeightCalculationService:
     @staticmethod
     def calculate(
         components: ComponentScores,
-        config: Any,
+        config: Any = None,
         applicable_categories: set[str] | None = None,
-    ) -> tuple[WeightedScores, float, float]:
-        raw_weights = getattr(config, "weights", None)
-        if isinstance(raw_weights, dict):
-            weights = {
-                "skills": float(raw_weights.get("skills", 40)),
-                "experience": float(raw_weights.get("experience", 25)),
-                "projects": float(raw_weights.get("projects", 15)),
-                "education": float(raw_weights.get("education", 10)),
-                "certifications": float(raw_weights.get("certifications", 5)),
-                "languages": float(raw_weights.get("languages", 5)),
-            }
-        else:
-            weights = {
-                "skills": float(getattr(config, "skills_weight", 40)),
-                "experience": float(getattr(config, "experience_weight", 25)),
-                "projects": float(getattr(config, "projects_weight", 15)),
-                "education": float(getattr(config, "education_weight", 10)),
-                "certifications": float(getattr(config, "certifications_weight", 5)),
-                "languages": float(getattr(config, "languages_weight", 5)),
-            }
-        raw = {name: getattr(components, name).score for name in weights}
-        applicable = set(weights) if applicable_categories is None else applicable_categories & set(weights)
-        applicable_weight = sum(weights[name] for name in applicable)
-        effective_weights = {
-            name: (weights[name] / applicable_weight * 100 if name in applicable and applicable_weight else 0.0)
-            for name in weights
+    ) -> tuple[WeightedScores, float, float, dict[str, float]]:
+        comp_scores = {
+            "required_skills": components.skills.score,
+            "responsibilities": (components.responsibilities.score if getattr(components, "responsibilities", None) is not None else components.experience.score),
+            "projects": components.projects.score,
+            "preferred_skills": (components.preferred_skills.score if getattr(components, "preferred_skills", None) is not None else 100.0),
+            "experience": components.experience.score,
+            "certifications": components.certifications.score,
+            "education": components.education.score,
         }
-        weighted = {name: round(raw[name] * effective_weights[name] / 100, 2) for name in weights}
-        raw_total = round(sum(raw[name] for name in applicable) / len(applicable), 2) if applicable else 0.0
-        return WeightedScores(**weighted), raw_total, round(sum(weighted.values()), 2), {name: round(val, 2) for name, val in effective_weights.items()}
+
+        if applicable_categories is not None:
+            applicable = set()
+            for c in applicable_categories:
+                if c == "skills":
+                    applicable.add("required_skills")
+                elif c in COMPONENT_WEIGHTS:
+                    applicable.add(c)
+        else:
+            applicable = set(COMPONENT_WEIGHTS.keys())
+
+        total_applicable_weight = sum(COMPONENT_WEIGHTS[c] for c in applicable)
+        effective_weights = {
+            c: ((COMPONENT_WEIGHTS[c] / total_applicable_weight * 100.0) if c in applicable and total_applicable_weight else 0.0)
+            for c in COMPONENT_WEIGHTS
+        }
+
+        weighted_values = {
+            c: round(comp_scores[c] * effective_weights[c] / 100.0, 2)
+            for c in COMPONENT_WEIGHTS
+        }
+
+        raw_total = round(min(100.0, max(0.0, sum(comp_scores[c] for c in applicable) / len(applicable))), 2) if applicable else 0.0
+        weighted_total = round(min(100.0, max(0.0, sum(weighted_values.values()))), 2)
+
+        weighted_schema = WeightedScores(
+            skills=weighted_values["required_skills"],
+            responsibilities=weighted_values["responsibilities"],
+            projects=weighted_values["projects"],
+            preferred_skills=weighted_values["preferred_skills"],
+            experience=weighted_values["experience"],
+            certifications=weighted_values["certifications"],
+            education=weighted_values["education"],
+            languages=0.0,
+        )
+
+        return weighted_schema, raw_total, weighted_total, {name: round(val, 2) for name, val in effective_weights.items()}
 
     @staticmethod
     def final_score(
         weighted_total: float,
-        penalty_total: float,
-        bonus_total: float,
+        penalty_total: float = 0.0,
+        bonus_total: float = 0.0,
         components: ComponentScores | None = None,
         applicable_categories: set[str] | None = None,
     ) -> float:
         """
-        Calculates the final candidate score using a strict 50 + 50 hybrid model:
-        1. Deterministic Skill Match (0-50 Marks):
-           (matched required skills / total required skills) * 50
-        2. AI JD Relevance & Evidence (0-50 Marks):
-           Evaluates evidence categories required by the JD. N/A categories (not required by JD) are excluded.
-        3. Final Score (0-100 Marks):
-           Skill Match (0-50) + AI Relevance (0-50). Strictly sum of the two components.
+        Calculates the final candidate score using the fixed 100-point component model normalized over applicable weights:
+        Required Skills (30%), Responsibilities (25%), Projects (20%), Preferred Skills (15%),
+        Experience (5%), Certifications (3%), Education (2%).
         """
         if components is not None:
-            skill_marks_50 = (components.skills.score / 100.0) * 50.0
+            comp_scores = {
+                "required_skills": components.skills.score,
+                "responsibilities": (components.responsibilities.score if getattr(components, "responsibilities", None) is not None else components.experience.score),
+                "projects": components.projects.score,
+                "preferred_skills": (components.preferred_skills.score if getattr(components, "preferred_skills", None) is not None else 100.0),
+                "experience": components.experience.score,
+                "certifications": components.certifications.score,
+                "education": components.education.score,
+            }
 
-            evidence_names = {"experience", "projects", "education", "certifications", "languages"}
             if applicable_categories is not None:
-                applicable_evidence = [name for name in evidence_names if name in applicable_categories]
+                applicable = set()
+                for c in applicable_categories:
+                    if c == "skills":
+                        applicable.add("required_skills")
+                    elif c in COMPONENT_WEIGHTS:
+                        applicable.add(c)
             else:
-                # Fall back to inspecting component explanations if applicable_categories is not provided
-                applicable_evidence = [
-                    name for name in evidence_names
-                    if "(n/a)" not in str(getattr(components, name).explanation or "").casefold()
-                ]
+                applicable = set(COMPONENT_WEIGHTS.keys())
 
-            if applicable_evidence:
-                avg_evidence_score = sum(getattr(components, name).score for name in applicable_evidence) / len(applicable_evidence)
-                evidence_marks_50 = (avg_evidence_score / 100.0) * 50.0
+            total_applicable_weight = sum(COMPONENT_WEIGHTS[c] for c in applicable)
+            if total_applicable_weight > 0:
+                raw_weighted_total = sum(
+                    (comp_scores[c] / 100.0) * COMPONENT_WEIGHTS[c]
+                    for c in applicable
+                )
+                final_score = (raw_weighted_total / total_applicable_weight) * 100.0
             else:
-                evidence_marks_50 = 0.0
+                final_score = 0.0
 
-            # Pure 50 + 50 model: Final Score = Skill Match (0-50) + AI Relevance (0-50)
-            return round(max(0.0, min(100.0, skill_marks_50 + evidence_marks_50)), 2)
+            return round(max(0.0, min(100.0, final_score)), 2)
 
         return round(max(0.0, min(100.0, weighted_total)), 2)
 

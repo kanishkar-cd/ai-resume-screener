@@ -124,10 +124,19 @@ class NormalizationAudit:
         }
 
 
+_CATEGORY_LABEL_PREFIX = re.compile(
+    r"^(?:frontend|backend|database|databases|engineering|tools|tooling|languages|programming\s+languages|frameworks|libraries|devops|cloud|infrastructure|testing|qa|platforms|methodologies|architecture|security|storage|monitoring|web|mobile|data|analytics|core|technical|key|skills?|other)\s*:\s*",
+    re.I,
+)
+
+
 def canonicalize(value: str | None, aliases: dict[str, str], field: str, audit: NormalizationAudit) -> str | None:
     if not value or not clean_text(value):
         return None
     cleaned = clean_text(value)
+    cleaned = _CATEGORY_LABEL_PREFIX.sub("", cleaned).strip()
+    if not cleaned:
+        return None
     canonical = aliases.get(comparison_key(cleaned))
     if canonical:
         audit.record(field, cleaned, canonical, "exact_canonical" if cleaned == canonical else f"{field}_alias", 1.0)

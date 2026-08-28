@@ -22,12 +22,25 @@ class ResumeNormalizer:
         designation = canonicalize(extracted.designation, TITLE_ALIASES, "job_titles", audit)
         job_titles = ([designation] if designation else []) + [item["job_title"] for item in experience if item["job_title"]]
         location = self._location(extracted.location, audit)
+        raw_projects = getattr(extracted, "projects", None) or []
+        projects = [
+            {
+                "name": item.get("name") if isinstance(item, dict) else getattr(item, "name", None),
+                "description": item.get("description") if isinstance(item, dict) else getattr(item, "description", None),
+                "technologies": normalize_list(
+                    list((item.get("technologies") if isinstance(item, dict) else getattr(item, "technologies", None)) or []),
+                    SKILL_ALIASES, "skills", audit
+                ),
+            }
+            for item in raw_projects
+        ]
         return {
             "skills": skills,
             "education": education,
             "companies": stable_unique(companies),
             "job_titles": stable_unique(job_titles),
             "experience": experience,
+            "projects": projects,
             "phone": normalize_phone(extracted.phone, audit),
             "email": self._email(extracted.email, audit),
             "locations": [location] if location else [],

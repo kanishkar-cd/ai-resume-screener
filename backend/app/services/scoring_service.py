@@ -200,7 +200,10 @@ class ScoringEngineFacade:
             )
             knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
             penalty_total, penalties = PenaltyService.calculate(components, config=None)
-            bonus_total, bonuses = BonusService.calculate(resume, job, config=None, components=components)
+            bonus_total, bonuses = BonusService.calculate(
+                resume, job, config=None, components=components,
+                match_verdicts=match_verdicts, projects=scoring_extracted.projects,
+            )
             final_score = WeightCalculationService.final_score(
                 weighted_total, penalty_total, bonus_total,
                 components=components, applicable_categories=applicable_categories
@@ -254,7 +257,8 @@ class ScoringEngineFacade:
                     contribution=getattr(weighted, name, 0.0),
                     is_applicable=name in applicable_categories,
                 )
-                for name in ("skills", "experience", "projects", "education", "certifications", "languages")
+                for name in ("skills", "responsibilities", "projects", "preferred_skills", "experience", "education", "certifications")
+                if getattr(components, name, None) is not None
             ]
 
             model = await self.scores.upsert_score(CandidateScoreCreate(

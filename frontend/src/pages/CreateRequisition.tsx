@@ -28,6 +28,41 @@ const STEP_LABELS = [
   'Review & Start',
 ]
 
+const INVALID_STANDALONE_SKILLS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
+  'into', 'through', 'during', 'including', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'am',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'shall', 'can',
+  'need', 'this', 'that', 'these', 'those', 'it', 'its', 'we', 'you', 'they', 'their', 'our', 'your',
+  'who', 'what', 'which', 'when', 'where', 'how', 'if', 'then', 'than', 'so', 'not', 'no', 'nor', 'yet',
+  'both', 'either', 'each', 'any', 'all', 'most', 'more', 'such', 'up', 'about', 'etc', 'eg', 'ie', 'via',
+  'skills', 'skill', 'basis', 'basics', 'basic', 'requirements', 'requirement', 'required', 'qualifications',
+  'qualification', 'qualify', 'responsibilities', 'responsibility', 'duties', 'duty', 'knowledge',
+  'experience', 'understanding', 'proficiency', 'proficient', 'exposure', 'familiarity', 'concepts', 'concept',
+  'fundamentals', 'fundamental', 'principles', 'principle', 'tools', 'tool', 'technologies', 'technology',
+  'methods', 'method', 'methodologies', 'methodology', 'systems', 'system', 'frameworks', 'framework',
+  'languages', 'language', 'applications', 'application', 'solutions', 'solution', 'practices', 'practice',
+  'standards', 'standard', 'capabilities', 'capability', 'competencies', 'competency', 'abilities', 'ability',
+  'plus', 'bonus', 'advantage', 'advantageous', 'preferred', 'desirable', 'desired', 'optional', 'mandatory',
+  'overview', 'summary', 'description', 'details', 'candidate', 'candidates', 'role', 'roles', 'position',
+  'positions', 'job', 'jobs', 'work', 'working', 'team', 'teams', 'level', 'levels', 'year', 'years', 'month', 'months',
+  'good', 'strong', 'solid', 'deep', 'excellent', 'proven', 'sound', 'hands-on', 'handson',
+  'active', 'inactive', 'log', 'logs', 'analysis', 'analytics',
+  'triage', 'findings', 'policies', 'procedures',
+])
+
+function isValidSkill(skill: string): boolean {
+  if (!skill || typeof skill !== 'string') return false
+  const cleaned = skill.trim()
+  if (cleaned.length < 2 && !['C', 'R'].includes(cleaned.toUpperCase())) return false
+  if (cleaned.length > 60) return false
+  if (!/[a-zA-Z]/.test(cleaned)) return false
+  const lower = cleaned.toLowerCase()
+  if (INVALID_STANDALONE_SKILLS.has(lower)) return false
+  const words = cleaned.split(/\s+/)
+  if (words.length === 1 && INVALID_STANDALONE_SKILLS.has(lower)) return false
+  return true
+}
+
 export default function CreateRequisition() {
   const { deptId } = useParams<{ deptId: string }>()
   const navigate = useNavigate()
@@ -82,12 +117,15 @@ export default function CreateRequisition() {
       try {
         let projId = projectIdRef.current || createdProjectId
         if (!projId) {
+          const safeRole = jobTitle.trim() || `${department.name} Role`
+          const safeTitle = jobTitle.trim() ? `${reqRef} - ${jobTitle.trim()}` : `${reqRef} - ${department.name}`
           const proj = await api.createProject({
-            title: `${reqRef} - ${jobTitle}`,
-            target_role: jobTitle,
-            department: department.name,
+            title: safeTitle,
+            target_role: safeRole,
+            department: department.name || 'General',
             description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
             metadata_json: { experience_level: expLevel, req_ref: reqRef },
+            status: 'DRAFT',
           })
           projId = proj.id
           projectIdRef.current = projId
@@ -196,12 +234,15 @@ export default function CreateRequisition() {
 
       // Fallback: If project was not created in earlier steps, create it now
       if (!targetProjId) {
+        const safeRole = jobTitle.trim() || `${department.name} Role`
+        const safeTitle = jobTitle.trim() ? `${reqRef} - ${jobTitle.trim()}` : `${reqRef} - ${department.name}`
         const proj = await api.createProject({
-          title: `${reqRef} - ${jobTitle}`,
-          target_role: jobTitle,
-          department: department.name,
+          title: safeTitle,
+          target_role: safeRole,
+          department: department.name || 'General',
           description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
           metadata_json: { experience_level: expLevel, req_ref: reqRef },
+          status: 'DRAFT',
         })
         targetProjId = proj.id
         setCreatedProjectId(targetProjId)
@@ -610,22 +651,24 @@ export default function CreateRequisition() {
                           {(extractedJd?.required_skills?.length
                             ? extractedJd.required_skills
                             : extractedJd?.skills || []
-                          ).map((s) => (
-                            <span key={s} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
-                          ))}
+                          )
+                            .filter(isValidSkill)
+                            .map((s) => (
+                              <span key={s} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
+                            ))}
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* Preferred Skills */}
-                  {extractedJd?.preferred_skills && extractedJd.preferred_skills.length > 0 && (
+                  {extractedJd?.preferred_skills && extractedJd.preferred_skills.filter(isValidSkill).length > 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
                       <SlidersHorizontal size={15} className="text-indigo-400 shrink-0 mt-0.5" />
                       <div className="space-y-1.5 w-full">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preferred Skills</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {extractedJd.preferred_skills.map((ps) => (
+                          {extractedJd.preferred_skills.filter(isValidSkill).map((ps) => (
                             <span key={ps} className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold border border-indigo-100">{ps}</span>
                           ))}
                         </div>

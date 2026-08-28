@@ -17,7 +17,6 @@ _SKILL_ALIASES = {
     "git (version control system)": "Git",
     "html scripting": "HTML",
     "node.js (javascript library)": "Node.js",
-    "object-oriented programming (oop)": "Object-Oriented Programming",
     "react.js (javascript library)": "React.js",
     "restful api": "REST API",
 }
@@ -53,10 +52,21 @@ def _skill_name(item: Any, source_text: str | None = None) -> str | None:
     source = source_text or ""
     if value.casefold() == "application programming interface (api)":
         return "REST API" if re.search(r"\brest(?:ful)?\s+apis?\b", source, re.IGNORECASE) else "Application Programming Interface"
-    if value.casefold() == "data structures" and re.search(
-        r"\b(?:dsa|data structures\s+and\s+algorithms)\b", source, re.IGNORECASE
-    ):
-        return "Data Structures and Algorithms"
+    if value.casefold() == "data structures":
+        if re.search(r"\bdsa\b", source, re.IGNORECASE):
+            return "DSA"
+    if value.casefold() in {"object-oriented programming (oop)", "object oriented programming", "oop"}:
+        if re.search(r"\boop\b", source, re.IGNORECASE):
+            return "OOP"
+        return "Object-Oriented Programming"
+    if source and len(source.strip()) > 50:
+        clean_cand = re.sub(r"[^\w\s+#.]", "", canonical).strip()
+        if len(clean_cand) >= 3:
+            pattern = rf"(?:\b|_){re.escape(clean_cand)}(?:\b|_)"
+            if not re.search(pattern, source, re.IGNORECASE):
+                orig_raw = re.sub(r"[^\w\s+#.]", "", value).strip()
+                if not re.search(rf"(?:\b|_){re.escape(orig_raw)}(?:\b|_)", source, re.IGNORECASE):
+                    return None
     return canonical
 
 
@@ -149,6 +159,16 @@ def _map_projects(items: Any, source_text: str | None) -> list[dict[str, Any]]:
         ):
             for project, description in zip(mapped, descriptions, strict=True):
                 project["description"] = description
+    if not mapped and source_text:
+        from app.services.extractors.resume_extractor import ResumeExtractor
+        from app.services.pipeline.extraction_pipeline import reconstruct_layout_text, segment_sections
+        layout_text = reconstruct_layout_text(source_text)
+        sections = segment_sections(layout_text)
+        extracted_projs = ResumeExtractor._projects(sections.get("projects", ""))
+        if not extracted_projs and sections.get("experience", ""):
+            extracted_projs = ResumeExtractor._extract_embedded_projects(sections.get("experience", ""))
+        if extracted_projs:
+            return extracted_projs
     return mapped
 
 
@@ -174,16 +194,25 @@ def map_affinda_resume(data: dict[str, Any], provider_id: str | None = None, sou
     name = data.get("candidateName") or {}
     candidate_name = " ".join(filter(None, [_text(name.get("firstName")), _text(name.get("middleName")), _text(name.get("familyName"))])) or None
     skills = _unique([value for item in data.get("skill") or [] if (value := _skill_name(item, source_text))])
-    education, normalized_education = [], []
+    education, normalized_education, misclassified_certs = [], [], []
     for item in data.get("education") or []:
         if not isinstance(item, dict):
             continue
         majors = item.get("educationMajor") or []
         major = _text(majors[0] if isinstance(majors, list) and majors else majors)
-        degree = _text(item.get("educationAccreditation"))
+        degree_raw = _text(item.get("educationAccreditation"))
         institution = _text(item.get("educationOrganization"))
-        education.append({"degree": degree, "institution": institution, "field_of_study": major})
-        normalized_education.append({"degree": degree, "institution": institution, "field_of_study": major, "graduation_date": None})
+        if (institution and any(prov in institution.lower() for prov in ["infosys", "coursera", "udemy", "edx", "skillrack", "springboard"])) or (
+            degree_raw and any(prov in degree_raw.lower() for prov in ["introduction to python", "python for data science"])
+        ):
+            cert_name = f"{degree_raw} - {institution}" if degree_raw and institution else (degree_raw or institution)
+            if cert_name:
+                misclassified_certs.append(cert_name)
+            continue
+        degrees = [d.strip() for d in degree_raw.split(",") if d.strip()] if degree_raw else [None]
+        for degree in degrees:
+            education.append({"degree": degree, "institution": institution, "field_of_study": major})
+            normalized_education.append({"degree": degree, "institution": institution, "field_of_study": major, "graduation_date": None})
     experience, normalized_experience, companies, titles = [], [], [], []
     for item in data.get("workExperience") or []:
         if not isinstance(item, dict):
@@ -200,18 +229,33 @@ def map_affinda_resume(data: dict[str, Any], provider_id: str | None = None, sou
         experience.append({"company": company, "title": title, "designation": title, "employment_type": _text((item.get("workExperienceType") or {}).get("label")), "start_date": start, "end_date": end, "description": _text(item.get("workExperienceDescription"))})
         normalized_experience.append({"company": company, "job_title": title, "start_date": start, "end_date": end, "is_current": current, "duration_months": duration, "duration_display": f"{duration} months" if duration is not None else None})
     projects = _map_projects(data.get("project"), source_text)
-    certifications = _unique([v for item in data.get("certification") or data.get("certifications") or [] if (v := _text(item.get("name") if isinstance(item, dict) else item))])
+    certifications = _unique([
+        *[v for item in data.get("certification") or data.get("certifications") or [] if (v := _text(item.get("name") if isinstance(item, dict) else item))],
+        *misclassified_certs,
+    ])
     languages = _unique([v for item in data.get("language") or [] if (v := _text(item.get("name") if isinstance(item, dict) else item))])
     email_values = data.get("email") or []
     phone_values = data.get("phoneNumber") or []
     email = _text(email_values[0] if email_values else None)
     phone_item = phone_values[0] if phone_values else None
     phone = _text(phone_item.get("formattedNumber") or phone_item.get("rawText")) if isinstance(phone_item, dict) else _text(phone_item)
+    if not phone and source_text:
+        phone_match = re.search(r"(?:Phone|Mobile|Tel|Cell)?\s*[:\-]?\s*(\+?\d[\d\s\-]{8,}\d)", source_text, re.IGNORECASE)
+        if phone_match:
+            phone = phone_match.group(1).strip()
     location = data.get("location") if isinstance(data.get("location"), dict) else {}
     display = _text(location.get("formatted") or location.get("rawInput"))
     locations = [{"city": _text(location.get("city")), "region": _text(location.get("state")), "country": _text(location.get("country")), "country_code": _text(location.get("countryCode")), "display_name": display}] if display else []
-    extracted = {"candidate_name": candidate_name, "email": email, "phone": phone, "designation": titles[0] if titles else None, "location": display, "skills": skills, "education": education, "experience": experience, "projects": projects, "certifications": certifications, "companies": _unique(companies), "languages": languages, "confidence_scores": {}, "raw_metadata": {"provider": "affinda", "provider_document_id": provider_id}}
-    normalized = {"skills": skills, "education": normalized_education, "companies": _unique(companies), "job_titles": _unique(titles), "experience": normalized_experience, "phone": phone, "email": email, "locations": locations, "languages": languages, "certifications": certifications, "normalization_metadata": {"ruleset_version": RULESET_VERSION, "normalized_at": datetime.now(UTC).isoformat(), "changes": [], "warnings": [], "field_confidence": {}}, "ruleset_version": RULESET_VERSION}
+    achievements = []
+    if source_text:
+        ach_match = re.search(
+            r"(?:^|\n)\s*ACHIEVEMENTS\b[^\n]*\n(.*?)(?=\n\s*(?:EXPERIENCE|WORK\s+EXPERIENCE|EDUCATION|SKILLS|PROJECTS|CERTIFICATIONS|PUBLICATIONS|AWARDS|LANGUAGES|SUMMARY|PROFILE)\b|\Z)",
+            source_text, re.DOTALL | re.IGNORECASE,
+        )
+        if ach_match:
+            achievements = [line.strip() for line in ach_match.group(1).splitlines() if line.strip()]
+    extracted = {"candidate_name": candidate_name, "email": email, "phone": phone, "designation": titles[0] if titles else None, "location": display, "skills": skills, "education": education, "experience": experience, "projects": projects, "certifications": certifications, "achievements": achievements, "companies": _unique(companies), "languages": languages, "confidence_scores": {}, "raw_metadata": {"provider": "affinda", "provider_document_id": provider_id}}
+    normalized = {"skills": skills, "education": normalized_education, "companies": _unique(companies), "job_titles": _unique(titles), "experience": normalized_experience, "phone": phone, "email": email, "locations": locations, "languages": languages, "certifications": certifications, "achievements": achievements, "normalization_metadata": {"ruleset_version": RULESET_VERSION, "normalized_at": datetime.now(UTC).isoformat(), "changes": [], "warnings": [], "field_confidence": {}}, "ruleset_version": RULESET_VERSION}
     extracted["raw_metadata"]["affinda_normalized_profile"] = normalized
     logger.info(
         "[MAPPER] Affinda resume mapper completed",

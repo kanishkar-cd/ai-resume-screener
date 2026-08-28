@@ -19,13 +19,19 @@ from app.schemas.matching import (
 )
 from app.services.pipeline.canonical_dictionaries import (
     CERTIFICATION_ALIASES, DEGREE_ALIASES, LANGUAGE_ALIASES, SKILL_ALIASES,
+    SKILL_CATEGORIES, CATEGORY_REQUIREMENT_ALIASES,
 )
 from app.services.scoring.component_scoring_service import ComponentScoringService
 
 logger = structlog.get_logger(__name__)
 _TOKEN = re.compile(r"[a-z0-9+#.]+")
+_STEM_SUFFIXES = (
+    "ization", "isation", "ation", "ition", "izing", "ising", "ized", "ised",
+    "ating", "ated", "ates", "ing", "ment", "tion", "sion", "able", "ible", "ness", "ies", "ied", "ed", "es", "ful", "s", "y",
+)
 _CONTEXTUAL = {
     RequirementKind.RESPONSIBILITY,
+    RequirementKind.SKILL,
 }
 
 
@@ -33,8 +39,22 @@ def _key(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
+def _stem_token(token: str) -> str:
+    t = token.casefold().strip()
+    if len(t) <= 3:
+        return t
+    for suffix in _STEM_SUFFIXES:
+        if t.endswith(suffix) and len(t) - len(suffix) >= 3:
+            return t[:-len(suffix)]
+    return t
+
+
 def _tokens(value: str) -> set[str]:
     return {token for token in _TOKEN.findall(value.casefold()) if len(token) > 1}
+
+
+def _stem_tokens(value: str) -> set[str]:
+    return {_stem_token(token) for token in _TOKEN.findall(value.casefold()) if len(token) > 1}
 
 
 class RequirementBuilder:
@@ -44,10 +64,33 @@ class RequirementBuilder:
     def build(job: Any, config: Any) -> list[Requirement]:
         rows: list[tuple[RequirementKind, str, bool, bool]] = []
         mandatory = {_key(value) for value in (getattr(config, "mandatory_skills", None) or [])}
-        preferred = {_key(value) for value in (getattr(job, "preferred_skills", None) or [])}
+        preferred_skills = list(getattr(job, "preferred_skills", None) or [])
+        preferred = {_key(value) for value in preferred_skills}
+        required_skills = list(getattr(job, "required_skills", None) or [])
+
+        # 1. Add required skills (or skills not marked as preferred)
+        if required_skills:
+            for value in required_skills:
+                key = _key(value)
+                rows.append((RequirementKind.SKILL, value, True, key in mandatory))
+        else:
+            for value in getattr(job, "skills", None) or []:
+                key = _key(value)
+                if key not in preferred:
+                    rows.append((RequirementKind.SKILL, value, True, key in mandatory))
+
+        # 2. Explicitly add preferred skills with required=False
+        for value in preferred_skills:
+            rows.append((RequirementKind.SKILL, value, False, False))
+
+        # 3. Add any remaining skills from job.skills
         for value in getattr(job, "skills", None) or []:
             key = _key(value)
-            rows.append((RequirementKind.SKILL, value, key not in preferred, key in mandatory))
+            if key in preferred:
+                rows.append((RequirementKind.SKILL, value, False, False))
+            else:
+                rows.append((RequirementKind.SKILL, value, True, key in mandatory))
+
         for value in getattr(job, "degree_requirements", None) or []:
             rows.append((RequirementKind.DEGREE, value, True, False))
         for value in [
@@ -159,7 +202,7 @@ class DeterministicRequirementMatcher:
         return canonical_key, MatchMethod.EXACT if key == canonical_key else MatchMethod.ALIAS
 
     def match(self, requirement: Requirement, resume: Any, evidence: list[Evidence]) -> MatchVerdict:
-        if requirement.kind in _CONTEXTUAL:
+        if requirement.kind == RequirementKind.RESPONSIBILITY:
             required_key = _key(requirement.canonical_value or requirement.text)
             for item in evidence:
                 canonical = {_key(value) for value in item.canonical_terms}
@@ -175,37 +218,155 @@ class DeterministicRequirementMatcher:
                 requirement_id=requirement.requirement_id, status=MatchStatus.UNRESOLVED,
                 confidence=0, reasoning="Contextual requirement requires evidence review.",
             )
-        aliases: dict[str, str]
-        candidates: list[str]
+
+        req_text = requirement.canonical_value or requirement.text
+
         if requirement.kind == RequirementKind.SKILL:
-            aliases, candidates = SKILL_ALIASES, list(getattr(resume, "skills", None) or [])
+            aliases = SKILL_ALIASES
+            candidates = list(getattr(resume, "skills", None) or [])
+            certs = list(getattr(resume, "certifications", None) or [])
+            evidence_terms = [term for e in evidence for term in e.canonical_terms if term]
+            evidence_text = " ".join(e.text for e in evidence).casefold()
+            candidate_pool = list(dict.fromkeys([*candidates, *certs, *evidence_terms]))
+
+            # 1. Parse alternatives from requirement string (splits slashes, 'or', 'and', 'such as', commas)
+            cleaned_req = re.sub(
+                r"^(?:experience\s+with|knowledge\s+of|proficiency\s+in|familiarity\s+with|understanding\s+of|hands-on\s+with)\s+",
+                "", req_text, flags=re.I
+            ).strip()
+
+            such_as_parts = []
+            such_match = re.search(r"\b(?:such\s+as|like|e\.g\.?|including)\s+(.+)$", cleaned_req, re.I)
+            if such_match:
+                such_parts_raw = re.split(r"[,;/]|\s+or\s+|\s+and\s+", such_match.group(1).strip())
+                such_as_parts = [p.strip() for p in such_parts_raw if p.strip()]
+
+            raw_alts = re.split(r"\s*(?:\/|\|)\s*|\s+(?:or|and)\s+|\s*,\s*(?:or|and)?\s*|\s*;\s*", cleaned_req, flags=re.IGNORECASE)
+            alternatives = list(dict.fromkeys([a.strip() for a in [*raw_alts, *such_as_parts, cleaned_req] if a.strip()]))
+
+            candidate_keys_map: dict[str, tuple[str, MatchMethod]] = {}
+            for c in candidate_pool:
+                ckey, cmeth = self._canonical(c, aliases)
+                candidate_keys_map[ckey] = (c, cmeth)
+
+            for alt in alternatives:
+                alt_clean = alt.strip()
+                alt_cf = alt_clean.casefold()
+                alt_key, alt_method = self._canonical(alt_clean, aliases)
+
+                # Check if alternative is a category requirement (e.g. RELATIONAL_DATABASE, PROGRAMMING_LANGUAGE, CLOUD_PLATFORMS, TESTING, AGILE, etc.)
+                category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
+                if category_name and category_name in SKILL_CATEGORIES:
+                    category_members = {m.casefold(): m for m in SKILL_CATEGORIES[category_name]}
+                    matched_key = next((k for k in candidate_keys_map if k in category_members), None)
+                    if matched_key:
+                        orig_skill, cmeth = candidate_keys_map[matched_key]
+                        ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
+                        return MatchVerdict(
+                            requirement_id=requirement.requirement_id,
+                            status=MatchStatus.MATCHED,
+                            confidence=1,
+                            evidence_ids=ev_ids,
+                            reasoning=f"Candidate satisfies requirement via {orig_skill} ({category_name.replace('_', ' ').title()}).",
+                            method=MatchMethod.ALIAS,
+                        )
+
+                # Direct canonical match
+                if alt_key in candidate_keys_map:
+                    orig_skill, cmeth = candidate_keys_map[alt_key]
+                    method = MatchMethod.ALIAS if MatchMethod.ALIAS in {alt_method, cmeth} else MatchMethod.EXACT
+                    ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
+                    return MatchVerdict(
+                        requirement_id=requirement.requirement_id,
+                        status=MatchStatus.MATCHED,
+                        confidence=1,
+                        evidence_ids=ev_ids,
+                        reasoning=f"Canonical values match ({orig_skill}).",
+                        method=method,
+                    )
+
+                # Check word boundary match in candidate evidence text (e.g., 'unit tests', 'docker', 'redis', 'sql')
+                escaped = re.escape(alt_cf)
+                if len(alt_cf) >= 3 and re.search(rf"(?:\b|_){escaped}(?:\b|_)", evidence_text, re.IGNORECASE):
+                    ev_ids = [e.evidence_id for e in evidence if re.search(rf"(?:\b|_){escaped}(?:\b|_)", e.text, re.IGNORECASE)][:1]
+                    return MatchVerdict(
+                        requirement_id=requirement.requirement_id,
+                        status=MatchStatus.MATCHED,
+                        confidence=1,
+                        evidence_ids=ev_ids,
+                        reasoning=f"Candidate demonstrates requirement in profile ({alt_clean}).",
+                        method=MatchMethod.ALIAS,
+                    )
+                # Multi-word concept proximity matching
+                multi_match = ComponentScoringService._match_multiword_concept(alt_clean, [e.text for e in evidence] + candidate_pool)
+                if multi_match:
+                    ev_ids = [e.evidence_id for e in evidence if any(_stem_token(ct) in [_stem_token(t) for t in _TOKEN.findall(e.text.casefold())] for ct in _TOKEN.findall(alt_clean.casefold()))][:1]
+                    return MatchVerdict(
+                        requirement_id=requirement.requirement_id,
+                        status=MatchStatus.MATCHED,
+                        confidence=1,
+                        evidence_ids=ev_ids,
+                        reasoning=f"Candidate demonstrates concept in profile ({alt_clean}).",
+                        method=MatchMethod.ALIAS,
+                    )
+
+            return MatchVerdict(
+                requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
+                confidence=1, reasoning="No deterministic canonical match.",
+            )
+
         elif requirement.kind == RequirementKind.DEGREE:
             aliases = DEGREE_ALIASES
-            candidates = [item.get("degree") for item in (getattr(resume, "education", None) or []) if item.get("degree")]
-        elif requirement.kind == RequirementKind.CERTIFICATION:
-            aliases, candidates = CERTIFICATION_ALIASES, list(getattr(resume, "certifications", None) or [])
-        elif requirement.kind == RequirementKind.LANGUAGE:
-            aliases, candidates = LANGUAGE_ALIASES, list(getattr(resume, "languages", None) or [])
-        else:
-            aliases, candidates = {}, []
+            edu_items = getattr(resume, "education", None) or []
+            candidates = [item.get("degree") for item in edu_items if item.get("degree")]
+            fields = [item.get("field_of_study") for item in edu_items if item.get("field_of_study")]
+            edu_text = " ".join(e.text for e in evidence if e.kind == "education").casefold()
 
-        required_key, required_method = self._canonical(requirement.canonical_value or requirement.text, aliases)
-        for candidate in candidates:
-            candidate_key, candidate_method = self._canonical(candidate, aliases)
-            if candidate_key == required_key:
-                method = MatchMethod.ALIAS if MatchMethod.ALIAS in {required_method, candidate_method} else MatchMethod.EXACT
-                return MatchVerdict(
-                    requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
-                    confidence=1, evidence_ids=[], reasoning="Canonical values match.", method=method,
-                )
-        if requirement.kind == RequirementKind.DEGREE:
-            required_rank = ComponentScoringService.degree_rank(requirement.text)
+            required_rank = ComponentScoringService.degree_rank(req_text)
             if required_rank and any(ComponentScoringService.degree_rank(value) >= required_rank for value in candidates):
                 return MatchVerdict(
                     requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
                     confidence=1, reasoning="Degree taxonomy level satisfies requirement.",
                     method=MatchMethod.TAXONOMY,
                 )
+
+            # Check discipline alternatives (e.g. "Computer Science, Engineering, Information Technology")
+            disc_alts = re.split(r"[,;/]|\s+or\s+|\s+and\s+", req_text, flags=re.IGNORECASE)
+            for d in [a.strip().casefold() for a in disc_alts if a.strip()]:
+                if any(d in (f or "").casefold() for f in fields) or any(d in (c or "").casefold() for c in candidates) or (len(d) >= 4 and d in edu_text):
+                    return MatchVerdict(
+                        requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
+                        confidence=1, reasoning=f"Educational background satisfies requirement ({d.title()}).",
+                        method=MatchMethod.TAXONOMY,
+                    )
+
+            return MatchVerdict(
+                requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
+                confidence=1, reasoning="No deterministic canonical match.",
+            )
+
+        elif requirement.kind == RequirementKind.CERTIFICATION:
+            aliases = CERTIFICATION_ALIASES
+            candidates = list(getattr(resume, "certifications", None) or [])
+        elif requirement.kind == RequirementKind.LANGUAGE:
+            aliases = LANGUAGE_ALIASES
+            candidates = list(getattr(resume, "languages", None) or [])
+        else:
+            return MatchVerdict(
+                requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
+                confidence=1, reasoning="Unsupported requirement kind.",
+            )
+
+        for candidate in candidates:
+            cand_key, cand_method = self._canonical(candidate, aliases)
+            req_key, req_method = self._canonical(req_text, aliases)
+            if cand_key == req_key:
+                method = MatchMethod.ALIAS if MatchMethod.ALIAS in {cand_method, req_method} else MatchMethod.EXACT
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
+                    confidence=1, evidence_ids=[], reasoning="Canonical values match.", method=method,
+                )
+
         return MatchVerdict(
             requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
             confidence=1, reasoning="No deterministic canonical match.",
@@ -219,16 +380,20 @@ class EvidencePrefilter:
     def select(self, requirement: Requirement, evidence: list[Evidence]) -> list[Evidence]:
         if not evidence:
             return []
-        required = _tokens(requirement.text)
+        required = _stem_tokens(requirement.text)
         scored = []
         for item in evidence:
-            overlap = len(required & _tokens(item.text)) / len(required) if required else 0.0
-            scored.append((overlap, item.evidence_id, item))
+            overlap = len(required & _stem_tokens(item.text)) / len(required) if required else 0.0
+            if overlap > 0:
+                scored.append((overlap, item.evidence_id, item))
+        if not scored:
+            if requirement.kind == RequirementKind.RESPONSIBILITY:
+                return evidence[: self.limit]
+            return []
         scored.sort(key=lambda row: (-row[0], row[1]))
         passing = [row[2] for row in scored if row[0] >= self.threshold]
         if passing:
             return passing[: self.limit]
-        # Fallback to available evidence items so LLM can perform semantic review
         return [row[2] for row in scored[: self.limit]]
 
 
@@ -337,6 +502,10 @@ class GroqMatchEvaluator:
                 {"role": "system", "content": (
                     "Evaluate supplied Job Description requirements against supplied candidate resume evidence. "
                     "Determine status (MATCHED, NO_MATCH, or UNRESOLVED), confidence (0.0 to 1.0), and reasoning. "
+                    "For SKILL requirements: evaluate whether candidate experience, project, or technical evidence demonstrates practical application or competence in the skill. "
+                    "Distinguish demonstrated technical capability from weak or unrelated mentions. "
+                    "For RESPONSIBILITY requirements: evaluate whether candidate experience/project evidence demonstrates the action/task in context. "
+                    "Listing a skill or keyword alone without experiential context is weak and should NOT be MATCHED as a full responsibility. "
                     "Never infer missing facts or invent evidence. "
                     "Cite only supplied evidence_ids that directly support your decision. "
                     "Return one JSON object with exactly this shape: "
@@ -370,7 +539,7 @@ class HybridMatchingService:
         unresolved: list[Requirement] = []
         for verdict in deterministic:
             requirement = contextual.get(verdict.requirement_id)
-            if not requirement or verdict.status != MatchStatus.UNRESOLVED:
+            if not requirement or verdict.status == MatchStatus.MATCHED:
                 continue
             selected = prefilter.select(requirement, evidence)
             if selected:
@@ -381,7 +550,7 @@ class HybridMatchingService:
                 verdict.status = MatchStatus.NO_MATCH
                 verdict.confidence = 1
                 verdict.reasoning = "No deterministically relevant evidence was found."
-        llm = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence)
+        llm = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence) if unresolved else []
         llm_by_id = {item.requirement_id: item for item in llm}
         fused = [llm_by_id.get(item.requirement_id, item) for item in deterministic]
         projects = EvidenceBuilder._projects(extracted)

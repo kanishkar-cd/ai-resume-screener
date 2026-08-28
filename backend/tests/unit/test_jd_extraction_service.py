@@ -654,6 +654,546 @@ async def test_5_unrelated_jds_generic_extraction_and_isolation() -> None:
     assert len(results["finance"].responsibilities) == 1
 
 
+@pytest.mark.asyncio
+async def test_no_standalone_noise_words_in_required_skills() -> None:
+    """Verify that stop words/noise ('are', 'and', 'basis', 'requirements', 'skills', 'log') are never extracted as single skills."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=doc_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.PARSED,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: QA / Cybersecurity Analyst
+        Experience: 0-1 year
+        Education: B.Sc. in Cybersecurity, Computer Science, Information Technology, B.Tech
+        Required Skills:
+        - Cybersecurity fundamentals
+        - networking, TCP/IP
+        - Linux/Windows basics
+        - authentication concepts, log, analysis, SIEM fundamentals
+        - vulnerability concepts
+        - basic scripting
+        - Security certifications or labs are preferred
+        Responsibilities:
+        - Monitor security alerts and assist with initial alert triage.
+        - Analyze system, application, and security logs.
+        """,
+        word_count=50,
+    )
+
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills_lower = [s.lower() for s in payload.required_skills]
+
+    # Prohibited single-word / noise skills
+    assert "are" not in req_skills_lower
+    assert "and" not in req_skills_lower
+    assert "basis" not in req_skills_lower
+    assert "requirements" not in req_skills_lower
+    assert "skills" not in req_skills_lower
+    assert "log" not in req_skills_lower
+    assert "analysis" not in req_skills_lower
+
+    # Valid multi-word / atomic skills preserved
+    assert any("cybersecurity fundamentals" in s for s in req_skills_lower)
+    assert any("linux" in s for s in req_skills_lower)
+    assert any("windows basics" in s for s in req_skills_lower)
+    assert any("siem fundamentals" in s for s in req_skills_lower)
+    assert any("vulnerability concepts" in s for s in req_skills_lower)
+    assert any("scripting" in s for s in req_skills_lower)
+    assert any("security certifications or labs" in s for s in req_skills_lower)
+    assert not any(s.endswith(" are") for s in req_skills_lower)
+
+
+@pytest.mark.asyncio
+async def test_itops_directory_basics_and_scripting_basics() -> None:
+    """Verify ITOps Directory Basics and Scripting Basics canonical requirements, asserting 'Active' is not standalone."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=doc_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.PARSED,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: IT Support Specialist
+        Education: B.Sc, B.Tech in Computer Science, Information Technology
+        Required Skills:
+        - IT support fundamentals
+        - Windows/Linux basics
+        - networking, ticketing tools
+        - Active Directory basics
+        - SQL fundamentals
+        - scripting basics
+        - ITIL awareness
+        Responsibilities:
+        - Monitor IT services and respond to operational alerts.
+        - Handle basic incidents and service requests through ticketing systems.
+        """,
+        word_count=50,
+    )
+
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills_lower = [s.lower() for s in payload.required_skills]
+
+    # Prohibited standalone word
+    assert "active" not in req_skills_lower
+
+    # Valid compound requirement items preserved
+    assert any("active directory" in s or "directory basics" in s for s in req_skills_lower)
+    assert any("scripting basics" in s for s in req_skills_lower)
+    assert any("it support fundamentals" in s for s in req_skills_lower)
+    assert any("windows" in s for s in req_skills_lower)
+    assert any("linux basics" in s for s in req_skills_lower)
+    assert any("ticketing tools" in s for s in req_skills_lower)
+    assert any("itil awareness" in s for s in req_skills_lower)
+
+
+@pytest.mark.asyncio
+async def test_unsectioned_infrastructure_jd_extraction() -> None:
+    """Verify extraction from unsectioned header lines with slash and semicolon delimiters."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=doc_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.PARSED,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""Linux/Windows Server; PowerShell/Bash/Python; VMware; AWS/Azure; Active Directory; DNS/DHCP; TCP/IP; storage; backup/recovery; monitoring; Ansible; ITIL; incident/change management.
+Education & Experience
+Bachelor’s degree or equivalent technical experience. 5–8 years of systems administration or infrastructure operations experience. Relevant certifications such as AWS/Azure Administrator, RHCSA/RHCE, or ITIL are desirable.
+""",
+        word_count=45,
+    )
+
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    all_extracted_skills = [s.lower() for s in ([*(payload.required_skills or []), *(payload.skills or [])])]
+
+    # Verify all JD skills are captured
+    assert any("linux" in s for s in all_extracted_skills)
+    assert any("windows server" in s for s in all_extracted_skills)
+    assert any("powershell" in s for s in all_extracted_skills)
+    assert any("bash" in s for s in all_extracted_skills)
+    assert any("python" in s for s in all_extracted_skills)
+    assert any("vmware" in s for s in all_extracted_skills)
+    assert any("aws" in s for s in all_extracted_skills)
+    assert any("azure" in s for s in all_extracted_skills)
+    assert any("active directory" in s for s in all_extracted_skills)
+    assert any("dns" in s for s in all_extracted_skills)
+    assert any("dhcp" in s for s in all_extracted_skills)
+    assert any("tcp/ip" in s for s in all_extracted_skills)
+    assert any("storage" in s for s in all_extracted_skills)
+    assert any("backup" in s or "recovery" in s for s in all_extracted_skills)
+    assert any("monitoring" in s for s in all_extracted_skills)
+    assert any("ansible" in s for s in all_extracted_skills)
+    assert any("itil" in s for s in all_extracted_skills)
+    assert any("incident" in s or "change management" in s for s in all_extracted_skills)
+
+    # Verify experience and education extraction
+    assert any("5" in exp and "8" in exp for exp in payload.experience)
+    assert any("bachelor" in e.lower() for e in payload.education)
+
+
+@pytest.mark.asyncio
+async def test_full_sysops_jd_with_job_summary_and_required_technical_skills() -> None:
+    """Verify that intro summary sentences are not extracted as skills, and 'Required Technical Skills' correctly populates required_skills."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=doc_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.PARSED,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""We are seeking an experienced SysOps Engineer to administer, maintain, automate, and troubleshoot enterprise infrastructure. The role focuses on system availability, server operations, patching, monitoring, capacity, and backup.
+
+Role Responsibilities
+• Administer Linux and Windows servers across on-premises and cloud environments.
+• Perform system monitoring, patching, upgrades, configuration management, and capacity planning.
+• Troubleshoot operating-system, networking, storage, application-hosting, and performance issues.
+• Automate recurring operational tasks using PowerShell, Bash, Python, or configuration-management tools.
+• Manage backups, recovery procedures, high-availability configurations, and disaster-recovery exercises.
+• Maintain operational documentation, runbooks, system inventories, and change records.
+• Coordinate incident, problem, and change management with infrastructure and application teams.
+• Implement hardening, access controls, vulnerability remediation, and operational compliance requirements.
+
+Required Technical Skills
+Linux/Windows Server; PowerShell/Bash/Python; VMware; AWS/Azure; Active Directory; DNS/DHCP; TCP/IP; storage; backup/recovery; monitoring; Ansible; ITIL; incident/change management.
+
+Education & Experience
+Bachelor’s degree or equivalent technical experience. 5–8 years of systems administration or infrastructure operations experience. Relevant certifications such as AWS/Azure Administrator, RHCSA/RHCE, or ITIL are desirable.
+""",
+        word_count=130,
+    )
+
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills_lower = [s.lower() for s in payload.required_skills]
+
+    # 1. Prose summary must NOT be in required_skills
+    assert not any("seeking" in s for s in req_skills_lower)
+    assert not any("focuses" in s for s in req_skills_lower)
+    assert not any("we are seeking an experienced sysops engineer" in s for s in req_skills_lower)
+    assert not any("the role focuses on system availability" in s for s in req_skills_lower)
+
+    # 2. Technical skills MUST be in required_skills
+    assert any("linux" in s for s in req_skills_lower)
+    assert any("windows server" in s for s in req_skills_lower)
+    assert any("powershell" in s for s in req_skills_lower)
+    assert any("bash" in s for s in req_skills_lower)
+    assert any("python" in s for s in req_skills_lower)
+    assert any("vmware" in s for s in req_skills_lower)
+    assert any("aws" in s for s in req_skills_lower)
+    assert any("azure" in s for s in req_skills_lower)
+    assert any("active directory" in s for s in req_skills_lower)
+    assert any("dns" in s for s in req_skills_lower)
+    assert any("dhcp" in s for s in req_skills_lower)
+    assert any("tcp/ip" in s for s in req_skills_lower)
+    assert any("storage" in s for s in req_skills_lower)
+    assert any("backup" in s or "recovery" in s for s in req_skills_lower)
+    assert any("monitoring" in s for s in req_skills_lower)
+    assert any("ansible" in s for s in req_skills_lower)
+    assert any("itil" in s for s in req_skills_lower)
+    assert any("incident" in s or "change management" in s for s in req_skills_lower)
+
+    # 3. Responsibilities must be cleanly isolated and not contain the skill line
+    assert len(payload.responsibilities) == 8
+    assert not any("required technical skills" in r.lower() for r in payload.responsibilities)
+
+
+@pytest.mark.asyncio
+async def test_slash_alternative_groups_preserved_as_is() -> None:
+    """Verify that slash alternative groups (e.g. Java/Python/JavaScript, Selenium/Playwright/Cypress, Agile/Scrum) are extracted as intact requirements."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(
+        id=doc_id,
+        document_type=DocumentTypeEnum.JOB_DESCRIPTION,
+        processing_status=ProcessingStatusEnum.PARSED,
+        metadata_json={},
+    )
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: QA Automation Engineer
+        Required Skills:
+        Selenium/Playwright/Cypress; Java/Python/JavaScript; REST API testing; Postman; SQL; CI/CD; Git; test
+        management; defect tracking; Agile/Scrum; performance testing tools; automation framework design.
+        Education & Experience:
+        Bachelor's in Computer Science. 5-8 years of experience.
+        """,
+        word_count=50,
+    )
+
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills = payload.required_skills
+    req_skills_lower = [s.lower() for s in req_skills]
+
+    # Slash alternative groups preserved intact
+    assert "selenium/playwright/cypress" in req_skills_lower
+    assert "java/python/javascript" in req_skills_lower
+    assert "agile/scrum" in req_skills_lower
+
+    # Not separated into individual isolated fragments
+    assert "playwright" not in req_skills_lower
+    assert "cypress" not in req_skills_lower
+
+    # Clean multi-word skills preserved across wrapped lines
+    assert "rest api testing" in req_skills_lower
+    assert "test management" in req_skills_lower
+    assert "defect tracking" in req_skills_lower
+    assert "performance testing tools" in req_skills_lower
+    assert "automation framework design" in req_skills_lower
+    assert "postman" in req_skills_lower
+    assert "sql" in req_skills_lower
+    assert "ci/cd" in req_skills_lower
+    assert "git" in req_skills_lower
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_example_a_clean_skills() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Full Stack Developer
+        Required Skills:
+        JavaScript, React.js, Node.js, MongoDB, REST APIs, Git
+        """,
+        word_count=20,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills = payload.required_skills
+    assert "JavaScript" in req_skills
+    assert "React.js" in req_skills or "React" in req_skills
+    assert "Node.js" in req_skills
+    assert "MongoDB" in req_skills
+    assert "REST APIs" in req_skills or "REST API" in req_skills
+    assert "Git" in req_skills
+    assert payload.responsibilities == []
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_example_b_action_responsibilities() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Software Engineer
+        Responsibilities:
+        - Integrate REST APIs
+        - Implement JWT authentication
+        - Fix production defects
+        """,
+        word_count=20,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    assert len(payload.responsibilities) == 3
+    assert any("Integrate REST APIs" in r for r in payload.responsibilities)
+    assert any("Implement JWT authentication" in r for r in payload.responsibilities)
+    assert any("Fix production defects" in r for r in payload.responsibilities)
+    # Responsibilities should not be in required_skills
+    assert "Fix production defects" not in payload.required_skills
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_example_c_project_descriptions_and_embedded_tech() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Full Stack Engineer
+        Key Requirements:
+        - JavaScript, React.js, Node.js, MongoDB, REST APIs, Git
+        - E-Commerce Store — Developed product listing, cart, login, and order-management features using the MERN stack
+        - Implemented JWT authentication and fixed production defects
+        - Collaborated with senior engineers on feature delivery
+        """,
+        word_count=50,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_skills_lower = [s.lower() for s in payload.required_skills]
+
+    # Clean technical skills are extracted
+    assert "javascript" in req_skills_lower
+    assert "react.js" in req_skills_lower or "react" in req_skills_lower
+    assert "node.js" in req_skills_lower
+    assert "mongodb" in req_skills_lower
+    assert "rest apis" in req_skills_lower or "rest api" in req_skills_lower
+    assert "git" in req_skills_lower
+    assert "mern" in req_skills_lower
+    assert "jwt" in req_skills_lower
+
+    # Fragmented words and full project sentences are NOT extracted as skills
+    assert "cart" not in req_skills_lower
+    assert "login" not in req_skills_lower
+    assert "product listing" not in req_skills_lower
+    assert "developed product listing" not in req_skills_lower
+    assert "order-management features using the mern stack" not in req_skills_lower
+    assert "fixed production defects" not in req_skills_lower
+    assert "collaborated with senior engineers on feature delivery" not in req_skills_lower
+
+    # Full action and project sentences are preserved under responsibilities
+    resp_lower = [r.lower() for r in payload.responsibilities]
+    assert any("e-commerce store" in r for r in resp_lower)
+    assert any("collaborated with senior engineers" in r for r in resp_lower)
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_example_d_deduplication_of_aliases() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Frontend Engineer
+        Required Skills:
+        React.js
+        ReactJS
+        React
+        Preferred Skills:
+        Docker
+        AWS
+        """,
+        word_count=20,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    # React variations must collapse to 1 single requirement
+    assert len(payload.required_skills) == 1
+    assert payload.required_skills[0].lower() in {"react", "react.js"}
+
+    # Preferred skills must have Docker and AWS
+    assert len(payload.preferred_skills) == 2
+    assert "Docker" in payload.preferred_skills
+    assert "AWS" in payload.preferred_skills
+
+
+@pytest.mark.asyncio
+async def test_jd_extraction_example_e_required_vs_preferred_isolation() -> None:
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Full Stack Developer
+        Required Skills:
+        JavaScript
+        React.js
+        Node.js
+        Preferred Skills:
+        Docker
+        AWS
+        CI/CD
+        """,
+        word_count=25,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    assert len(payload.required_skills) == 3
+    assert "JavaScript" in payload.required_skills
+    assert "React.js" in payload.required_skills or "React" in payload.required_skills
+    assert "Node.js" in payload.required_skills
+
+    assert len(payload.preferred_skills) == 3
+    assert "Docker" in payload.preferred_skills
+    assert "AWS" in payload.preferred_skills
+    assert "CI/CD" in payload.preferred_skills
+
+
+@pytest.mark.asyncio
+async def test_categorized_skills_extraction_strips_category_labels() -> None:
+    """Verify that sectioned inline category labels (Frontend:, Backend:, Database:, Engineering:) are stripped from skills."""
+    doc_repo = AsyncMock()
+    parsed_repo = AsyncMock()
+    extracted_repo = AsyncMock()
+    doc_id = uuid4()
+    doc_repo.get_document.return_value = AsyncMock(id=doc_id, document_type=DocumentTypeEnum.JOB_DESCRIPTION, processing_status=ProcessingStatusEnum.PARSED, metadata_json={})
+    doc_repo.update_status.return_value = AsyncMock(processing_status=ProcessingStatusEnum.COMPLETED)
+    parsed_repo.get_by_document_id.return_value = AsyncMock(
+        raw_text="""
+        Job Title: Full Stack Developer
+        Required Skills
+        Frontend: React.js, JavaScript/TypeScript, HTML5, CSS3, responsive design, state management.
+        Backend: Node.js, Express.js, REST APIs, authentication, authorization, asynchronous programming.
+        Database: MongoDB, schema design, indexing, aggregation, query optimization.
+        Engineering: Git, GitHub/GitLab, testing, debugging, clean code, API documentation.
+        Preferred Skills
+        Next.js, TypeScript, Redux Toolkit, Redis, Docker, AWS, GraphQL, CI/CD, microservices, WebSockets, Jest, React
+        Testing Library.
+        Education
+        Bachelor's degree in Computer Science, Information Technology, Engineering, or a related field.
+        Candidate Profile
+        Strong problem-solving and communication skills.
+        Keywords
+        MERN Stack, Senior Developer, React.js, Node.js, Express.js, MongoDB, JavaScript, TypeScript, REST API, AWS, Docker, Git, Microservices
+        """,
+        word_count=100,
+    )
+    service = JDExtractionService(doc_repo, parsed_repo, extracted_repo)
+    await service.extract_document(doc_id)
+    payload = extracted_repo.upsert.await_args[0][0]
+
+    req_lower = [s.lower() for s in payload.required_skills]
+    pref_lower = [s.lower() for s in payload.preferred_skills]
+
+    # Category prefixes stripped
+    assert "react.js" in req_lower
+    assert "frontend: react.js" not in req_lower
+    assert "node.js" in req_lower
+    assert "backend: node.js" not in req_lower
+    assert "mongodb" in req_lower
+    assert "database: mongodb" not in req_lower
+    assert "git" in req_lower
+    assert "engineering: git" not in req_lower
+
+    # Intact compound groups preserved
+    assert "javascript/typescript" in req_lower
+    assert "github/gitlab" in req_lower
+    assert "html5" in req_lower
+    assert "css3" in req_lower
+
+    # Preferred skills wrapped line preserved
+    assert "react testing library" in pref_lower
+    assert "next.js" in pref_lower
+    assert "redux toolkit" in pref_lower
+
+
+
+
+
+
+
+
+
+
 
 
 

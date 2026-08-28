@@ -56,6 +56,8 @@ class ResumeExtractor:
         experience = self._experience(sections.get("experience", ""))
         designation = self._designation(header_lines, sections, text, experience)
         projects = self._projects(sections.get("projects", ""))
+        if not projects and sections.get("experience", ""):
+            projects = self._extract_embedded_projects(sections.get("experience", ""))
         certifications = self._certifications(sections.get("certifications", ""))
         companies = list(dict.fromkeys(item["company"] for item in experience if item.get("company")))
         languages = match_terms(sections.get("languages", "") or text, LANGUAGES)
@@ -573,6 +575,43 @@ class ResumeExtractor:
         if current_project:
             projects.append(current_project)
 
+        return projects
+
+    @staticmethod
+    def _extract_embedded_projects(exp_block: str) -> list[dict[str, Any]]:
+        if not exp_block.strip():
+            return []
+        proj_heading_re = re.compile(
+            r"^(?:[•●○▪*–—\d\.\)\s]*)(?:project\s*:|\d+[\.\)]\s*project|key\s+project\s*:)",
+            re.IGNORECASE,
+        )
+        projects: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for line in exp_block.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            if proj_heading_re.match(line_str):
+                if current:
+                    projects.append(current)
+                clean_title = proj_heading_re.sub("", line_str).strip().strip(": -–—")
+                current = {
+                    "name": clean_title[:255] if clean_title else "Project",
+                    "description": clean_title,
+                    "technologies": match_terms(line_str, SKILLS),
+                }
+            elif current:
+                if COMPANY_PATTERN.search(line_str) and ("|" in line_str or " - " in line_str or " – " in line_str or " — " in line_str):
+                    projects.append(current)
+                    current = None
+                    continue
+                clean_text = line_str.lstrip("•●○▪*-–— ").strip()
+                current["description"] += (" " if current["description"] else "") + clean_text
+                for t in match_terms(line_str, SKILLS):
+                    if t not in current["technologies"]:
+                        current["technologies"].append(t)
+        if current:
+            projects.append(current)
         return projects
 
 
