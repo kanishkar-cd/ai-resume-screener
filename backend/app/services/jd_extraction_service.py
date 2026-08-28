@@ -86,14 +86,44 @@ CERTIFICATION_PATTERNS: list[re.Pattern[str]] = [
 
 DEGREE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in [
-        r"\b(?:bachelor(?:'?s)?|b\.?\s*(?:sc|e|tech|s|com|ca)|undergraduate)\s*(?:degree|of|in)?\s*(?:[a-z\s\&\,]+)?\b",
-        r"\b(?:master(?:'?s)?|m\.?\s*(?:sc|e|tech|s|ba|ca)|postgraduate|graduate)\s*(?:degree|of|in)?\s*(?:[a-z\s\&\,]+)?\b",
-        r"\b(?:phd|ph\.d|doctorate|doctoral)\b",
-        r"\b(?:mba|master\s+of\s+business\s+administration)\b",
-        r"\b(?:associate\s+degree)\b",
-        r"\b(?:degree|qualification)\s+in\s+[a-z\s\&\,]+(?:\s+or\s+(?:related|equivalent)\s+(?:field|discipline|experience))?\b",
+        # Bachelor level + specialization or standalone
+        r"\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.?\s*e\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*s\.?|b\.?\s*com\.?|b\.?\s*a\.?|undergraduate)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.?\s*e\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*s\.?|b\.?\s*com\.?|b\.?\s*a\.?|undergraduate)\s*(?:degree|qualification)?\b",
+        # Master level + specialization or standalone
+        r"\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.?\s*e\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*s\.?|m\.?\s*ba\.?|postgraduate|graduate)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.?\s*e\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*s\.?|m\.?\s*ba\.?|postgraduate|graduate)\s*(?:degree|qualification)?\b",
+        # Doctorate / PhD + specialization or standalone
+        r"\b(?:phd|ph\.?d\.?|doctorate|doctoral)\s*(?:degree|qualification)?\s+(?:in|of)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:phd|ph\.?d\.?|doctorate|doctoral)\s*(?:degree|qualification)?\b",
+        # MBA + specialization or standalone
+        r"\b(?:mba|master\s+of\s+business\s+administration)\s*(?:degree|qualification)?\s+(?:in|of)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:mba|master\s+of\s+business\s+administration)\s*(?:degree|qualification)?\b",
+        # Associate Degree + specialization or standalone
+        r"\b(?:associate(?:'?s)?\s+degree)\s+(?:in|of)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:associate(?:'?s)?\s+degree)\b",
+        # Generic degree/qualification in specialization
+        r"\b(?:degree|qualification)\s+in\s+[a-z0-9\s\&\,\/\-]+\b",
     ]
 ]
+
+_GENERIC_EDUCATION_TRAILERS = re.compile(
+    r"\s+(?:or\s+(?:a\s+)?)?(?:related|equivalent|relevant)\s+(?:field|discipline|experience|qualification|area|degree|background)\b.*$",
+    re.IGNORECASE,
+)
+_GENERIC_EDUCATION_LEADERS = re.compile(
+    r"^(?:must\s+possess\s+a|minimum\s+of\s+a|must\s+have\s+a|qualification\s+of|degree\s+in|qualification\s+in|degree\s+of)\s+",
+    re.IGNORECASE,
+)
+
+
+def clean_education_phrase(phrase: str) -> str:
+    cleaned = phrase.strip()
+    cleaned = _GENERIC_EDUCATION_TRAILERS.sub("", cleaned).strip()
+    cleaned = _GENERIC_EDUCATION_LEADERS.sub("", cleaned).strip()
+    cleaned = re.sub(
+        r"\s+(?:or\s+equivalent|or\s+related|or\s+relevant)\b.*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(r"^[,\s.:;\-/]+|[,\s.:;\-/]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
 
 EXPERIENCE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in [
@@ -357,16 +387,24 @@ def _extract_responsibilities(text: str) -> tuple[list[str], float]:
 
 def _extract_education(text: str) -> tuple[list[str], float]:
     """Find degree and education requirements using regex patterns."""
-    found: set[str] = set()
+    raw_found: set[str] = set()
     for pattern in DEGREE_PATTERNS:
         for match in pattern.finditer(text):
-            phrase = match.group(0).strip()
-            # Normalise whitespace
-            phrase = re.sub(r"\s+", " ", phrase)
+            phrase = clean_education_phrase(match.group(0))
             if len(phrase) > 3:
-                found.add(phrase)
-    confidence = min(1.0, len(found) / 2) if found else 0.0
-    return sorted(found), round(confidence, 2)
+                raw_found.add(phrase)
+
+    # Sort phrases by length descending to prefer longest, most specific phrases
+    sorted_phrases = sorted(raw_found, key=len, reverse=True)
+    filtered: list[str] = []
+    for item in sorted_phrases:
+        item_cf = item.casefold()
+        # Prefer longest phrase; exclude shorter substrings that are subsumed by a longer match
+        if not any(item_cf in longer.casefold() and item_cf != longer.casefold() for longer in filtered):
+            filtered.append(item)
+
+    confidence = min(1.0, len(filtered) / 2) if filtered else 0.0
+    return sorted(filtered), round(confidence, 2)
 
 
 def _extract_experience(text: str) -> tuple[list[str], float]:

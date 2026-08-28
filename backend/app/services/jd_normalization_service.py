@@ -37,17 +37,23 @@ RULESET_VERSION = "1.0"
 
 # ─── Degree canonicalization map ────────────────────────────────────────────
 
-DEGREE_CANONICAL: list[tuple[re.Pattern[str], str]] = [
+DEGREE_PREFIX_MAP: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bph\.?d\b|\bdoctoral?\b|\bdoctorate\b", re.I), "Doctor of Philosophy (PhD)"),
     (re.compile(r"\bmba\b|\bmaster\s+of\s+business\b", re.I), "Master of Business Administration (MBA)"),
+    (re.compile(r"\bmaster(?:'s)?\s+of\s+technology\b|\bm\.?tech\b", re.I), "Master of Technology"),
+    (re.compile(r"\bmaster(?:'s)?\s+of\s+engineering\b|\bm\.?e\b", re.I), "Master of Engineering"),
     (re.compile(r"\bmaster(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bm\.?sc\b|\bm\.?s\b", re.I), "Master of Science"),
-    (re.compile(r"\bmaster(?:'s)?\s+(?:of\s+)?(?:engineering|tech|technology)\b|\bm\.?tech\b|\bm\.?e\b", re.I), "Master of Engineering"),
     (re.compile(r"\bmaster(?:'s)?\b", re.I), "Master's Degree"),
-    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?(?:engineering|tech|technology)\b|\bb\.?tech\b|\bb\.?e\b", re.I), "Bachelor of Engineering"),
+    (re.compile(r"\bbachelor(?:'s)?\s+of\s+technology\b|\bb\.?tech\b", re.I), "Bachelor of Technology"),
+    (re.compile(r"\bbachelor(?:'s)?\s+of\s+engineering\b|\bb\.?e\b", re.I), "Bachelor of Engineering"),
     (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bb\.?sc\b|\bb\.?s\b", re.I), "Bachelor of Science"),
+    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?commerce\b|\bb\.?com\b", re.I), "Bachelor of Commerce"),
+    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?arts\b|\bb\.?a\b", re.I), "Bachelor of Arts"),
     (re.compile(r"\bbachelor(?:'s)?\b|\bundergraduate\b", re.I), "Bachelor's Degree"),
     (re.compile(r"\bassociate(?:'s)?\s+degree\b", re.I), "Associate Degree"),
 ]
+
+DEGREE_CANONICAL = DEGREE_PREFIX_MAP
 
 # ─── Experience parsing ──────────────────────────────────────────────────────
 
@@ -100,12 +106,68 @@ def _parse_experience_phrase(phrase: str) -> CanonicalExperienceRequirement:
 
 # ─── Canonicalization helpers ────────────────────────────────────────────────
 
+_GENERIC_EDUCATION_TRAILERS_NORM = re.compile(
+    r"\s+(?:or\s+(?:a\s+)?)?(?:related|equivalent|relevant)\s+(?:field|discipline|experience|qualification|area|degree|background)\b.*$",
+    re.IGNORECASE,
+)
+_GENERIC_EDUCATION_LEADERS_NORM = re.compile(
+    r"^(?:must\s+possess\s+a|minimum\s+of\s+a|must\s+have\s+a|qualification\s+of|degree\s+in|qualification\s+in|degree\s+of)\s+",
+    re.IGNORECASE,
+)
+
+
+def _clean_education_str(raw: str) -> str:
+    cleaned = raw.strip()
+    cleaned = _GENERIC_EDUCATION_TRAILERS_NORM.sub("", cleaned).strip()
+    cleaned = _GENERIC_EDUCATION_LEADERS_NORM.sub("", cleaned).strip()
+    cleaned = re.sub(
+        r"\s+(?:or\s+equivalent|or\s+related|or\s+relevant)\b.*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(r"^[,\s.:;\-/]+|[,\s.:;\-/]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
 def _canonicalize_degree(raw: str) -> tuple[str, str]:
-    """Return (canonical_name, rule_applied)."""
-    for pattern, canonical in DEGREE_CANONICAL:
-        if pattern.search(raw):
-            return canonical, f"degree_map:{canonical}"
-    return raw.strip(), "degree_map:passthrough"
+    """Return (canonical_name, rule_applied) preserving full degree level and specialization branch."""
+    cleaned = _clean_education_str(raw)
+    if not cleaned:
+        return raw.strip(), "degree_map:passthrough"
+
+    canonical_prefix = None
+    prefix_rule = None
+    for pattern, prefix in DEGREE_PREFIX_MAP:
+        if pattern.search(cleaned):
+            canonical_prefix = prefix
+            prefix_rule = f"degree_map:{prefix}"
+            break
+
+    if not canonical_prefix:
+        return cleaned, "degree_map:passthrough"
+
+    # Extract specialization branch if present after preposition ("in", "of", "with major in", etc.)
+    m = re.search(
+        r"\b(?:degree\s+)?(?:in|with\s+(?:specialization|major)\s+in)\s+(.+)$",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if m:
+        spec = m.group(1).strip()
+        spec = _GENERIC_EDUCATION_TRAILERS_NORM.sub("", spec).strip()
+        spec = re.sub(r"^[,\s.:;\-/]+|[,\s.:;\-/]+$", "", spec).strip()
+        if (
+            spec
+            and len(spec) > 2
+            and spec.casefold()
+            not in {"degree", "qualification", "science", "engineering", "technology", "arts"}
+        ):
+            canonical_full = f"{canonical_prefix} in {spec}"
+            return canonical_full, prefix_rule
+
+    return canonical_prefix, prefix_rule
 
 
 def _canonicalize_skills(raw_skills: list[str]) -> tuple[list[str], list[NormalizationChange]]:
@@ -213,24 +275,28 @@ class JDNormalizationService:
 
         # ── Degrees ─────────────────────────────────────────────
         degree_requirements: list[str] = []
-        for raw_degree in (extracted.education or []):
-            canonical, rule = _canonicalize_degree(raw_degree)
-            degree_requirements.append(canonical)
-            if canonical != raw_degree:
-                changes.append(NormalizationChange(
-                    field="education",
-                    source=raw_degree,
-                    canonical=canonical,
-                    rule=rule,
-                ))
-        # Deduplicate degrees
-        seen_degrees: set[str] = set()
+        for raw_item in (extracted.education or []):
+            parts = [p.strip() for p in re.split(r"\s+(?:OR|or|\/|\|)\s+", raw_item) if p.strip()]
+            for raw_degree in parts:
+                canonical, rule = _canonicalize_degree(raw_degree)
+                if canonical and len(canonical) > 2:
+                    degree_requirements.append(canonical)
+                    if canonical != raw_degree:
+                        changes.append(NormalizationChange(
+                            field="education",
+                            source=raw_degree,
+                            canonical=canonical,
+                            rule=rule,
+                        ))
+        # Deduplicate degrees preserving longest, most specific phrases
+        sorted_degrees = sorted(degree_requirements, key=len, reverse=True)
         unique_degrees: list[str] = []
-        for d in degree_requirements:
-            if d not in seen_degrees:
-                seen_degrees.add(d)
-                unique_degrees.append(d)
-        degree_requirements = unique_degrees
+        for d in sorted_degrees:
+            d_cf = d.casefold()
+            if not any(d_cf in longer.casefold() and d_cf != longer.casefold() for longer in unique_degrees):
+                if d not in unique_degrees:
+                    unique_degrees.append(d)
+        degree_requirements = sorted(unique_degrees)
 
         # ── Experience ──────────────────────────────────────────
         experience_requirements: list[CanonicalExperienceRequirement] = []

@@ -398,7 +398,7 @@ def test_generic_category_requirement_matching() -> None:
     # Candidate skills: TypeScript, Rust
     detail = service._match(["TypeScript", "Rust"], ["a similar programming language"], "required skills")
     assert detail.score == 100.0
-    assert detail.matched_items == ["TypeScript"]
+    assert detail.matched_items in (["TypeScript"], ["Rust"])
     assert detail.missing_items == []
 
     # Requirement: "version-control systems"

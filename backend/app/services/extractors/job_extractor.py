@@ -38,24 +38,15 @@ class JobDescriptionExtractor:
         resp_block = sections.get("responsibilities", "")
         responsibilities = content_lines(resp_block)
 
-        # Education: extract only the degree/qualification names rather than whole sentence
-        matched_degrees: list[str] = []
-        for sec_name in ("education", "requirements", "skills", "header", "summary"):
-            block = sections.get(sec_name, "")
-            for line in content_lines(block):
-                found = match_terms(line, DEGREES)
-                for degree in found:
-                    if degree not in matched_degrees:
-                        matched_degrees.append(degree)
+        # Education: extract complete multi-word degree and specialization phrases
+        from app.services.jd_extraction_service import _extract_education
 
-        if not matched_degrees:
-            for line in content_lines(text):
-                found = match_terms(line, DEGREES)
-                for degree in found:
-                    if degree not in matched_degrees:
-                        matched_degrees.append(degree)
+        edu_block = "\n".join([sections.get(s, "") for s in ("education", "requirements", "summary", "header") if sections.get(s)]) or text
+        extracted_edu, _ = _extract_education(edu_block)
+        if not extracted_edu:
+            extracted_edu, _ = _extract_education(text)
 
-        education = matched_degrees
+        education = extracted_edu
 
         experience = list(dict.fromkeys(match.group(0) for match in EXPERIENCE_PATTERN.finditer(text)))
         certifications = [line for line in content_lines(sections.get("certifications", "") or text) if CERTIFICATION_PATTERN.search(line)]

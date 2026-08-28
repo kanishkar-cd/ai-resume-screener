@@ -83,9 +83,9 @@ async def test_jd_normalization_successful_canonicalization() -> None:
 
     # Verify skills case-preserving deduplication
     assert payload.skills == ["Python", "FastAPI", "ReactJS"]
-    # Verify degree mapping
-    assert "Bachelor's Degree" in payload.degree_requirements
-    assert "Doctor of Philosophy (PhD)" in payload.degree_requirements
+    # Verify degree mapping preserving specialization
+    assert any("Bachelor's Degree" in d for d in payload.degree_requirements)
+    assert any("Doctor of Philosophy (PhD)" in d for d in payload.degree_requirements)
     # Verify experience translation to months
     assert any(req.minimum_months == 60 for req in payload.experience_requirements)
     assert any(req.minimum_months == 36 and req.maximum_months == 60 for req in payload.experience_requirements)
@@ -141,7 +141,8 @@ async def test_jd_normalization_generic_varied_structures() -> None:
     assert payload.skills == ["PySpark", "Snowflake", "dbt", "AWS"]
     assert len(payload.responsibilities) == 3
     assert "Architect end-to-end data pipelines" in payload.responsibilities
-    assert "Bachelor's Degree" in payload.degree_requirements or "Master's Degree" in payload.degree_requirements
+    assert any("Bachelor's Degree" in d for d in payload.degree_requirements)
+    assert any("Master's Degree" in d for d in payload.degree_requirements)
     assert payload.certifications == ["AWS Certified Data Analytics"]
 
     # 2. Minimal JD with missing preferred skills, missing certifications, missing responsibilities

@@ -64,7 +64,7 @@ SKILL_ALIASES = {
 
 SKILL_CATEGORIES: dict[str, set[str]] = {
     "PROGRAMMING_LANGUAGE": {
-        "Python", "Java", "JavaScript", "TypeScript", "Go", "Rust", "C++", "C#",
+        "Python", "Java", "C", "JavaScript", "TypeScript", "Go", "Rust", "C++", "C#",
         "Ruby", "PHP", "Swift", "Kotlin", "Scala", "R", "MATLAB", "Perl",
         "Bash", "Shell", "PowerShell",
     },
