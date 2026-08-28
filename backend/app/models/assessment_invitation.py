@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,8 @@ class CandidateAssessmentModel(UUIDMixin, TimestampMixin, Base):
 
     assessment_link: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session_status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="not_started", server_default="not_started"
@@ -47,7 +49,10 @@ class CandidateAssessmentModel(UUIDMixin, TimestampMixin, Base):
     score_status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="not_graded", server_default="not_graded"
     )
+    composite_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     composite_score_band: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    identity_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_identity_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     decision: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -163,20 +163,9 @@ export default function DepartmentDashboard() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-7">
-      {/* Clean ATS Header with Breadcrumbs, Name & Create Requisition Action */}
+      {/* Clean ATS Header with Name & Create Requisition Action */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/60 pb-6">
         <div>
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
-            <button
-              type="button"
-              onClick={() => navigate('/departments')}
-              className="text-slate-500 hover:text-blue-600 transition-colors font-medium cursor-pointer"
-            >
-              Departments
-            </button>
-            <span>/</span>
-            <span className="text-blue-600 font-bold">{department.name}</span>
-          </div>
 
           <div className="flex items-center gap-3 mt-1">
             <div className={`w-9 h-9 rounded-xl ${department.badgeBg} flex items-center justify-center shrink-0`}>

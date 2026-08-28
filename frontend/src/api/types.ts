@@ -726,10 +726,32 @@ export interface AssessmentHandoffRequest {
 
 export interface CandidateAssessmentItem {
   candidate_id: string
-  candidate_name: string
-  email: string
+  candidate_name?: string
+  email?: string
   assessment_link: string | null
-  status: string
+  status?: string
+  session_status?: string
+  sessionstatus?: string
+  score_status?: string
+  scorestatus?: string
+  composite_score?: number | null
+  compositescore?: number | null
+  composite_score_band?: string | null
+  compositescoreband?: string | null
+  score_band?: string | null
+  scoreband?: string | null
+  identity_status?: string | null
+  identitystatus?: string | null
+  is_identity_verified?: boolean | null
+  isidentityverified?: boolean | null
+  started_at?: string | null
+  startedat?: string | null
+  submitted_at?: string | null
+  submittedat?: string | null
+  expires_at?: string | null
+  expiresat?: string | null
+  decision?: string | null
+  external_candidate_ref?: string | null
 }
 
 export interface AssessmentHandoffData {
@@ -737,4 +759,15 @@ export interface AssessmentHandoffData {
   requisition_ref: string
   total_invited: number
   candidates: CandidateAssessmentItem[]
+}
+
+export interface AssessmentStatusResponse {
+  requisition_ref?: string
+  drive_id?: string | null
+  session_status?: string
+  score_status?: string
+  composite_score?: number | null
+  composite_score_band?: string | null
+  decision?: string | null
+  candidates?: CandidateAssessmentItem[]
 }

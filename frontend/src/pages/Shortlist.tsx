@@ -96,38 +96,6 @@ export default function Shortlist() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      {/* Navigation Breadcrumb */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-          <button
-            type="button"
-            onClick={() => navigate(`/departments/${activeDept.id}`)}
-            className="hover:text-blue-600 transition-colors"
-          >
-            {activeDept.name}
-          </button>
-          <span>/</span>
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${projectId}/rankings`)}
-            className="hover:text-blue-600 transition-colors"
-          >
-            Rankings
-          </button>
-          <span>/</span>
-          <span className="text-slate-900 font-bold">Shortlisted Talent</span>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => navigate(`/projects/${projectId}/rankings`)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200"
-        >
-          <ListOrdered size={15} />
-          Back to Candidate Rankings
-        </button>
-      </div>
-
       {/* Header Banner */}
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>

@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import ProjectHeader from './ProjectHeader'
@@ -8,7 +8,21 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('sidebar_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebar_collapsed', String(collapsed))
+    } catch {
+      // ignore
+    }
+  }, [collapsed])
 
   return (
     <div className={`app-layout transition-all duration-300 ${collapsed ? 'sidebar-collapsed' : ''}`}>

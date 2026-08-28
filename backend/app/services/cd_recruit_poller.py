@@ -33,8 +33,10 @@ class CDRecruitStatusPoller:
 
         session_status = str(status_data.get("session_status", "not_started"))
         score_status = str(status_data.get("score_status", "not_graded"))
-        composite_score_band = status_data.get("composite_score_band")
+        composite_score = status_data.get("composite_score")
+        composite_score_band = status_data.get("composite_score_band") or status_data.get("score_band")
         decision = status_data.get("decision")
+        candidates = status_data.get("candidates")
         now = datetime.now(timezone.utc)
 
         if self.db is not None:
@@ -43,10 +45,13 @@ class CDRecruitStatusPoller:
                 requisition_ref=requisition_ref,
                 session_status=session_status,
                 score_status=score_status,
+                composite_score=composite_score,
                 composite_score_band=composite_score_band,
                 decision=decision,
                 polled_at=now,
+                candidates=candidates if isinstance(candidates, list) else None,
             )
+            await self.db.commit()
 
         logger.info(
             "[CD-RECRUIT-POLLER] status updated successfully",
@@ -55,14 +60,18 @@ class CDRecruitStatusPoller:
             score_status=score_status,
             composite_score_band=composite_score_band,
             decision=decision,
+            candidate_count=len(candidates) if isinstance(candidates, list) else 0,
         )
 
-        return {
+        res_dict = {
             "session_status": session_status,
             "score_status": score_status,
             "composite_score_band": composite_score_band,
             "decision": decision,
         }
+        if isinstance(candidates, list):
+            res_dict["candidates"] = candidates
+        return res_dict
 
 
 async def run_periodic_poller_loop(poll_interval_seconds: int = POLL_INTERVAL_SECONDS) -> None:

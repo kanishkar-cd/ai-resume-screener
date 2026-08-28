@@ -157,6 +157,28 @@ type Action =
         linksMap?: Record<string, string | null>
       }
     }
+  | {
+      type: 'UPDATE_ASSESSMENT_RESULTS'
+      payload: {
+        reqRef?: string
+        results: Array<{
+          candidateId?: string
+          externalCandidateRef?: string
+          email?: string
+          sessionStatus?: string
+          scoreStatus?: string
+          compositeScore?: number | null
+          compositeScoreBand?: string | null
+          identityStatus?: string | null
+          isIdentityVerified?: boolean | null
+          startedAt?: string | null
+          submittedAt?: string | null
+          expiresAt?: string | null
+          decision?: string | null
+          assessmentLink?: string | null
+        }>
+      }
+    }
 
 function reducer(state: PipelineState, action: Action): PipelineState {
   switch (action.type) {
@@ -206,9 +228,46 @@ function reducer(state: PipelineState, action: Action): PipelineState {
       return { ...state, assessmentCandidates: merged }
     }
 
+    case 'UPDATE_ASSESSMENT_RESULTS': {
+      const existing = state.assessmentCandidates || []
+      const results = action.payload.results || []
+      const merged = [...existing]
+
+      for (const res of results) {
+        const targetId = res.candidateId || res.externalCandidateRef
+        const targetEmail = (res.email || '').trim().toLowerCase()
+
+        let idx = -1
+        if (targetId) {
+          idx = merged.findIndex((m) => m.id === targetId)
+        }
+        if (idx < 0 && targetEmail) {
+          idx = merged.findIndex((m) => (m.email || '').trim().toLowerCase() === targetEmail)
+        }
+
+        if (idx >= 0) {
+          merged[idx] = {
+            ...merged[idx],
+            sessionStatus: res.sessionStatus || merged[idx].sessionStatus,
+            scoreStatus: res.scoreStatus || merged[idx].scoreStatus,
+            compositeScore: res.compositeScore !== undefined ? res.compositeScore : merged[idx].compositeScore,
+            compositeScoreBand: res.compositeScoreBand || merged[idx].compositeScoreBand,
+            identityStatus: res.identityStatus || merged[idx].identityStatus,
+            isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : merged[idx].isIdentityVerified,
+            startedAt: res.startedAt || merged[idx].startedAt,
+            submittedAt: res.submittedAt || merged[idx].submittedAt,
+            expiresAt: res.expiresAt || merged[idx].expiresAt,
+            decision: res.decision || merged[idx].decision,
+            assessmentLink: res.assessmentLink || merged[idx].assessmentLink,
+            status: res.sessionStatus === 'submitted' ? 'Submitted' : (res.sessionStatus || merged[idx].status),
+          }
+        }
+      }
+      return { ...state, assessmentCandidates: merged }
+    }
+
     case 'RESET_PIPELINE':
       return { ...emptyState, weights: DEFAULT_WEIGHTS.map((weight) => ({ ...weight })) }
-
 
     case 'COMPLETE_STEP':
       return {

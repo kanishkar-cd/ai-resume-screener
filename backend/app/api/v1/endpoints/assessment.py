@@ -70,10 +70,30 @@ async def handoff_assessment(
 )
 async def get_assessment_status(
     project_id: UUID,
-    service: AssessmentDependency,
+    db: DatabaseDependency,
 ) -> dict:
     from app.services.cd_recruit_poller import CDRecruitStatusPoller
-    poller = CDRecruitStatusPoller(db=service.projects.db)
-    requisition_ref = f"REQ-{project_id}"
+    from app.repositories.project_repository import ProjectRepository
+    from app.models.assessment_invitation import CandidateAssessmentModel
+    from sqlalchemy import select
+
+    stmt = select(CandidateAssessmentModel.requisition_ref).where(
+        CandidateAssessmentModel.project_id == project_id
+    ).limit(1)
+    res = await db.execute(stmt)
+    requisition_ref = res.scalar()
+
+    if not requisition_ref:
+        proj_repo = ProjectRepository(db)
+        project = await proj_repo.get_by_id(project_id)
+        if project:
+            meta = getattr(project, "metadata_json", {}) or {}
+            if isinstance(meta, dict):
+                requisition_ref = meta.get("req_ref")
+
+    if not requisition_ref:
+        requisition_ref = f"REQ-{project_id}"
+
+    poller = CDRecruitStatusPoller(db=db)
     return await poller.poll_requisition(requisition_ref)
 

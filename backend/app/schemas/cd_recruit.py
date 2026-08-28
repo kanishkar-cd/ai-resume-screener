@@ -37,10 +37,39 @@ class CDRecruitInviteResponseItem(APIModel):
     expires_at: str | datetime | None = None
 
 
+class CDRecruitCandidateStatusItem(APIModel):
+    external_candidate_ref: str | None = None
+    candidate_email: str | None = None
+    email: str | None = None
+    session_status: str | None = None
+    sessionstatus: str | None = None
+    score_status: str | None = None
+    scorestatus: str | None = None
+    composite_score: float | None = None
+    compositescore: float | None = None
+    score_band: str | None = None
+    scoreband: str | None = None
+    composite_score_band: str | None = None
+    compositescoreband: str | None = None
+    identity_status: str | None = None
+    identitystatus: str | None = None
+    is_identity_verified: bool | None = None
+    isidentityverified: bool | None = None
+    started_at: datetime | str | None = None
+    startedat: datetime | str | None = None
+    submitted_at: datetime | str | None = None
+    submittedat: datetime | str | None = None
+    expires_at: datetime | str | None = None
+    expiresat: datetime | str | None = None
+    decision: str | None = None
+
+
 class CDRecruitRequisitionStatusResponse(APIModel):
     requisition_ref: str
     drive_id: str | None = None
     session_status: str = "not_started"
     score_status: str = "not_graded"
+    composite_score: float | None = None
     composite_score_band: str | None = None
     decision: str | None = None
+    candidates: list[CDRecruitCandidateStatusItem] = Field(default_factory=list)

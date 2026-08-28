@@ -1,23 +1,120 @@
 import { motion } from 'framer-motion'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, UserRound } from 'lucide-react'
+import { LayoutDashboard, UserRound, ChevronRight } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
+import { DEPARTMENTS } from '@/constants/departments'
 
-const ROUTE_LABEL: Record<string, string> = {
-  '/': 'Document Upload',
-  '/weightage': 'Weightage Setting',
-  '/resume-upload': 'Resume Upload',
-  '/ranking': 'Candidate Ranking',
-  '/dashboard': 'Recruiter Dashboard',
+interface BreadcrumbItem {
+  label: string
+  href?: string
+}
+
+const PAGE_LABEL_MAP: Record<string, string> = {
+  overview: 'Overview',
+  'job-description': 'Job Description',
+  resumes: 'Resume Upload',
+  candidates: 'Candidates',
+  rankings: 'Candidate Ranking',
+  shortlist: 'Shortlisted Talent',
+  assessment: 'Assessment Handoff',
+  reports: 'Reports',
+  new: 'Create Requisition',
 }
 
 export default function Header() {
   const location = useLocation()
   const navigate = useNavigate()
   const { state } = usePipeline()
-  const routeParts = location.pathname.split('/').filter(Boolean)
-  const routeSection = routeParts[routeParts.length - 1]?.replace(/-/g, ' ')
-  const currentLabel = ROUTE_LABEL[location.pathname] ?? (routeSection ? routeSection.replace(/\b\w/g, (letter: string) => letter.toUpperCase()) : 'Overview')
+
+  // Build dynamic breadcrumb items based on current location
+  const getBreadcrumbs = (): BreadcrumbItem[] => {
+    const items: BreadcrumbItem[] = [
+      { label: 'Dashboard', href: '/dashboard' }
+    ]
+
+    const path = location.pathname
+
+    if (path === '/dashboard') {
+      return items
+    }
+
+    if (path === '/departments') {
+      items.push({ label: 'Departments' })
+      return items
+    }
+
+    if (path === '/settings') {
+      items.push({ label: 'Settings' })
+      return items
+    }
+
+    if (path.startsWith('/departments/')) {
+      const parts = path.split('/').filter(Boolean)
+      const deptId = parts[1]
+      const dept = DEPARTMENTS.find((d) => d.id === deptId) || DEPARTMENTS[0]
+      const deptName = dept?.name || 'Department'
+
+      items.push({ label: 'Departments', href: '/departments' })
+
+      if (parts.length === 2) {
+        items.push({ label: deptName })
+      } else if (parts.length > 2 && parts[2] === 'requisitions' && parts[3] === 'new') {
+        items.push({ label: deptName, href: `/departments/${deptId}` })
+        items.push({ label: 'Create Requisition' })
+      }
+      return items
+    }
+
+    if (path.startsWith('/projects')) {
+      const parts = path.split('/').filter(Boolean)
+      
+      if (parts.length === 1) {
+        items.push({ label: 'Requisitions' })
+        return items
+      }
+
+      if (parts[1] === 'new') {
+        items.push({ label: 'Create Requisition' })
+        return items
+      }
+
+      const projectId = parts[1]
+      const subPage = parts[2] || 'overview'
+
+      // Resolve department for project
+      const activeDept = DEPARTMENTS.find(
+        (d) =>
+          d.id === state.activeDepartmentId ||
+          d.name === state.selectedProject?.department ||
+          d.code === state.selectedProject?.department
+      ) || DEPARTMENTS[0]
+
+      items.push({
+        label: activeDept.name,
+        href: `/departments/${activeDept.id}`,
+      })
+
+      const projectTitle = state.selectedProject?.title || 'Requisition'
+
+      if (subPage === 'overview') {
+        items.push({ label: projectTitle })
+      } else {
+        items.push({
+          label: projectTitle,
+          href: `/projects/${projectId}/overview`,
+        })
+        const subLabel = PAGE_LABEL_MAP[subPage] || subPage.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+        items.push({ label: subLabel })
+      }
+      return items
+    }
+
+    const fallbackLabel = path.split('/').pop()?.replace(/-/g, ' ') || 'Page'
+    items.push({ label: fallbackLabel.replace(/\b\w/g, (l) => l.toUpperCase()) })
+    return items
+  }
+
+  const breadcrumbs = getBreadcrumbs()
 
   return (
     <motion.header
@@ -26,29 +123,45 @@ export default function Header() {
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
     >
-      {/* ── Breadcrumb ── */}
-      <div className="flex items-center gap-2 flex-1">
-        <button
-          onClick={() => navigate('/')}
-          className="flex items-center gap-1.5 text-slate-500 hover:text-sky-600 transition-colors text-[13px] font-medium"
-        >
-          <Home size={14} />
-          <span>{state.selectedProject?.title ?? 'AI Screener'}</span>
-        </button>
-        <span className="text-slate-300 text-[13px]">/</span>
-        <motion.span
-          key={currentLabel}
-          initial={{ opacity: 0, x: 6 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="text-[13px] font-semibold text-slate-700"
-        >
-          {currentLabel}
-        </motion.span>
+      {/* ── Breadcrumb Hierarchy ── */}
+      <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto py-1 scrollbar-none">
+        {breadcrumbs.map((item, index) => {
+          const isLast = index === breadcrumbs.length - 1
+          return (
+            <div key={index} className="flex items-center gap-2 shrink-0 text-[12px]">
+              {index === 0 && <LayoutDashboard size={14} className="text-slate-400 shrink-0 mr-0.5" />}
+              
+              {!isLast && item.href ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(item.href!)}
+                  className="font-medium text-slate-500 hover:text-blue-600 transition-colors cursor-pointer truncate max-w-[180px]"
+                  title={item.label}
+                >
+                  {item.label}
+                </button>
+              ) : !isLast ? (
+                <span className="font-medium text-slate-500 truncate max-w-[180px]">{item.label}</span>
+              ) : (
+                <span className="font-extrabold text-slate-900 truncate max-w-[220px]" title={item.label}>
+                  {item.label}
+                </span>
+              )}
+
+              {!isLast && <ChevronRight size={13} className="text-slate-300 shrink-0" />}
+            </div>
+          )
+        })}
       </div>
 
       {/* ── Right Controls ── */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-600"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100"><UserRound size={15}/></span><span className="hidden sm:inline">Recruiter</span></div>
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 text-[12px] font-semibold text-slate-600">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <UserRound size={15} />
+          </span>
+          <span className="hidden sm:inline">Recruiter</span>
+        </div>
       </div>
     </motion.header>
   )

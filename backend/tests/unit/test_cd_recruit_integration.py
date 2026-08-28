@@ -282,3 +282,89 @@ async def test_poller_updates_graded_decision():
         assert result["score_status"] == "graded"
         assert result["composite_score_band"] == "BAND_A"
         assert result["decision"] == "advance"
+
+
+@pytest.mark.asyncio
+async def test_candidate_level_polling_and_field_mapping():
+    from app.repositories.assessment_repository import AssessmentRepository
+    from app.models.assessment_invitation import CandidateAssessmentModel
+
+    mock_db = AsyncMock()
+    repo = AssessmentRepository(mock_db)
+
+    doc_id1 = uuid4()
+    doc_id2 = uuid4()
+
+    rec1 = CandidateAssessmentModel(
+        project_id=uuid4(),
+        document_id=doc_id1,
+        requisition_ref="REQ-CAND-123",
+        external_candidate_ref=str(doc_id1),
+        session_status="not_started",
+        score_status="not_graded",
+    )
+    rec2 = CandidateAssessmentModel(
+        project_id=uuid4(),
+        document_id=doc_id2,
+        requisition_ref="REQ-CAND-123",
+        external_candidate_ref=str(doc_id2),
+        session_status="not_started",
+        score_status="not_graded",
+    )
+
+    mock_execute_result = MagicMock()
+    mock_execute_result.scalars.return_value.all.return_value = [rec1, rec2]
+    mock_db.execute.return_value = mock_execute_result
+
+    candidates_payload = [
+        {
+            "external_candidate_ref": str(doc_id1),
+            "sessionstatus": "submitted",
+            "scorestatus": "graded",
+            "compositescore": 92.5,
+            "scoreband": "BAND_A",
+            "identitystatus": "VERIFIED",
+            "isidentityverified": True,
+            "startedat": "2026-08-28T10:00:00Z",
+            "submittedat": "2026-08-28T11:00:00Z",
+            "expiresat": "2026-09-01T00:00:00Z",
+            "decision": "ADVANCE",
+        },
+        {
+            "external_candidate_ref": str(doc_id2),
+            "session_status": "in_progress",
+            "score_status": "not_graded",
+            "composite_score": 45.0,
+            "composite_score_band": "BAND_C",
+            "identity_status": "UNVERIFIED",
+            "is_identity_verified": False,
+            "started_at": "2026-08-28T10:30:00Z",
+            "decision": "PENDING",
+        },
+    ]
+
+    await repo.update_candidate_statuses_by_requisition(
+        requisition_ref="REQ-CAND-123",
+        candidates_data=candidates_payload,
+        polled_at=datetime.now(timezone.utc),
+    )
+
+    assert rec1.session_status == "submitted"
+    assert rec1.score_status == "graded"
+    assert rec1.composite_score == 92.5
+    assert rec1.composite_score_band == "BAND_A"
+    assert rec1.identity_status == "VERIFIED"
+    assert rec1.is_identity_verified is True
+    assert rec1.started_at is not None
+    assert rec1.submitted_at is not None
+    assert rec1.decision == "ADVANCE"
+
+    assert rec2.session_status == "in_progress"
+    assert rec2.score_status == "not_graded"
+    assert rec2.composite_score == 45.0
+    assert rec2.composite_score_band == "BAND_C"
+    assert rec2.identity_status == "UNVERIFIED"
+    assert rec2.is_identity_verified is False
+    assert rec2.started_at is not None
+    assert rec2.decision == "PENDING"
+

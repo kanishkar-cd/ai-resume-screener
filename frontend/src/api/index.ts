@@ -5,6 +5,7 @@
 import { apiRequest } from './client'
 import type {
   AssessmentHandoffData,
+  AssessmentStatusResponse,
   BatchResumeUpload,
   CandidateInsights,
   CandidateRanking,
@@ -195,6 +196,10 @@ export const api = {
       method: 'POST',
       body: { candidate_ids: candidateIds, requisition_ref: requisitionRef },
     })
+  },
+
+  getAssessmentStatus(projectId: string): Promise<AssessmentStatusResponse> {
+    return apiRequest<AssessmentStatusResponse>(`/projects/${projectId}/assessment/status`)
   },
 
 

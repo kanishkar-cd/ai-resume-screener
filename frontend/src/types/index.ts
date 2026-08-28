@@ -305,7 +305,17 @@ export interface AssessmentCandidate {
   reqRef: string
   meritScore: number
   rank: number
-  status: 'Sent' | 'Pending' | 'Completed'
+  status: string
+  sessionStatus?: string
+  scoreStatus?: string
+  compositeScore?: number | null
+  compositeScoreBand?: string | null
+  identityStatus?: string | null
+  isIdentityVerified?: boolean | null
+  startedAt?: string | null
+  submittedAt?: string | null
+  expiresAt?: string | null
+  decision?: string | null
   sentAt: string
   techScore?: number
   codingScore?: number
