@@ -18,16 +18,11 @@ SKILL_ALIASES = {
     "lambda": "AWS Lambda", "aws lambda": "AWS Lambda",
     "api gateway": "AWS API Gateway", "aws api gateway": "AWS API Gateway",
     "s3": "AWS S3", "aws s3": "AWS S3", "ec2": "AWS EC2", "aws ec2": "AWS EC2",
-<<<<<<< Updated upstream
-    "graphql": "GraphQL", "rest": "REST API", "rest api": "REST API", "restful": "REST API",
-    "linux": "Linux", "unix": "Linux", "gitlab": "GitLab", "ci/cd": "CI/CD", "cicd": "CI/CD",
-=======
     "graphql": "GraphQL", "rest": "REST API", "rest api": "REST API", "rest apis": "REST API",
     "restful": "REST API", "restful api": "REST API", "restful apis": "REST API",
     "restful web services": "REST API", "rest web services": "REST API",
     "application programming interface (api)": "REST API",
     "linux": "Linux", "unix": "Linux", "ci/cd": "CI/CD", "cicd": "CI/CD",
->>>>>>> Stashed changes
     "golang": "Go", "go": "Go", "spring": "Spring Boot", "spring boot": "Spring Boot",
     "express": "Express.js", "express.js": "Express.js", "expressjs": "Express.js", "express js": "Express.js",
     "vue": "Vue", "vue.js": "Vue",
@@ -39,13 +34,9 @@ SKILL_ALIASES = {
     "tensorflow": "TensorFlow", "pytorch": "PyTorch", "pytest": "Pytest",
     "bash": "Bash", "shell": "Shell", "mysql": "MySQL", "sqlite": "SQLite", "oracle": "Oracle",
     "embedded systems": "Embedded Systems", "plc programming": "PLC Programming", "plc": "PLC Programming", "iot": "IoT",
-<<<<<<< Updated upstream
-=======
     # OOP & DSA & Process aliases
     "oop": "Object-Oriented Programming", "oops": "Object-Oriented Programming",
     "object oriented programming": "Object-Oriented Programming",
-    "object-oriented programming": "Object-Oriented Programming",
-    "oop concepts": "Object-Oriented Programming",
     "dsa": "Data Structures and Algorithms",
     "data structures and algorithms": "Data Structures and Algorithms",
     "data structures & algorithms": "Data Structures and Algorithms",
@@ -208,12 +199,10 @@ CATEGORY_REQUIREMENT_ALIASES: dict[str, str] = {
     "active directory": "DIRECTORY_BASICS",
     "active directory basics": "DIRECTORY_BASICS",
     "directory services": "DIRECTORY_BASICS",
->>>>>>> Stashed changes
 }
 
 DEGREE_ALIASES = {
     "b.e.": "Bachelor of Engineering", "be": "Bachelor of Engineering",
-    "bachelor of engg": "Bachelor of Engineering", "bachelor of engineering": "Bachelor of Engineering",
     "b.tech": "Bachelor of Technology", "btech": "Bachelor of Technology", "b.technology": "Bachelor of Technology", "bachelor of technology": "Bachelor of Technology",
     "m.e.": "Master of Engineering", "me": "Master of Engineering",
     "m.tech": "Master of Technology", "mtech": "Master of Technology",

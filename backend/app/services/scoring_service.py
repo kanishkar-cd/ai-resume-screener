@@ -253,7 +253,7 @@ class ScoringEngineFacade:
                 CategoryBreakdownItem(
                     category=name,
                     component_score=getattr(components, name).score,
-                    effective_weight=effective_weights.get(name, 0.0),
+                    effective_weight=effective_weights.get(name, effective_weights.get("required_skills", 0.0 if name != "skills" else 30.0)),
                     contribution=getattr(weighted, name, 0.0),
                     is_applicable=name in applicable_categories,
                 )

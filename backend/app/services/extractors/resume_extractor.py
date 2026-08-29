@@ -51,7 +51,7 @@ class ResumeExtractor:
         phone = self._extract_phone(text)
 
         location = self._location(header_text, text)
-        skills = match_terms(text, SKILLS)
+        skills = self._skills(sections.get("skills", ""), text)
         education = self._education(sections.get("education", ""))
         experience = self._experience(sections.get("experience", ""))
         designation = self._designation(header_lines, sections, text, experience)
@@ -487,8 +487,112 @@ class ResumeExtractor:
 
         return None
 
-    @staticmethod
-    def _projects(block: str) -> list[dict[str, Any]]:
+    @classmethod
+    def _skills(cls, skills_block: str, full_text: str) -> list[str]:
+        extracted_skills: list[str] = []
+        seen: set[str] = set()
+
+        def add_skill(s: str) -> None:
+            if not s:
+                return
+            cleaned = clean_unicode(s).strip()
+            cleaned = re.sub(r"^[•●○▪*–—\d\.\)\s,:;|/-]+", "", cleaned).strip()
+            cleaned = re.sub(r"[,:;|/-]+$", "", cleaned).strip()
+            if not cleaned:
+                return
+            # Remove trailing parenthetical qualifiers (e.g. "(proficient)", "(intermediate)", "(basic)")
+            cleaned = re.sub(
+                r"\s*\((?:proficient|intermediate|beginner|expert|basics?|advanced|familiar|hands-on)\)\s*$",
+                "",
+                cleaned,
+                flags=re.I,
+            ).strip()
+            words = cleaned.split()
+            if 1 <= len(words) <= 7 and len(cleaned) <= 60:
+                # Exclude purely generic category headings if isolated
+                if re.fullmatch(
+                    r"(?:technical\s+)?(?:skills?|technologies|tools?|languages?|programming\s+languages?|frameworks?|libraries|core|databases?|query\s+languages?|platforms?|cloud|methodologies|web\s+technologies|other)\s*[:：]?",
+                    cleaned,
+                    re.I,
+                ):
+                    return
+                key = cleaned.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    extracted_skills.append(cleaned)
+
+        def split_items(text_line: str) -> list[str]:
+            # Split on commas, semicolons, pipes, tabs, bullet characters, or ' / ' (with whitespace)
+            # Avoid splitting 'C/C++', 'CI/CD', 'TCP/IP', 'OS/Networking' without spaces
+            parts = re.split(r"[,;|•●○▪*\t]|\s{2,}|\s+/\s+", text_line)
+            return [p.strip() for p in parts if p.strip()]
+
+        if skills_block:
+            category_prefix_re = re.compile(
+                r"^(?:[•●○▪*–—\d\.\)\s]*)([A-Za-z0-9\s/&+-]{1,35}?)\s*[:：]\s*(.*)$"
+            )
+            for raw_line in skills_block.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                cat_match = category_prefix_re.match(line)
+                if cat_match:
+                    items_str = cat_match.group(2).strip()
+                    if items_str:
+                        for item in split_items(items_str):
+                            add_skill(item)
+                else:
+                    clean_line = re.sub(r"^[•●○▪*–—\d\.\)\s]+", "", line).strip()
+                    # If it's a short line or delimited list (not a paragraph sentence)
+                    if len(clean_line.split()) <= 10 and not clean_line.endswith((".", "!", "?")):
+                        for item in split_items(clean_line):
+                            add_skill(item)
+
+        # Also match canonical SKILLS dictionary terms across full_text (ensures backward compatibility)
+        for term in match_terms(full_text, SKILLS):
+            add_skill(term)
+
+        return extracted_skills
+
+    @classmethod
+    def _extract_project_technologies(cls, text_line: str) -> list[str]:
+        results: list[str] = []
+        seen: set[str] = set()
+
+        def add_tech(item: str) -> None:
+            cleaned = clean_unicode(item).strip().strip("•●○▪*–—,;:-/|")
+            if not cleaned:
+                return
+            words = cleaned.split()
+            if 1 <= len(words) <= 6 and len(cleaned) <= 50:
+                key = cleaned.casefold()
+                if key not in seen and not re.fullmatch(
+                    r"(?:technolog(?:y|ies)|tech\s+stack|tools?(?:\s+used)?|built\s+with|environment|stack)\s*[:：]?",
+                    cleaned,
+                    re.I,
+                ):
+                    seen.add(key)
+                    results.append(cleaned)
+
+        tech_prefix_re = re.compile(
+            r"^(?:[•●○▪*–—\d\.\)\s]*)(?:technolog(?:y|ies)|tech\s+stack|tools?(?:\s+used)?|built\s+with|environment|stack)\s*[:：]\s*(.+)$",
+            re.I,
+        )
+        tech_match = tech_prefix_re.match(text_line)
+        if tech_match:
+            raw_techs = tech_match.group(1).strip()
+            parts = re.split(r"[,;|•●○▪*\t]|\s{2,}|\s+/\s+", raw_techs)
+            for p in parts:
+                add_tech(p)
+
+        for term in match_terms(text_line, SKILLS):
+            add_tech(term)
+
+        return results
+
+    @classmethod
+    def _projects(cls, block: str) -> list[dict[str, Any]]:
         if not block.strip():
             return []
 
@@ -522,7 +626,7 @@ class ResumeExtractor:
                 current_project = {
                     "name": title_name[:255],
                     "description": title_source,
-                    "technologies": match_terms(line_str, SKILLS),
+                    "technologies": cls._extract_project_technologies(line_str),
                 }
             elif current_project is None:
                 title_name = re.sub(r"\s*\([^)]*\)\s*$", "", clean_text).strip() or clean_text
@@ -530,7 +634,7 @@ class ResumeExtractor:
                 current_project = {
                     "name": title_name[:255],
                     "description": clean_text,
-                    "technologies": match_terms(clean_text, SKILLS),
+                    "technologies": cls._extract_project_technologies(clean_text),
                 }
             else:
                 # Check for project title without "Project:" prefix (e.g. OCR plain lines or bullet headings)
@@ -540,7 +644,6 @@ class ResumeExtractor:
                 is_bullet_heading = (bool(re.match(r"^[•●○▪*]\s*[A-Z]", line_str)) or bool(re.match(r"^[•●○▪*]\s*Project\b", line_str, re.I))) and len(clean_text.split()) <= 8 and (":" in line_str or proj_heading_re.match(line_str))
 
                 # 2) Standalone title line (e.g., OCR text with title-cased short line, no trailing period/colon/bullet, or title followed by bullet points)
-                # Word count <= 10, starts with Capital letter, doesn't start with standard bullet symbol or sentence continuation
                 raw_clean = re.sub(r"^[•●○▪*–—\s-]+", "", line_str).strip()
                 words = raw_clean.split()
                 if (
@@ -562,13 +665,12 @@ class ResumeExtractor:
                     current_project = {
                         "name": title_name[:255],
                         "description": raw_clean,
-                        "technologies": match_terms(line_str, SKILLS),
+                        "technologies": cls._extract_project_technologies(line_str),
                     }
                     continue
 
                 current_project["description"] += (" " if current_project["description"] else "") + clean_text
-                techs = match_terms(line_str, SKILLS)
-                for tech in techs:
+                for tech in cls._extract_project_technologies(line_str):
                     if tech not in current_project["technologies"]:
                         current_project["technologies"].append(tech)
 
@@ -577,8 +679,8 @@ class ResumeExtractor:
 
         return projects
 
-    @staticmethod
-    def _extract_embedded_projects(exp_block: str) -> list[dict[str, Any]]:
+    @classmethod
+    def _extract_embedded_projects(cls, exp_block: str) -> list[dict[str, Any]]:
         if not exp_block.strip():
             return []
         proj_heading_re = re.compile(
@@ -598,7 +700,7 @@ class ResumeExtractor:
                 current = {
                     "name": clean_title[:255] if clean_title else "Project",
                     "description": clean_title,
-                    "technologies": match_terms(line_str, SKILLS),
+                    "technologies": cls._extract_project_technologies(line_str),
                 }
             elif current:
                 if COMPANY_PATTERN.search(line_str) and ("|" in line_str or " - " in line_str or " – " in line_str or " — " in line_str):
@@ -607,7 +709,7 @@ class ResumeExtractor:
                     continue
                 clean_text = line_str.lstrip("•●○▪*-–— ").strip()
                 current["description"] += (" " if current["description"] else "") + clean_text
-                for t in match_terms(line_str, SKILLS):
+                for t in cls._extract_project_technologies(line_str):
                     if t not in current["technologies"]:
                         current["technologies"].append(t)
         if current:

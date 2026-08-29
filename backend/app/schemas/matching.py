@@ -16,7 +16,9 @@ class RequirementKind(str, Enum):
 
 class MatchStatus(str, Enum):
     MATCHED = "MATCHED"
+    PARTIALLY_MATCHED = "PARTIALLY_MATCHED"
     NO_MATCH = "NO_MATCH"
+    UNMATCHED = "UNMATCHED"
     UNRESOLVED = "UNRESOLVED"
 
 
@@ -52,14 +54,17 @@ class MatchVerdict(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     reasoning: str = ""
     method: MatchMethod | None = None
+    coverage: float = Field(default=1.0, ge=0, le=1)
+    matched_concepts: list[str] = Field(default_factory=list)
+    missing_concepts: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_method(self) -> "MatchVerdict":
-        if self.status == MatchStatus.MATCHED and self.method is None:
-            raise ValueError("matched verdicts require a method")
-        if self.method == MatchMethod.LLM_CONFIRMED and self.status != MatchStatus.MATCHED:
+        if self.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and self.method is None:
+            self.method = MatchMethod.EXACT
+        if self.method == MatchMethod.LLM_CONFIRMED and self.status not in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED}:
             raise ValueError("llm_confirmed is valid only for matched verdicts")
-        if self.method == MatchMethod.LLM_REJECTED and self.status != MatchStatus.NO_MATCH:
+        if self.method == MatchMethod.LLM_REJECTED and self.status not in {MatchStatus.NO_MATCH, MatchStatus.UNMATCHED}:
             raise ValueError("llm_rejected is valid only for no_match verdicts")
         if self.method == MatchMethod.LLM_UNRESOLVED and self.status != MatchStatus.UNRESOLVED:
             raise ValueError("llm_unresolved is valid only for unresolved verdicts")
@@ -67,14 +72,17 @@ class MatchVerdict(BaseModel):
 
 
 class LLMVerdict(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     requirement_id: str = Field(min_length=1)
     status: MatchStatus
     confidence: float = Field(ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
     reasoning: str = ""
+    coverage: float | None = None
+    matched_concepts: list[str] | None = None
+    missing_concepts: list[str] | None = None
 
 
 class LLMVerdictBatch(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
     verdicts: list[LLMVerdict] = Field(default_factory=list)

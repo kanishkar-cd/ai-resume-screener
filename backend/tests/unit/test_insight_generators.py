@@ -29,7 +29,7 @@ def test_deterministic_insight_builder() -> None:
     assert any("Skills" in item for item in insight.strengths)
     assert any("Certifications" in item for item in insight.weaknesses)
     assert insight.improvement_suggestions[0] == "Develop demonstrable proficiency in Docker."
-    assert "Deterministic Skill Match: 45.00/50 marks" in insight.score_explanation
+    assert "Overall Match: 78.75/100." in insight.score_explanation
 
 
 def test_not_applicable_components_are_not_strengths_or_weaknesses() -> None:

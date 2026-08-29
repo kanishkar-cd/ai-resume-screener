@@ -4,8 +4,15 @@ from app.schemas.insights import CandidateInsightCreate
 
 
 COMPONENT_LABELS = {
-    "skills": "Skills", "experience": "Experience", "projects": "Projects",
-    "education": "Education", "certifications": "Certifications", "languages": "Languages",
+    "skills": "Skills",
+    "required_skills": "Required Skills",
+    "preferred_skills": "Preferred Skills",
+    "responsibilities": "Responsibilities",
+    "projects": "Projects",
+    "experience": "Experience",
+    "education": "Education",
+    "certifications": "Certifications",
+    "languages": "Languages",
 }
 
 
@@ -91,14 +98,9 @@ class InsightBuilder:
             for name, detail in components.items() if _is_not_applicable(name, detail)
         ]
         na_text = f" Not applicable: {'; '.join(not_applicable)}." if not_applicable else ""
-        skills_score = float(score.skills_score or 0)
-        skill_marks_50 = (skills_score / 100.0) * 50.0
         final_val = float(score.final_score or 0)
-        ai_rel_val = max(0.0, round(final_val - skill_marks_50, 2))
         explanation = (
-            f"Deterministic Skill Match: {skill_marks_50:.2f}/50 marks; "
-            f"AI JD Relevance & Evidence: {ai_rel_val:.2f}/50 marks; "
-            f"Final Score: {final_val:.2f}/100."
+            f"Overall Match: {final_val:.2f}/100."
             f"{na_text}"
         )
         return CandidateInsightCreate(

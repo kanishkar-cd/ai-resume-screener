@@ -1,14 +1,12 @@
 import re
 from typing import Any
 
+from app.services.pipeline.extraction_pipeline import DESIGNATIONS
 from app.schemas.scoring import ComponentScoreDetail, ComponentScores
-<<<<<<< Updated upstream
-=======
 from app.services.pipeline.canonical_dictionaries import (
     CATEGORY_REQUIREMENT_ALIASES, SKILL_ALIASES, SKILL_CATEGORIES,
 )
->>>>>>> Stashed changes
-from app.services.pipeline.extraction_pipeline import DESIGNATIONS
+
 
 
 
@@ -19,8 +17,18 @@ _STEM_SUFFIXES = (
 )
 
 
+_IRREGULAR_VERBS = {
+    "built": "build", "led": "lead", "wrote": "write", "ran": "run", "held": "hold",
+    "made": "make", "analyzed": "analyze", "analysed": "analyze", "monitored": "monitor",
+    "documented": "document", "managed": "manage", "developed": "develop", "deployed": "deploy",
+    "maintained": "maintain", "investigated": "investigate", "configured": "configure",
+}
+
+
 def _stem_token(token: str) -> str:
     t = token.casefold().strip()
+    if t in _IRREGULAR_VERBS:
+        return _IRREGULAR_VERBS[t]
     if len(t) <= 3:
         return t
     for suffix in _STEM_SUFFIXES:
@@ -61,13 +69,17 @@ class ComponentScoringService:
     @staticmethod
     def _match_multiword_concept(concept_text: str, candidate_texts: list[str]) -> str | None:
         """
-        Deterministically matches a multi-word skill concept against candidate evidence.
+        Deterministically matches a multi-word skill or responsibility concept against candidate evidence.
         Ensures all required stemmed concept tokens appear in candidate text with concept proximity.
         Avoids single-word collisions (e.g. Java vs JavaScript).
         """
+        stop_words = {
+            "and", "with", "or", "using", "of", "in", "the", "for", "to", "a", "an",
+            "on", "from", "by", "as", "at", "during", "across", "into", "through",
+        }
         concept_tokens = [
             t for t in _TOKEN.findall(concept_text.casefold())
-            if len(t) > 1 and t not in {"and", "with", "or", "using", "of", "in", "the", "for"}
+            if len(t) > 1 and t not in stop_words
         ]
         if len(concept_tokens) < 2:
             return None
@@ -82,7 +94,7 @@ class ComponentScoringService:
 
             if all(ct in stemmed_text for ct in stemmed_concept):
                 indices = [stemmed_text.index(ct) for ct in stemmed_concept if ct in stemmed_text]
-                if indices and (max(indices) - min(indices)) <= len(concept_tokens) + 4:
+                if indices and (max(indices) - min(indices)) <= len(concept_tokens) + 8:
                     return text.strip()
         return None
 
@@ -174,12 +186,16 @@ class ComponentScoringService:
         if responsibility_verdicts:
             matched_verdicts = [v for v in responsibility_verdicts if _is_matched(v)]
             matched_resp = len(matched_verdicts)
-            resp_score = round((matched_resp / len(responsibility_verdicts)) * 100.0, 2)
+            total_coverage_sum = sum(
+                float(getattr(v, "coverage", 1.0 if _is_matched(v) else 0.0) or 0.0)
+                for v in responsibility_verdicts
+            )
+            resp_score = round((total_coverage_sum / len(responsibility_verdicts)) * 100.0, 2)
             responsibilities = ComponentScoreDetail(
                 score=resp_score,
                 matched_items=[getattr(v, "requirement_id", "") for v in matched_verdicts],
                 missing_items=[getattr(v, "requirement_id", "") for v in responsibility_verdicts if not _is_matched(v)],
-                explanation=f"Demonstrated {matched_resp} of {len(responsibility_verdicts)} role responsibilities via candidate evidence.",
+                explanation=f"Demonstrated {matched_resp} of {len(responsibility_verdicts)} role responsibilities ({resp_score:.2f}% aggregate coverage).",
             )
         elif job_responsibilities:
             # Fallback when LLM verdicts are absent
@@ -293,9 +309,9 @@ class ComponentScoringService:
                         "description": full_exp_text,
                         "technologies": exp.get("technologies") or [],
                     })
-        projects_score = self._projects_score(projects_list, job)
-        education = self._education_component(resume, job, config)
-        certifications = self._certifications_score(resume, job, config)
+        projects_score = self._projects_score(projects_list, job, match_verdicts=match_verdicts)
+        education = self._education_component(resume, job, config, match_verdicts=match_verdicts)
+        certifications = self._certifications_score(resume, job, config, match_verdicts=match_verdicts)
         languages = self._languages_score(resume, config)
 
         return ComponentScores(
@@ -309,17 +325,25 @@ class ComponentScoringService:
             languages=languages,
         )
 
-    def _education_component(self, resume: Any, job: Any, config: Any) -> ComponentScoreDetail:
+    def _education_component(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
         req_deg = getattr(config, "required_degree", None) or (job.degree_requirements[0] if getattr(job, "degree_requirements", None) else None)
         candidate_degrees = [item.get("degree") for item in (resume.education or []) if item.get("degree")]
         education_score = self._education_score(candidate_degrees, req_deg)
+        if education_score < 100 and match_verdicts:
+            confirmed_deg = [
+                v for v in match_verdicts
+                if str(getattr(v, "requirement_id", "")).startswith("degree:")
+                and str(getattr(getattr(v, "status", None), "value", getattr(v, "status", None))).upper() == "MATCHED"
+            ]
+            if confirmed_deg:
+                education_score = 100.0
         return ComponentScoreDetail(
             score=education_score, matched_items=candidate_degrees if education_score == 100 else [],
             missing_items=[req_deg] if req_deg and education_score < 100 else [],
             explanation="Education meets the configured requirement." if education_score == 100 else "Candidate degree is below or does not match the requirement.",
         )
 
-    def _projects_score(self, projects: list[dict[str, Any]], job: Any) -> ComponentScoreDetail:
+    def _projects_score(self, projects: list[dict[str, Any]], job: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
         project_keywords = [k for k in list(getattr(job, "project_requirements", None) or []) if k]
         if not project_keywords:
             project_keywords = [k for k in list(getattr(job, "keywords", None) or []) if k.casefold() not in {t.casefold() for t in DESIGNATIONS}]
@@ -352,7 +376,6 @@ class ComponentScoringService:
             desc = project.get("description") or ""
             if desc:
                 project_text_blobs.append(desc)
-                # Also tokenize description words
                 project_terms.extend(re.findall(r"[A-Za-z0-9+#.]+", desc))
 
         candidate_keys = self._keys(project_terms)
@@ -374,7 +397,6 @@ class ComponentScoringService:
                 if alt_cf in candidate_keys:
                     matched_alt = alt
                     break
-                # Check for phrase / regex match inside project text
                 escaped = re.escape(alt_cf)
                 if re.search(rf"(?:\b|_){escaped}(?:\b|_)", combined_text, re.IGNORECASE):
                     matched_alt = alt
@@ -386,6 +408,24 @@ class ComponentScoringService:
             else:
                 missing_display.append(item)
 
+        # Enrich with LLM-confirmed project matches
+        if match_verdicts and missing_display:
+            confirmed_proj = [
+                v for v in match_verdicts
+                if (str(getattr(v, "requirement_id", "")).startswith("project:") or getattr(v, "kind", None) == "project")
+                and (str(getattr(getattr(v, "status", None), "value", getattr(v, "status", None))).upper() == "MATCHED")
+            ]
+            if confirmed_proj:
+                new_missing = []
+                for missing_item in missing_display:
+                    m_cf = missing_item.casefold()
+                    if any(m_cf in str(getattr(cp, "reasoning", "")).casefold() or m_cf in str(getattr(cp, "requirement_id", "")).casefold() for cp in confirmed_proj):
+                        satisfied_groups += 1
+                        matched_display.append(missing_item)
+                    else:
+                        new_missing.append(missing_item)
+                missing_display = new_missing
+
         score = round(min(100.0, (satisfied_groups / len(raw_items)) * 100.0), 2)
         return ComponentScoreDetail(
             score=score,
@@ -394,10 +434,33 @@ class ComponentScoringService:
             explanation=f"Matched {satisfied_groups} of {len(raw_items)} project competencies.",
         )
 
-    def _certifications_score(self, resume: Any, job: Any, config: Any) -> ComponentScoreDetail:
+    def _certifications_score(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
         req_certs = list(getattr(config, "required_certifications", None) or [])
         if req_certs:
-            return self._match(list(resume.certifications or []), req_certs, "required certifications")
+            cert_detail = self._match(list(resume.certifications or []), req_certs, "required certifications")
+            if match_verdicts and cert_detail.missing_items:
+                confirmed_certs = [
+                    v for v in match_verdicts
+                    if str(getattr(v, "requirement_id", "")).startswith("certification:")
+                    and str(getattr(getattr(v, "status", None), "value", getattr(v, "status", None))).upper() == "MATCHED"
+                ]
+                if confirmed_certs:
+                    new_matched = list(cert_detail.matched_items)
+                    new_missing = []
+                    for m in cert_detail.missing_items:
+                        m_cf = m.casefold()
+                        if any(m_cf in str(getattr(cc, "reasoning", "")).casefold() for cc in confirmed_certs):
+                            new_matched.append(m)
+                        else:
+                            new_missing.append(m)
+                    if len(new_matched) > len(cert_detail.matched_items):
+                        return ComponentScoreDetail(
+                            score=round(min(100.0, (len(new_matched) / len(req_certs)) * 100.0), 2),
+                            matched_items=new_matched,
+                            missing_items=new_missing,
+                            explanation=f"Matched {len(new_matched)} of {len(req_certs)} required certifications.",
+                        )
+            return cert_detail
         return ComponentScoreDetail(
             score=100.0,
             matched_items=[],
@@ -417,11 +480,55 @@ class ComponentScoringService:
         )
 
 
+    def _match_single_concept_candidate(self, alt: str, candidate: list[str], candidate_keys: set[str]) -> str | None:
+        alt_clean = alt.strip()
+        if not alt_clean:
+            return None
+        alt_cf = alt_clean.casefold()
+
+        # Check category requirement (e.g. PROGRAMMING_LANGUAGE, RELATIONAL_DATABASE, CLOUD_PLATFORMS)
+        category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else (
+            CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
+        )
+        if category_name and category_name in SKILL_CATEGORIES:
+            category_members = {m.casefold() for m in SKILL_CATEGORIES[category_name]}
+            matched_member = next((k for k in candidate_keys if k in category_members), None)
+            if matched_member:
+                return next((s for s in candidate if s.strip().casefold() == matched_member), matched_member.title())
+
+        if alt_cf in candidate_keys:
+            return alt_clean
+
+        canonical_alt = SKILL_ALIASES.get(alt_cf)
+        if canonical_alt and canonical_alt.casefold() in candidate_keys:
+            return canonical_alt
+
+        cand_matched = next(
+            (
+                orig for orig in candidate
+                if (ck := orig.strip().casefold()) in candidate_keys and (
+                    (can_ck := SKILL_ALIASES.get(ck)) and (
+                        can_ck.casefold() == alt_cf or
+                        (canonical_alt and can_ck.casefold() == canonical_alt.casefold())
+                    )
+                )
+            ),
+            None
+        )
+        if cand_matched:
+            return cand_matched
+
+        multi_match = self._match_multiword_concept(alt_clean, candidate)
+        if multi_match:
+            return alt_clean
+
+        return None
+
     def _match_groups(self, candidate: list[str], required_items: list[str], label: str) -> ComponentScoreDetail:
         """
         Match candidate items against required requirements.
-        Supports OR alternative groups formatted as "A / B / C" or "A or B or C".
-        Each alternative group counts as 1 requirement item. Matching any alternative satisfies the group.
+        Supports AND conjunction groups formatted as "A and B" or "A, B, and C" where all items are required.
+        Supports OR alternative groups formatted as "A / B / C" or "A or B or C" where matching any alternative satisfies the group.
         """
         candidate_keys = self._keys(candidate)
         matched_display: list[str] = []
@@ -434,86 +541,39 @@ class ComponentScoringService:
             return ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=f"No {label} required.")
 
         for item in raw_items:
-            # Parse alternative choices within the requirement line
+            # Check if item is a conjunction (AND compound requirement)
+            is_conj = bool(re.search(r"\b(?:and|&)\b", item, re.I)) and not bool(re.search(r"\b(?:or|\/|\||such as|like|e\.g\.)\b", item, re.I))
+            if is_conj:
+                and_parts = [p.strip() for p in re.split(r"\s+(?:and|&)\s+|\s*,\s*and\s+", item, flags=re.I) if p.strip()]
+                if len(and_parts) >= 2:
+                    matched_all_parts = True
+                    for part in and_parts:
+                        part_matched = self._match_single_concept_candidate(part, candidate, candidate_keys)
+                        if not part_matched:
+                            matched_all_parts = False
+                            break
+                    if matched_all_parts:
+                        satisfied_groups += 1
+                        matched_display.append(item)
+                    else:
+                        missing_display.append(item)
+                    continue
+
+            # Otherwise evaluate OR alternatives / single concept
             such_parts = []
             such_match = re.search(r"\b(?:such\s+as|like|e\.g\.?|including)\s+(.+)$", item, re.I)
             if such_match:
-                such_parts_raw = re.split(r"[,;/]|\s+or\s+|\s+and\s+", such_match.group(1).strip())
+                such_parts_raw = re.split(r"[,;/]|\s+or\s+", such_match.group(1).strip())
                 such_parts = [p.strip() for p in such_parts_raw if p.strip()]
 
-            raw_alts = re.split(r"\s*(?:\/|\|)\s*|\s+(?:or|and)\s+|\s*,\s*(?:or|and)?\s*|\s*;\s*", item, flags=re.IGNORECASE)
+            raw_alts = re.split(r"\s*(?:\/|\|)\s*|\s+or\s+|\s*,\s*or\s*", item, flags=re.IGNORECASE)
             alternatives = list(dict.fromkeys([a.strip() for a in [*raw_alts, *such_parts, item] if a.strip()]))
 
-<<<<<<< Updated upstream
-            # Check if any alternative is present in the candidate's skills/items
-            matched_alt = next((alt for alt in alternatives if alt.casefold() in candidate_keys), None)
-=======
             matched_alt = None
             for alt in alternatives:
-                alt_clean = alt.strip()
-                alt_cf = alt_clean.casefold()
-
-                # Check if alternative is a category requirement (e.g. PROGRAMMING_LANGUAGE, RELATIONAL_DATABASE, CLOUD_PLATFORMS)
-                category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else (
-                    CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
-                )
-
-                if category_name and category_name in SKILL_CATEGORIES:
-                    category_members = {m.casefold() for m in SKILL_CATEGORIES[category_name]}
-                    # Match if candidate possesses any skill belonging to the category
-                    matched_member = next((k for k in candidate_keys if k in category_members), None)
-                    if matched_member:
-                        orig_skill = next((s for s in candidate if s.strip().casefold() == matched_member), matched_member.title())
-                        matched_alt = orig_skill
-                        break
-                elif alt_cf in candidate_keys:
-                    matched_alt = alt_clean
+                matched_alt = self._match_single_concept_candidate(alt, candidate, candidate_keys)
+                if matched_alt:
                     break
-                else:
-                    canonical_alt = SKILL_ALIASES.get(alt_cf)
-                    if canonical_alt and canonical_alt.casefold() in candidate_keys:
-                        matched_alt = canonical_alt
-                        break
-                    cand_matched = next(
-                        (
-                            orig for orig in candidate
-                            if (ck := orig.strip().casefold()) in candidate_keys and (
-                                (can_ck := SKILL_ALIASES.get(ck)) and (
-                                    can_ck.casefold() == alt_cf or
-                                    (canonical_alt and can_ck.casefold() == canonical_alt.casefold())
-                                )
-                            )
-                        ),
-                        None
-                    )
-                    if cand_matched:
-                        matched_alt = cand_matched
-                        break
-
-                    aliases_for_alt = {
-                        k for k, v in SKILL_ALIASES.items()
-                        if v.casefold() == alt_cf or (canonical_alt and v.casefold() == canonical_alt.casefold())
-                    }
-                    if aliases_for_alt:
-                        for text in candidate:
-                            if not text:
-                                continue
-                            t_cf = text.casefold()
-                            for alias_k in aliases_for_alt:
-                                if len(alias_k) >= 3 and re.search(rf"\b{re.escape(alias_k)}\b", t_cf):
-                                    matched_alt = alt_clean
-                                    break
-                            if matched_alt:
-                                break
-
-                    if matched_alt:
-                        break
-
-                    multi_match = self._match_multiword_concept(alt_clean, candidate)
-                    if multi_match:
-                        matched_alt = alt_clean
-                        break
->>>>>>> Stashed changes
 
             if matched_alt:
                 satisfied_groups += 1
