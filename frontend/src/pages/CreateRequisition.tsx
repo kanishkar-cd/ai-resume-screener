@@ -792,27 +792,27 @@ export default function CreateRequisition() {
                 </div>
               </div>
 
-              {/* 50 + 50 Scoring Model Box */}
+              {/* 100% Component Scoring Model Box */}
               <div className="space-y-2 pt-1">
                 <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Evaluation Scoring Engine</h4>
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
                   <div className="flex items-center justify-between font-semibold text-slate-800">
                     <span className="flex items-center gap-2">
                       <Cpu size={14} className="text-blue-500" />
-                      Deterministic Skills Match
+                      Core Component Evaluation
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-700 font-bold text-[11px]">50 Marks</span>
+                    <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-700 font-bold text-[11px]">7 Components</span>
                   </div>
                   <div className="flex items-center justify-between font-semibold text-slate-800">
                     <span className="flex items-center gap-2">
                       <SlidersHorizontal size={14} className="text-emerald-500" />
-                      AI JD Relevance & Evidence
+                      Dynamic Weight Normalization
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-bold text-[11px]">50 Marks</span>
+                    <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-bold text-[11px]">Active Weights</span>
                   </div>
                   <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between font-bold text-slate-900">
                     <span>Total Candidate Score</span>
-                    <span className="text-blue-600 font-extrabold">100 Marks Max</span>
+                    <span className="text-blue-600 font-extrabold">100% Weighted</span>
                   </div>
                 </div>
               </div>

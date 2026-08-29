@@ -37,13 +37,37 @@ def _stem_token(token: str) -> str:
     return t
 
 
+def _clean_req_text(text: str) -> str:
+    t = text.strip()
+    t = re.sub(
+        r"^(?:experience\s+with|knowledge\s+of|proficiency\s+in|familiarity\s+with|understanding\s+of|hands-on\s+with|ability\s+to|exposure\s+to|working\s+with|skills\s+in|proven\s+track\s+record\s+in|demonstrated\s+experience\s+in)\s+",
+        "", t, flags=re.I
+    ).strip()
+    t = re.sub(
+        r"^(?:strong|solid|basic|good|deep|fundamental|foundational|practical|advanced|in-depth|hands-on|proven|demonstrated|prior|working)\s+(?:programming\s+fundamentals\s+in|fundamentals\s+in|programming\s+in|knowledge\s+of|understanding\s+of|experience\s+with|proficiency\s+in|familiarity\s+with|skills\s+in|concepts\s+in|exposure\s+to|background\s+in)?\s*",
+        "", t, flags=re.I
+    ).strip()
+    t = re.sub(r"^(?:basic|strong|solid|good|working|advanced|fundamental|practical)\s+", "", t, flags=re.I).strip()
+    t = re.sub(r"\s*\([^)]*\)?$", "", t).strip()
+    tokens = t.split()
+    if len(tokens) > 1 and tokens[-1].lower() in {"fundamentals", "concepts", "principles", "basics", "experience", "skills", "knowledge", "ability"}:
+        t = " ".join(tokens[:-1]).strip()
+    return t
+
+
 class ComponentScoringService:
+
     DEGREE_RANKS = {
         "high school": 1, "associate": 2,
+        # Generic bachelor-level (catches "Bachelor's Degree", "bachelor degree", etc.)
+        "bachelor": 3,
         "bachelor of science": 3, "bachelor s degree": 3,
         "bachelor of engineering": 3, "bachelor of technology": 3,
         "b sc": 3, "b s": 3, "b com": 3, "bca": 3, "b tech": 3, "b e": 3, "be": 3,
+        # Generic master-level (catches "Master's Degree", "master degree", etc.)
+        "master": 4,
         "master of science": 4, "master of engineering": 4,
+        "master s degree": 4, "master degree": 4,
         "master of technology": 4, "master of business administration": 4,
         "m sc": 4, "m s": 4, "mca": 4, "mba": 4,
         "doctor of philosophy": 5, "phd": 5,
@@ -327,7 +351,7 @@ class ComponentScoringService:
 
     def _education_component(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
         req_deg = getattr(config, "required_degree", None) or (job.degree_requirements[0] if getattr(job, "degree_requirements", None) else None)
-        candidate_degrees = [item.get("degree") for item in (resume.education or []) if item.get("degree")]
+        candidate_degrees = [item.get("degree") for item in (getattr(resume, "education", None) or []) if item.get("degree")]
         education_score = self._education_score(candidate_degrees, req_deg)
         if education_score < 100 and match_verdicts:
             confirmed_deg = [
@@ -484,43 +508,62 @@ class ComponentScoringService:
         alt_clean = alt.strip()
         if not alt_clean:
             return None
-        alt_cf = alt_clean.casefold()
 
-        # Check category requirement (e.g. PROGRAMMING_LANGUAGE, RELATIONAL_DATABASE, CLOUD_PLATFORMS)
-        category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else (
-            CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
-        )
-        if category_name and category_name in SKILL_CATEGORIES:
-            category_members = {m.casefold() for m in SKILL_CATEGORIES[category_name]}
-            matched_member = next((k for k in candidate_keys if k in category_members), None)
-            if matched_member:
-                return next((s for s in candidate if s.strip().casefold() == matched_member), matched_member.title())
+        variants = list(dict.fromkeys([alt_clean, _clean_req_text(alt_clean)]))
 
-        if alt_cf in candidate_keys:
-            return alt_clean
+        for a in variants:
+            if not a:
+                continue
+            a_cf = a.casefold()
 
-        canonical_alt = SKILL_ALIASES.get(alt_cf)
-        if canonical_alt and canonical_alt.casefold() in candidate_keys:
-            return canonical_alt
+            # Check category requirement (e.g. PROGRAMMING_LANGUAGE, RELATIONAL_DATABASE, CLOUD_PLATFORMS)
+            category_name = a.upper() if a.upper() in SKILL_CATEGORIES else (
+                CATEGORY_REQUIREMENT_ALIASES.get(a_cf)
+            )
+            if category_name and category_name in SKILL_CATEGORIES:
+                category_members = {m.casefold() for m in SKILL_CATEGORIES[category_name]}
+                matched_member = next((k for k in candidate_keys if k in category_members), None)
+                if matched_member:
+                    return next((s for s in candidate if s.strip().casefold() == matched_member), matched_member.title())
 
-        cand_matched = next(
-            (
-                orig for orig in candidate
-                if (ck := orig.strip().casefold()) in candidate_keys and (
-                    (can_ck := SKILL_ALIASES.get(ck)) and (
-                        can_ck.casefold() == alt_cf or
-                        (canonical_alt and can_ck.casefold() == canonical_alt.casefold())
+            if a_cf in candidate_keys:
+                return a
+
+            canonical_alt = SKILL_ALIASES.get(a_cf)
+            if canonical_alt and canonical_alt.casefold() in candidate_keys:
+                return canonical_alt
+
+            # Check all aliases mapping to this canonical target
+            target_name = canonical_alt or a
+            aliases_for_target = {k for k, v in SKILL_ALIASES.items() if v.casefold() == target_name.casefold()}
+            matched_alias = next((k for k in candidate_keys if k in aliases_for_target), None)
+            if matched_alias:
+                return next((s for s in candidate if s.strip().casefold() == matched_alias), target_name)
+
+            # Check if any alias appears in candidate text
+            for cand_str in candidate:
+                cand_str_lower = cand_str.casefold()
+                if any(re.search(rf"\b{re.escape(al)}\b", cand_str_lower) for al in aliases_for_target if len(al) >= 3):
+                    return target_name
+
+            cand_matched = next(
+                (
+                    orig for orig in candidate
+                    if (ck := orig.strip().casefold()) in candidate_keys and (
+                        (can_ck := SKILL_ALIASES.get(ck)) and (
+                            can_ck.casefold() == a_cf or
+                            (canonical_alt and can_ck.casefold() == canonical_alt.casefold())
+                        )
                     )
-                )
-            ),
-            None
-        )
-        if cand_matched:
-            return cand_matched
+                ),
+                None
+            )
+            if cand_matched:
+                return cand_matched
 
-        multi_match = self._match_multiword_concept(alt_clean, candidate)
-        if multi_match:
-            return alt_clean
+            multi_match = self._match_multiword_concept(a, candidate)
+            if multi_match:
+                return a
 
         return None
 

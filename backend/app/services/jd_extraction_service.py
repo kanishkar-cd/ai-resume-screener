@@ -658,17 +658,100 @@ def _extract_responsibilities(text: str) -> tuple[list[str], float]:
 
 
 def _extract_education(text: str) -> tuple[list[str], float]:
-    """Find degree and education requirements using regex patterns."""
-    found: set[str] = set()
-    for pattern in DEGREE_PATTERNS:
-        for match in pattern.finditer(text):
-            phrase = match.group(0).strip()
-            # Normalise whitespace
-            phrase = re.sub(r"\s+", " ", phrase)
-            if len(phrase) > 3:
-                found.add(phrase)
-    confidence = min(1.0, len(found) / 2) if found else 0.0
-    return sorted(found), round(confidence, 2)
+    """
+    Extract education requirements as one item per logical sentence/line.
+
+    Architecture: sentence-first, not pattern-first.
+    1. Split text into logical lines (bullet points, sentences).
+    2. For each line, check if it contains a degree-level indicator.
+    3. If yes, emit the whole matched phrase for that line — never emit
+       sub-fragments from the same line as separate items.
+
+    This prevents a single sentence like:
+      "Bachelor's degree in Computer Science, IT, Engineering, or a related field."
+    from fragmenting into 5+ separate "Unmet" requirements.
+    """
+    # Degree-level anchors: only the level matters, disciplines are metadata
+    _DEGREE_LEVEL_ANCHORS: list[re.Pattern[str]] = [
+        re.compile(r"\bph\.?d\b|\bdoctoral?\b|\bdoctorate\b", re.I),
+        re.compile(r"\bmba\b|\bmaster\s+of\s+business\b", re.I),
+        re.compile(
+            r"\bmaster(?:'?s)?(?:\s+(?:of|in|degree))?\b"
+            r"|\bm\.?\s*(?:sc|tech|e|s|ba|ca)\b|\bpostgraduate\b|\bgraduate\b",
+            re.I,
+        ),
+        re.compile(
+            r"\bbachelor(?:'?s)?(?:\s+(?:of|in|degree))?\b"
+            r"|\bb\.?\s*(?:tech|sc|e|s|com|ca|a)\b|\bundergraduate\b",
+            re.I,
+        ),
+        re.compile(r"\bassociate(?:'?s)?\s+degree\b", re.I),
+        re.compile(r"\bdegree\s+in\b", re.I),
+    ]
+
+    results: list[str] = []
+    seen_lines: set[str] = set()
+
+    # Split into logical education sentences
+    raw_lines: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = BULLET_PATTERN.sub("", raw_line)
+        stripped = NUMBERED_PATTERN.sub("", stripped).strip()
+        if stripped:
+            raw_lines.append(stripped)
+
+    for line in raw_lines:
+        line_key = line.casefold()
+        if line_key in seen_lines:
+            continue
+
+        # Find the first degree-level anchor in this line
+        for anchor in _DEGREE_LEVEL_ANCHORS:
+            m = anchor.search(line)
+            if m:
+                # Find the full phrase: from start of line up to end,
+                # or if the whole line is the phrase, use it.
+                # Trim trailing punctuation noise.
+                phrase = re.sub(r"\s+", " ", line).strip().rstrip(".,;:")
+                # Remove trailing filler phrases
+                phrase = re.sub(
+                    r"\s*\(?\s*(?:or\s+equivalent|or\s+similar|or\s+related|preferred|required|a\s+plus)\s*\)?\.?$",
+                    "", phrase, flags=re.I,
+                ).strip()
+                if len(phrase) > 3:
+                    results.append(phrase)
+                    seen_lines.add(line_key)
+                break  # Only emit once per line — first anchor match wins
+
+    # Fallback: if no line-level extraction worked, use full-text pattern scan
+    # but consolidate overlapping matches to avoid fragment explosion
+    if not results:
+        found_by_line: dict[int, str] = {}  # line_start -> representative phrase
+        for pattern in [
+            re.compile(
+                r"\b(?:bachelor(?:'?s)?|b\.?\s*(?:sc|e|tech|s|com|ca)|undergraduate)"
+                r"\s*(?:degree|of|in)?\s*(?:[a-z\s&,]+)?",
+                re.I,
+            ),
+            re.compile(
+                r"\b(?:master(?:'?s)?|m\.?\s*(?:sc|e|tech|s|ba|ca)|postgraduate|graduate)"
+                r"\s*(?:degree|of|in)?\s*(?:[a-z\s&,]+)?",
+                re.I,
+            ),
+            re.compile(r"\b(?:phd|ph\.d|doctorate|doctoral)\b", re.I),
+            re.compile(r"\b(?:mba|master\s+of\s+business\s+administration)\b", re.I),
+            re.compile(r"\b(?:associate\s+degree)\b", re.I),
+        ]:
+            for match in pattern.finditer(text):
+                start = match.start()
+                phrase = re.sub(r"\s+", " ", match.group(0).strip())
+                if len(phrase) > 3 and start not in found_by_line:
+                    found_by_line[start] = phrase
+
+        results = list(dict.fromkeys(found_by_line.values()))
+
+    confidence = min(1.0, len(results) / 2) if results else 0.0
+    return results, round(confidence, 2)
 
 
 def _extract_experience(text: str) -> tuple[list[str], float]:

@@ -395,8 +395,6 @@ def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
     assert final_b < final_a
 
 
-<<<<<<< Updated upstream
-=======
 def test_generic_category_requirement_matching() -> None:
     service = ComponentScoringService()
 
@@ -543,11 +541,6 @@ def test_preferred_skill_matched_across_various_evidence_sources() -> None:
     bonus_zero, items_zero = BonusService.calculate(resume_missing, job_single, config, components)
     assert bonus_zero == 0.0
     assert not any(item.rule_name == "PREFERRED_SKILLS" for item in items_zero)
-
-
-
-
->>>>>>> Stashed changes
 
 
 

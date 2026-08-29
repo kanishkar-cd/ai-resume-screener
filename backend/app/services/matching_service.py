@@ -51,7 +51,26 @@ _IRREGULAR_VERBS = {
 }
 
 
+def _clean_req_text(text: str) -> str:
+    t = text.strip()
+    t = re.sub(
+        r"^(?:experience\s+with|knowledge\s+of|proficiency\s+in|familiarity\s+with|understanding\s+of|hands-on\s+with|ability\s+to|exposure\s+to|working\s+with|skills\s+in|proven\s+track\s+record\s+in|demonstrated\s+experience\s+in)\s+",
+        "", t, flags=re.I
+    ).strip()
+    t = re.sub(
+        r"^(?:strong|solid|basic|good|deep|fundamental|foundational|practical|advanced|in-depth|hands-on|proven|demonstrated|prior|working)\s+(?:programming\s+fundamentals\s+in|fundamentals\s+in|programming\s+in|knowledge\s+of|understanding\s+of|experience\s+with|proficiency\s+in|familiarity\s+with|skills\s+in|concepts\s+in|exposure\s+to|background\s+in)?\s*",
+        "", t, flags=re.I
+    ).strip()
+    t = re.sub(r"^(?:basic|strong|solid|good|working|advanced|fundamental|practical)\s+", "", t, flags=re.I).strip()
+    t = re.sub(r"\s*\([^)]*\)?$", "", t).strip()
+    tokens = t.split()
+    if len(tokens) > 1 and tokens[-1].lower() in {"fundamentals", "concepts", "principles", "basics", "experience", "skills", "knowledge", "ability"}:
+        t = " ".join(tokens[:-1]).strip()
+    return t
+
+
 def _stem_token(token: str) -> str:
+
     t = token.casefold().strip()
     if t in _IRREGULAR_VERBS:
         return _IRREGULAR_VERBS[t]
@@ -230,31 +249,57 @@ class DeterministicRequirementMatcher:
         alt_clean = alt.strip()
         if not alt_clean:
             return None
-        alt_cf = alt_clean.casefold()
-        alt_key, alt_method = self._canonical(alt_clean, aliases)
 
-        # Check category requirement (e.g. RELATIONAL_DATABASE, PROGRAMMING_LANGUAGE, CLOUD_PLATFORMS)
-        category_name = alt_clean.upper() if alt_clean.upper() in SKILL_CATEGORIES else CATEGORY_REQUIREMENT_ALIASES.get(alt_cf)
-        if category_name and category_name in SKILL_CATEGORIES:
-            category_members = {m.casefold(): m for m in SKILL_CATEGORIES[category_name]}
-            matched_key = next((k for k in candidate_keys_map if k in category_members), None)
-            if matched_key:
-                orig_skill, cmeth = candidate_keys_map[matched_key]
+        variants = list(dict.fromkeys([alt_clean, _clean_req_text(alt_clean)]))
+
+        for a in variants:
+            if not a:
+                continue
+            a_cf = a.casefold()
+            a_key, a_method = self._canonical(a, aliases)
+
+            # 1. Check category requirement (e.g. RELATIONAL_DATABASE, PROGRAMMING_LANGUAGE, CLOUD_PLATFORMS)
+            category_name = a.upper() if a.upper() in SKILL_CATEGORIES else CATEGORY_REQUIREMENT_ALIASES.get(a_cf)
+            if category_name and category_name in SKILL_CATEGORIES:
+                category_members = {m.casefold(): m for m in SKILL_CATEGORIES[category_name]}
+                matched_key = next((k for k in candidate_keys_map if k in category_members), None)
+                if matched_key:
+                    orig_skill, cmeth = candidate_keys_map[matched_key]
+                    ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
+                    return orig_skill, MatchMethod.ALIAS, ev_ids
+                # Also check if any category member is present in candidate evidence text or pool
+                for mem_cf, mem_orig in category_members.items():
+                    if len(mem_cf) >= 3 and (mem_cf in [c.casefold() for c in candidate_pool] or re.search(rf"\b{re.escape(mem_cf)}\b", evidence_text)):
+                        ev_ids = [e.evidence_id for e in evidence if mem_cf in e.text.casefold()][:1]
+                        return mem_orig, MatchMethod.ALIAS, ev_ids
+
+            # 2. Direct canonical match
+            if a_key in candidate_keys_map:
+                orig_skill, cmeth = candidate_keys_map[a_key]
+                method = MatchMethod.ALIAS if MatchMethod.ALIAS in {a_method, cmeth} else MatchMethod.EXACT
+                ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
+                return orig_skill, method, ev_ids
+
+            # 3. Canonical target match (check if candidate key maps to same canonical)
+            canonical_target = aliases.get(a_key, a)
+            canonical_target_key = _key(canonical_target)
+            if canonical_target_key in candidate_keys_map:
+                orig_skill, cmeth = candidate_keys_map[canonical_target_key]
                 ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
                 return orig_skill, MatchMethod.ALIAS, ev_ids
 
-        # Direct canonical match
-        if alt_key in candidate_keys_map:
-            orig_skill, cmeth = candidate_keys_map[alt_key]
-            method = MatchMethod.ALIAS if MatchMethod.ALIAS in {alt_method, cmeth} else MatchMethod.EXACT
-            ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
-            return orig_skill, method, ev_ids
+            # 4. Check if a_key or a_cf is mentioned in candidate pool or evidence text with word boundary
+            for cp in candidate_pool:
+                cp_cf = cp.casefold()
+                if a_cf == cp_cf or a_key == _key(cp):
+                    ev_ids = [e.evidence_id for e in evidence if cp_cf in e.text.casefold()][:1]
+                    return cp, MatchMethod.EXACT if a_cf == cp_cf else MatchMethod.ALIAS, ev_ids
 
-        # Multi-word concept proximity matching (requires ALL tokens in multi-word concept)
-        multi_match = ComponentScoringService._match_multiword_concept(alt_clean, [e.text for e in evidence] + candidate_pool)
-        if multi_match:
-            ev_ids = [e.evidence_id for e in evidence if any(_stem_token(ct) in [_stem_token(t) for t in _TOKEN.findall(e.text.casefold())] for ct in _TOKEN.findall(alt_clean.casefold()))][:1]
-            return alt_clean, MatchMethod.ALIAS, ev_ids
+            # 5. Multi-word concept proximity matching
+            multi_match = ComponentScoringService._match_multiword_concept(a, [e.text for e in evidence] + candidate_pool)
+            if multi_match:
+                ev_ids = [e.evidence_id for e in evidence if any(_stem_token(ct) in [_stem_token(t) for t in _TOKEN.findall(e.text.casefold())] for ct in _TOKEN.findall(a.casefold()))][:1]
+                return a, MatchMethod.ALIAS, ev_ids
 
         return None
 
@@ -298,12 +343,13 @@ class DeterministicRequirementMatcher:
                 "develop": {"develop", "build", "create", "implement", "code", "author", "engineer"},
                 "create": {"create", "build", "develop", "implement", "author"},
                 "implement": {"implement", "build", "develop", "create", "integrate", "execute"},
-                "design": {"design", "architect", "model", "structure", "plan"},
+                "architect": {"architect", "design", "structure"},
+                "design": {"design", "model", "structure", "plan"},
                 "maintain": {"maintain", "support", "manage", "sustain", "upkeep"},
                 "manage": {"manage", "maintain", "administer", "oversee", "operate"},
                 "integrate": {"integrate", "connect", "interface", "link", "consume"},
-                "deploy": {"deploy", "release", "publish", "host", "ship"},
-                "monitor": {"monitor", "observe", "track", "review", "audit", "collect"},
+                "deploy": {"deploy", "release", "publish", "ship"},
+                "monitor": {"monitor", "observe", "track", "watch"},
                 "document": {"document", "record", "write", "log"},
                 "analyze": {"analyze", "study", "investigate", "inspect", "assess"},
                 "investigate": {"investigate", "analyze", "inspect", "triage"},
@@ -331,10 +377,11 @@ class DeterministicRequirementMatcher:
                 "kubernetes": {"kubernetes", "k8s"},
                 "python": {"python"},
                 "aws": {"aws", "amazon web services"},
-                "wazuh": {"wazuh", "siem"},
+                "wazuh": {"wazuh"},
                 "wireshark": {"wireshark"},
                 "html5": {"html5", "html"},
                 "css3": {"css3", "css"},
+                "neon": {"neon", "neon postgres", "neon postgresql", "neon database"},
             }
 
             # Decompose JD Responsibility into Semantic Units (Actions, Technologies, Domain Activities)
@@ -354,15 +401,25 @@ class DeterministicRequirementMatcher:
 
             # 3. Identify Domain Activities / Deliverables if not fully covered
             domain_patterns = {
+                "backend apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
+                "apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
                 "rest apis": {"rest api", "rest apis", "restful api", "restful apis"},
                 "user interfaces": {"user interfaces", "user interface", "ui", "interfaces", "components"},
-                "schemas": {"schema", "schemas", "data models", "models"},
+                "database schemas": {"database schemas", "database schema", "schemas", "schema", "data models"},
+                "schemas": {"database schemas", "database schema", "schemas", "schema"},
+                "database": {"database", "databases", "relational database", "relational databases", "schemas", "schema", "data models"},
                 "authentication": {"authentication", "auth", "jwt", "authorization"},
                 "microservices": {"microservices", "microservice", "services"},
                 "ci/cd pipelines": {"ci/cd", "pipelines", "pipeline", "automation"},
                 "unit tests": {"unit tests", "testing", "tests", "integration tests"},
-                "security events": {"security events", "security alerts", "logs", "alerts"},
+                "siem": {"siem", "splunk", "qradar"},
+                "security alerts": {"security alerts", "alerts"},
+                "security events": {"security events", "logs", "events"},
+                "incidents": {"production incidents", "incident", "incidents", "security events", "events"},
+                "root causes": {"root causes", "root cause", "incident findings", "findings", "recommendations"},
                 "incident triage": {"incident triage", "triage", "investigation"},
+                "incident findings": {"incident findings", "findings", "investigation findings", "escalation recommendations", "recommendations", "reports"},
+                "findings": {"findings", "recommendation", "recommendations", "reports"},
                 "vulnerability assessment": {"vulnerability assessment", "vulnerabilities", "vulnerability"},
                 "cloud infrastructure": {"cloud infrastructure", "infrastructure", "deployments", "cloud"},
             }
@@ -371,20 +428,31 @@ class DeterministicRequirementMatcher:
                     if any(re.search(rf"\b{re.escape(a)}\b", req_lower) for a in aliases):
                         semantic_concepts.append((domain_key, "domain", aliases))
 
-            # Fallback if no specific semantic concepts identified: extract clauses/tokens
-            if not semantic_concepts:
+            # If semantic_concepts only contains generic actions and req_text has multiple comma-separated items (e.g. "Support item1, item2, ..., item20"):
+            has_tech_or_domain = any(c[1] in {"tech", "domain"} for c in semantic_concepts)
+            raw_clauses = [c.strip() for c in re.split(r"[,;]|\s+(?:and|&|\/|\+)\s+", req_text, flags=re.I) if c.strip()]
+            if not has_tech_or_domain and len(raw_clauses) >= 3:
+                semantic_concepts = []
                 stop_words = {
                     "the", "a", "an", "and", "of", "to", "with", "from", "for", "on", "in",
                     "by", "as", "at", "during", "across", "into", "through", "using", "or", "&",
-                    "work", "working", "experience", "knowledge", "proficiency", "etc",
+                    "work", "working", "experience", "knowledge", "proficiency", "support", "etc",
                 }
-                raw_clauses = [c.strip() for c in re.split(r"[,;]|\s+(?:and|&|\/|\+)\s+", req_text, flags=re.I) if c.strip()]
                 for clause in raw_clauses:
                     tokens = [t for t in _TOKEN.findall(clause.casefold()) if len(t) > 1 and t not in stop_words]
                     if tokens:
                         c_name = " ".join(tokens)
                         c_stemmed = {_stem_token(t) for t in tokens}
                         semantic_concepts.append((c_name, "general", c_stemmed))
+
+            # If only action verbs were matched with no tech, domain, or itemized concepts, require LLM evaluation
+            if semantic_concepts and all(c[1] == "action" for c in semantic_concepts):
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.UNRESOLVED,
+                    confidence=0,
+                    reasoning="Responsibility action requires contextual experiential validation.",
+                )
 
             # Match extracted semantic concepts across candidate experiential evidence
             matched_concepts = []
@@ -487,17 +555,29 @@ class DeterministicRequirementMatcher:
             evidence_text = " ".join(e.text for e in evidence).casefold()
             candidate_pool = list(dict.fromkeys([*candidates, *certs, *evidence_terms]))
 
-            cleaned_req = re.sub(
-                r"^(?:experience\s+with|knowledge\s+of|proficiency\s+in|familiarity\s+with|understanding\s+of|hands-on\s+with)\s+",
-                "", req_text, flags=re.I
-            ).strip()
-
             candidate_keys_map: dict[str, tuple[str, MatchMethod]] = {}
             for c in candidate_pool:
                 ckey, cmeth = self._canonical(c, aliases)
                 candidate_keys_map[ckey] = (c, cmeth)
 
-            # Check if cleaned_req is a conjunction (AND compound requirement)
+            cleaned_req = _clean_req_text(req_text)
+
+            # 1. First test if the entire requirement or cleaned requirement matches directly as a whole
+            res_whole = self._match_single_alt(req_text, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
+            if not res_whole and cleaned_req != req_text:
+                res_whole = self._match_single_alt(cleaned_req, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
+            if res_whole:
+                orig_skill, method, ev_ids = res_whole
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence=1,
+                    evidence_ids=ev_ids,
+                    reasoning=f"Canonical values match ({orig_skill}).",
+                    method=method,
+                )
+
+            # 2. Check if cleaned_req is a conjunction (AND compound requirement)
             is_conjunction = bool(re.search(r"\b(?:and|&)\b", cleaned_req, re.I)) and not bool(re.search(r"\b(?:or|\/|\||such as|like|e\.g\.)\b", cleaned_req, re.I))
 
             if is_conjunction:
@@ -509,13 +589,16 @@ class DeterministicRequirementMatcher:
                     for part in and_parts:
                         res = self._match_single_alt(part, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
                         if not res:
+                            clean_part = _clean_req_text(part).casefold()
+                            if clean_part in {"database concepts", "database", "debugging", "concepts", "fundamentals", "basics", "principles", "json", "problem-solving ability", "teamwork", "soft skills"} and matched_skills_list:
+                                continue
                             matched_all = False
                             break
                         orig_s, meth, ev_ids = res
                         matched_skills_list.append(orig_s)
                         all_ev_ids.extend(ev_ids)
 
-                    if matched_all:
+                    if matched_all and matched_skills_list:
                         ev_ids_dedup = list(dict.fromkeys(all_ev_ids))[:2]
                         return MatchVerdict(
                             requirement_id=requirement.requirement_id,
@@ -531,7 +614,7 @@ class DeterministicRequirementMatcher:
                             confidence=1, reasoning=f"Compound requirement not fully satisfied ({cleaned_req}).",
                         )
 
-            # Alternatives (OR groups) or single requirement
+            # 3. Alternatives (OR groups) or single requirement
             such_as_parts = []
             such_match = re.search(r"\b(?:such\s+as|like|e\.g\.?|including)\s+(.+)$", cleaned_req, re.I)
             if such_match:
@@ -539,7 +622,7 @@ class DeterministicRequirementMatcher:
                 such_as_parts = [p.strip() for p in such_parts_raw if p.strip()]
 
             raw_alts = re.split(r"\s*(?:\/|\|)\s*|\s+or\s+|\s*,\s*or\s*", cleaned_req, flags=re.IGNORECASE)
-            alternatives = list(dict.fromkeys([a.strip() for a in [*raw_alts, *such_as_parts, cleaned_req] if a.strip()]))
+            alternatives = list(dict.fromkeys([a.strip() for a in [*raw_alts, *such_as_parts, cleaned_req, req_text] if a.strip()]))
 
             for alt in alternatives:
                 res = self._match_single_alt(alt, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
@@ -664,10 +747,12 @@ class EvidencePrefilter:
                     selected_ids.add(e.evidence_id)
             return selected
 
-        # Fallback profile evidence when no specific token overlap exists
-        allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience"}
-        skills_and_projects = [e for e in target_evidence if e.kind in allowed_kinds]
-        return (skills_and_projects if skills_and_projects else target_evidence)[: self.limit]
+        # Fallback profile evidence when no specific token overlap exists (only for responsibilities and projects)
+        if requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.PROJECT_RELEVANCE}:
+            allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"project"}
+            skills_and_projects = [e for e in target_evidence if e.kind in allowed_kinds]
+            return (skills_and_projects if skills_and_projects else target_evidence)[: self.limit]
+        return []
 
 
 class GroqMatchEvaluator:
@@ -691,7 +776,7 @@ class GroqMatchEvaluator:
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
     ) -> list[MatchVerdict]:
-        if not self.enabled or not requirements or not evidence:
+        if not self.enabled or not requirements:
             return []
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
@@ -876,15 +961,15 @@ class HybridMatchingService:
             # Rule 1: Deterministic MATCHED requirements MUST NOT be sent to LLM
             if verdict.status == MatchStatus.MATCHED:
                 continue
-            # Rule 2: Deterministic UNMET (NO_MATCH) or UNRESOLVED requirements MUST be sent to LLM
+            # Rule 2: Deterministic UNMET (NO_MATCH) or UNRESOLVED requirements MUST be sent to LLM if evidence exists
             selected = prefilter.select(requirement, evidence)
-            unresolved.append(requirement)
-            if selected:
-                supplied.update((item.evidence_id, item) for item in selected)
-                allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
-            elif requirement.kind != RequirementKind.RESPONSIBILITY and evidence:
-                supplied.update((item.evidence_id, item) for item in evidence[: prefilter.limit])
-                allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in evidence[: prefilter.limit]}
+            if selected or requirement.kind == RequirementKind.RESPONSIBILITY:
+                unresolved.append(requirement)
+                if selected:
+                    supplied.update((item.evidence_id, item) for item in selected)
+                    allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
+                else:
+                    allowed_evidence[requirement.requirement_id] = set()
             else:
                 allowed_evidence[requirement.requirement_id] = set()
 

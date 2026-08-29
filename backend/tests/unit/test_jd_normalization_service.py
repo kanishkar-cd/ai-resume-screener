@@ -81,19 +81,11 @@ async def test_jd_normalization_successful_canonicalization() -> None:
     normalized_repo.upsert.assert_awaited_once()
     payload = normalized_repo.upsert.await_args[0][0]
 
-<<<<<<< Updated upstream
-    # Verify skills case-preserving deduplication
-    assert payload.skills == ["Python", "FastAPI", "ReactJS"]
-    # Verify degree mapping
-    assert "Bachelor's Degree" in payload.degree_requirements
-    assert "Doctor of Philosophy (PhD)" in payload.degree_requirements
-=======
     # Verify skills case-preserving deduplication and canonicalization
     assert payload.skills == ["Python", "FastAPI", "React.js"]
     # Verify degree mapping preserving specialization
     assert any("Bachelor's Degree" in d for d in payload.degree_requirements)
     assert any("Doctor of Philosophy (PhD)" in d for d in payload.degree_requirements)
->>>>>>> Stashed changes
     # Verify experience translation to months
     assert any(req.minimum_months == 60 for req in payload.experience_requirements)
     assert any(req.minimum_months == 36 and req.maximum_months == 60 for req in payload.experience_requirements)

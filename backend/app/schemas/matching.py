@@ -61,7 +61,7 @@ class MatchVerdict(BaseModel):
     @model_validator(mode="after")
     def validate_method(self) -> "MatchVerdict":
         if self.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and self.method is None:
-            self.method = MatchMethod.EXACT
+            raise ValueError("Method is required for matched verdicts")
         if self.method == MatchMethod.LLM_CONFIRMED and self.status not in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED}:
             raise ValueError("llm_confirmed is valid only for matched verdicts")
         if self.method == MatchMethod.LLM_REJECTED and self.status not in {MatchStatus.NO_MATCH, MatchStatus.UNMATCHED}:
@@ -86,3 +86,6 @@ class LLMVerdict(BaseModel):
 class LLMVerdictBatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
     verdicts: list[LLMVerdict] = Field(default_factory=list)
+
+
+LLMVerdictItem = LLMVerdict
