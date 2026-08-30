@@ -153,6 +153,17 @@ def normalize_company(value: str | None, audit: NormalizationAudit) -> str | Non
     if not value:
         return None
     source = clean_text(value)
+    if not source:
+        return None
+    # Reject invalid company tokens: Present, dates, durations, headings, or long sentences
+    if re.match(r"^(?:present|current|now|till\s*date|to\s*date|continuous)$", source, flags=re.I):
+        return None
+    if re.match(r"^(?:(?:19|20)\d{2}|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d+\s*months?|\d+\s*years?).*", source, flags=re.I):
+        return None
+    if re.match(r"^(?:experience|work\s*experience|employment\s*history|professional\s*experience|projects?|technical\s*projects?|education|summary|skills?|certifications?|responsibilities|achievements)$", source, flags=re.I):
+        return None
+    if len(source.split()) > 8:
+        return None
     canonical = re.sub(r"\bCorp\.?$", "Corporation", source, flags=re.I)
     canonical = re.sub(r"\bPvt\.?\s*Ltd\.?$", "Private Limited", canonical, flags=re.I)
     canonical = re.sub(r"\bLtd\.?$", "Limited", canonical, flags=re.I)
@@ -179,6 +190,14 @@ def normalize_date(value: str | None, field: str, audit: NormalizationAudit) -> 
     if source.casefold() in {"present", "current", "now"}:
         audit.record(field, source, None, "current_date", 0.95)
         return None, True
+
+    # If date is a year range e.g. "2023 - 2027", graduation/effective date is the end year
+    range_match = re.search(r"\b(?:19|20)\d{2}\s*[-–—to]+\s*((?:19|20)\d{2})\b", source)
+    if range_match:
+        end_yr = range_match.group(1)
+        audit.record(field, source, end_yr, "date_format", 0.9)
+        return end_yr, False
+
     for date_format, output_format in _DATE_FORMATS:
         try:
             canonical = datetime.strptime(source, date_format).strftime(output_format)
@@ -245,7 +264,18 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
     if not value:
         return None
     source = clean_text(value)
+    
+    # Reject masked numbers or placeholders (e.g. +91-XXXXXXXXXX, 98765XXXXX)
+    if re.search(r"[xX]{2,}", source):
+        return None
+        
     digits = re.sub(r"\D", "", source)
+    if len(digits) < 10 or len(digits) > 15:
+        return None
+        
+    # Reject dummy repeating digits (e.g. 0000000000, 9999999999, 1234567890)
+    if len(set(digits)) <= 2 or digits == "1234567890":
+        return None
 
     # 10-digit Indian mobile numbers starting with 6, 7, 8, 9 -> +91XXXXXXXXXX
     if len(digits) == 10 and digits[0] in "6789" and not source.startswith("+"):
@@ -253,13 +283,18 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
         audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical
 
-    # Already has + or standard international digits (e.g. 919043652396)
-    if source.startswith("+") and 8 <= len(digits) <= 15:
+    # Already has + or standard international digits
+    if source.startswith("+") and 10 <= len(digits) <= 15:
         canonical = f"+{digits}"
         audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical
 
-    if len(digits) == 12 and digits.startswith("91"):
+    if len(digits) == 12 and digits.startswith("91") and digits[2] in "6789":
+        canonical = f"+{digits}"
+        audit.record("phone", source, canonical, "e164_format", 1.0)
+        return canonical
+
+    if len(digits) == 11 and digits.startswith("1"):
         canonical = f"+{digits}"
         audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical

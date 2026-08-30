@@ -157,18 +157,7 @@ class RequirementBuilder:
 
 class EvidenceBuilder:
     @staticmethod
-    def _projects(extracted: Any) -> list[dict[str, Any]]:
-        projects = [dict(item) for item in (getattr(extracted, "projects", None) or [])]
-        if len(projects) <= 1:
-            return projects
-        descriptions = (projects[0].get("description") or "").splitlines()
-        descriptions = [value.strip() for value in descriptions if value.strip()]
-        if len(descriptions) == len(projects) and all(
-            not project.get("description") for project in projects[1:]
-        ):
-            for project, description in zip(projects, descriptions, strict=True):
-                project["description"] = description
-        return projects
+
 
     @staticmethod
     def build(extracted: Any) -> list[Evidence]:

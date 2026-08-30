@@ -276,16 +276,28 @@ CATEGORY_REQUIREMENT_ALIASES: dict[str, str] = {
 }
 
 DEGREE_ALIASES = {
-    "b.e.": "Bachelor of Engineering", "be": "Bachelor of Engineering",
+    "b.e.": "Bachelor of Engineering", "be": "Bachelor of Engineering", "b.e": "Bachelor of Engineering", "bachelor of engineering": "Bachelor of Engineering",
     "b.tech": "Bachelor of Technology", "btech": "Bachelor of Technology", "b.technology": "Bachelor of Technology", "bachelor of technology": "Bachelor of Technology",
-    "m.e.": "Master of Engineering", "me": "Master of Engineering",
-    "m.tech": "Master of Technology", "mtech": "Master of Technology",
-    "b.sc": "Bachelor of Science", "bsc": "Bachelor of Science", "bachelor of science": "Bachelor of Science", "b.s.": "Bachelor of Science", "bs": "Bachelor of Science",
-    "m.sc": "Master of Science", "msc": "Master of Science", "master of science": "Master of Science", "m.s.": "Master of Science", "ms": "Master of Science",
+    "m.e.": "Master of Engineering", "me": "Master of Engineering", "m.e": "Master of Engineering", "master of engineering": "Master of Engineering",
+    "m.tech": "Master of Technology", "mtech": "Master of Technology", "master of technology": "Master of Technology",
+    "b.sc": "Bachelor of Science", "bsc": "Bachelor of Science", "bachelor of science": "Bachelor of Science", "b.s.": "Bachelor of Science", "bs": "Bachelor of Science", "b.s": "Bachelor of Science",
+    "m.sc": "Master of Science", "msc": "Master of Science", "master of science": "Master of Science", "m.s.": "Master of Science", "ms": "Master of Science", "m.s": "Master of Science",
     "bca": "Bachelor of Computer Applications", "mca": "Master of Computer Applications",
     "b.a.": "Bachelor of Arts", "ba": "Bachelor of Arts", "bachelor of arts": "Bachelor of Arts",
-    "b.com": "Bachelor of Commerce", "bcom": "Bachelor of Commerce",
-    "mba": "Master of Business Administration", "phd": "Doctor of Philosophy", "ph.d": "Doctor of Philosophy",
+    "b.com": "Bachelor of Commerce", "bcom": "Bachelor of Commerce", "bachelor of commerce": "Bachelor of Commerce",
+    "mba": "Master of Business Administration", "master of business administration": "Master of Business Administration",
+    "phd": "Doctor of Philosophy", "ph.d": "Doctor of Philosophy", "ph.d.": "Doctor of Philosophy", "doctor of philosophy": "Doctor of Philosophy",
+    "diploma": "Diploma",
+    "hsc": "Higher Secondary (12th)", "higher secondary": "Higher Secondary (12th)", "higher secondary education": "Higher Secondary (12th)",
+    "higher secondary certificate": "Higher Secondary (12th)", "12th": "Higher Secondary (12th)", "12th grade": "Higher Secondary (12th)",
+    "12th standard": "Higher Secondary (12th)", "class xii": "Higher Secondary (12th)", "class 12": "Higher Secondary (12th)",
+    "intermediate": "Higher Secondary (12th)", "plus two": "Higher Secondary (12th)", "+2": "Higher Secondary (12th)",
+    "puc": "Higher Secondary (12th)", "pre-university": "Higher Secondary (12th)", "pre university": "Higher Secondary (12th)",
+    "sslc": "Secondary School (10th)", "secondary school": "Secondary School (10th)",
+    "secondary school leaving certificate": "Secondary School (10th)", "secondary school certificate": "Secondary School (10th)",
+    "10th": "Secondary School (10th)", "10th grade": "Secondary School (10th)", "10th standard": "Secondary School (10th)",
+    "class x": "Secondary School (10th)", "class 10": "Secondary School (10th)", "matriculation": "Secondary School (10th)",
+    "high school": "High School",
 }
 
 TITLE_ALIASES = {

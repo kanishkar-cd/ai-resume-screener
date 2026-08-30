@@ -22,8 +22,10 @@ class ExperienceItem(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     duration: str | None = None
+    is_current: bool = False
     description: str | None = None
     responsibilities: list[str] = Field(default_factory=list)
+    location: str | None = None
 
 
 class ProjectItem(BaseModel):

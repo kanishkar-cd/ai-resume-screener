@@ -168,7 +168,34 @@ def segment_sections(text: str) -> dict[str, str]:
         else:
             sections.setdefault(current, []).append(line)
 
-    return {name: "\n".join(lines) for name, lines in sections.items()}
+    res = {name: "\n".join(lines) for name, lines in sections.items()}
+    if len(res) <= 1 or (len(res) == 2 and "header" in res and len(res.get("header", "")) > 1000):
+        # Continuous inline text without linebreaks — perform regex boundary segmentation
+        pattern = r"\b(EDUCATION|TECHNICAL\s+SKILLS|SKILLS|WORK\s+EXPERIENCE|EXPERIENCE|INTERNSHIP|INTERNSHIPS|PROJECTS|PERSONAL\s+PROJECTS|ACADEMIC\s+PROJECTS|TECHNICAL\s+PROJECTS|CERTIFICATIONS|CERTIFICATE|ACHIEVEMENT|ACHIEVEMENTS|CODING\s+PROFILE|LANGUAGES)\b"
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
+        if matches:
+            fallback_sections: dict[str, str] = {}
+            first_start = matches[0].start()
+            fallback_sections["header"] = text[:first_start].strip()
+            section_map = {
+                "EDUCATION": "education", "TECHNICAL SKILLS": "skills", "SKILLS": "skills",
+                "WORK EXPERIENCE": "experience", "EXPERIENCE": "experience", "INTERNSHIP": "experience", "INTERNSHIPS": "experience",
+                "PROJECTS": "projects", "PERSONAL PROJECTS": "projects", "ACADEMIC PROJECTS": "projects", "TECHNICAL PROJECTS": "projects",
+                "CERTIFICATIONS": "certifications", "CERTIFICATE": "certifications",
+                "ACHIEVEMENT": "awards", "ACHIEVEMENTS": "awards", "CODING PROFILE": "skills", "LANGUAGES": "languages",
+            }
+            for idx, match in enumerate(matches):
+                sec_name = match.group(1).upper()
+                canonical = section_map.get(sec_name, "header")
+                start_idx = match.end()
+                end_idx = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+                block = text[start_idx:end_idx].strip()
+                if canonical in fallback_sections:
+                    fallback_sections[canonical] += "\n" + block
+                else:
+                    fallback_sections[canonical] = block
+            return fallback_sections
+    return res
 
 
 def match_terms(text: str, terms: Iterable[str]) -> list[str]:

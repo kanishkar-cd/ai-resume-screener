@@ -112,34 +112,54 @@ class ResumeNormalizer:
 
 
     @staticmethod
-    def _education(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, str | None]:
-        date, _ = normalize_date(item.get("year"), "education.graduation_date", audit)
+    def _education(item: Any, audit: NormalizationAudit) -> dict[str, str | None]:
+        def get_v(key: str) -> Any:
+            return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+        date, _ = normalize_date(get_v("year"), "education.graduation_date", audit)
         return {
-            "degree": canonicalize(item.get("degree"), DEGREE_ALIASES, "education.degree", audit),
-            "field_of_study": clean_text(item["field_of_study"]) if item.get("field_of_study") else None,
-            "institution": clean_text(item["institution"]) if item.get("institution") else None,
+            "degree": canonicalize(get_v("degree"), DEGREE_ALIASES, "education.degree", audit),
+            "field_of_study": clean_text(get_v("field_of_study")) if get_v("field_of_study") else None,
+            "institution": clean_text(get_v("institution")) if get_v("institution") else None,
             "graduation_date": date,
         }
 
     @staticmethod
-    def _experience(item: dict[str, Any], audit: NormalizationAudit) -> dict[str, Any]:
-        start_source = item.get("start_date")
-        end_source = item.get("end_date")
+    def _experience(item: Any, audit: NormalizationAudit) -> dict[str, Any]:
+        def get_v(key: str) -> Any:
+            return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+        start_source = get_v("start_date")
+        end_source = get_v("end_date")
 
         if not start_source and not end_source:
-            duration = clean_text(item.get("duration") or "")
+            duration = clean_text(get_v("duration") or "")
             parts = re.split(r"\s+(?:-|–|—|to)\s+", duration, maxsplit=1, flags=re.I) if duration else []
             start_source = parts[0] if parts else None
             end_source = parts[1] if len(parts) == 2 else None
 
         start, _ = normalize_date(start_source, "experience.start_date", audit)
         end, current = normalize_date(end_source, "experience.end_date", audit)
+        if get_v("is_current") is True:
+            current = True
         months = duration_between(start, end, current)
-        company = normalize_company(item.get("company"), audit)
-        title = canonicalize(item.get("title") or item.get("designation"), TITLE_ALIASES, "job_titles", audit)
+        company = normalize_company(get_v("company"), audit)
+        title = canonicalize(get_v("title") or get_v("designation"), TITLE_ALIASES, "job_titles", audit)
+        
+        description = get_v("description")
+        responsibilities = get_v("responsibilities") or []
+        employment_type = get_v("employment_type") or "Full-time"
+        location = get_v("location")
+
         return {
-            "company": company, "job_title": title, "start_date": start,
-            "end_date": end, "is_current": current, "duration_months": months,
+            "company": company,
+            "job_title": title,
+            "employment_type": employment_type,
+            "start_date": start,
+            "end_date": end,
+            "is_current": current,
+            "duration_months": months,
             "duration_display": format_duration(months),
+            "description": description,
+            "responsibilities": responsibilities,
+            "location": location,
         }
 

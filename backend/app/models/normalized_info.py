@@ -37,6 +37,7 @@ class NormalizedResumeModel(UUIDMixin, TimestampMixin, Base):
     companies: Mapped[list[Any]] = _json_list()
     job_titles: Mapped[list[Any]] = _json_list()
     experience: Mapped[list[Any]] = _json_list()
+    projects: Mapped[list[Any]] = _json_list()
     phone: Mapped[str | None] = mapped_column(String(32))
     email: Mapped[str | None] = mapped_column(String(255))
     locations: Mapped[list[Any]] = _json_list()
