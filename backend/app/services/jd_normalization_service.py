@@ -150,11 +150,14 @@ def _safe_list(source: object, field: str) -> list[str]:
 
 
 def _stable_casefold(values: list[str]) -> list[str]:
+    from app.services.matching_service import RequirementBuilder
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
         cleaned = re.sub(r"\s+", " ", value).strip()
-        if cleaned and _is_valid_skill(cleaned):
+        if not cleaned or RequirementBuilder._is_section_header(cleaned) or RequirementBuilder._is_meta_instruction(cleaned):
+            continue
+        if _is_valid_skill(cleaned):
             canonical = _canonicalize_skill_name(cleaned)
             key = canonical.casefold()
             if key not in seen:

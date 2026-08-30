@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class RequirementKind(str, Enum):
     SKILL = "skill"
+    REQUIRED_SKILL = "required_skill"
+    PREFERRED_SKILL = "preferred_skill"
     DEGREE = "degree"
     CERTIFICATION = "certification"
     LANGUAGE = "language"
@@ -12,6 +14,9 @@ class RequirementKind(str, Enum):
     PROJECT_RELEVANCE = "project_relevance"
     RESPONSIBILITY = "responsibility"
     CONTEXTUAL_EXPERIENCE = "contextual_experience"
+    EXPERIENCE = "experience"
+    CANDIDATE_ATTRIBUTE = "candidate_attribute"
+    SCREENING_NOTE = "screening_note"
 
 
 class MatchStatus(str, Enum):
@@ -49,6 +54,8 @@ class Evidence(BaseModel):
 
 class MatchVerdict(BaseModel):
     requirement_id: str = Field(min_length=1)
+    requirement_text: str | None = None
+    kind: RequirementKind | None = None
     status: MatchStatus
     confidence: float = Field(ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)

@@ -37,6 +37,7 @@ DESIGNATIONS = tuple(
             "Frontend Developer", "Backend Developer", "Product Manager", "Project Manager",
             "Business Analyst", "QA Engineer", "System Administrator", "Solutions Architect",
             "Intern", "Engineering Manager", "Technical Lead",
+            "Data Engineering", "Data Science", "Software Engineering", "Cloud Engineering", "DevOps Engineering",
         ),
         key=len,
         reverse=True,
@@ -73,7 +74,13 @@ SECTION_ALIASES = {
         "intership", "interships",
     },
     "education": {"education", "academic background", "academic qualifications", "education & qualifications"},
-    "projects": {"projects", "project experience", "project details", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
+    "projects": {
+        "projects", "project experience", "project details", "personal projects", "key projects",
+        "academic projects", "selected projects", "technical projects", "projects worked on",
+        "projects & certifications", "internship & projects", "recent projects", "major projects",
+        "practical projects", "software projects", "development projects", "projects / experience",
+        "academic & personal projects", "independent projects",
+    },
 
     "certifications": {
         "certifications", "certificates", "licenses", "certifications & licenses",

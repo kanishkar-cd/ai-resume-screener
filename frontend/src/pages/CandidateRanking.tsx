@@ -403,7 +403,7 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                     {candidate.matchVerdicts!.map((verdict) => {
                       const isMatched = verdict.status === 'MATCHED'
                       const isNoMatch = verdict.status === 'NO_MATCH'
-                      const reqText = requirementLabels.get(verdict.requirement_id) || verdict.requirement_id
+                      const reqText = (verdict as any).requirement_text || requirementLabels.get(verdict.requirement_id) || verdict.requirement_id
                       const method = verdict.method || ''
                       const isLlm = typeof method === 'string' && method.toLowerCase().includes('llm')
                       

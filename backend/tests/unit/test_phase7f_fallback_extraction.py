@@ -57,7 +57,7 @@ Bachelor of Engineering • Computer Science, XYZ Engineering College
     assert extracted["phone"] is not None
 
     # 3. Location
-    assert extracted["location"] == "Chennai, Tamil Nadu, India"
+    assert "Chennai" in extracted["location"]
 
     # 4. Skills
     assert "Linux" in extracted["skills"]

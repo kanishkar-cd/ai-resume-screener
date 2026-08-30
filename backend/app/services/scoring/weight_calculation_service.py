@@ -26,9 +26,25 @@ class WeightCalculationService:
 
         has_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
         has_resp = bool(getattr(job, "responsibilities", None) or [])
-        has_proj = bool((getattr(job, "project_requirements", None) or []) or (getattr(config, "required_projects", None) if config else None))
+        has_proj = bool(
+            (getattr(job, "project_requirements", None) or [])
+            or (getattr(config, "required_projects", None) if config else None)
+            or (getattr(job, "keywords", None) or [])
+            or (config is not None and bool(getattr(job, "responsibilities", None) or []))
+        )
         has_pref = bool(getattr(job, "preferred_skills", None) or [])
-        has_exp = bool(min_exp > 0 or any((item.get("minimum_months") or 0) > 0 for item in job_experience))
+        has_exp = bool(
+            min_exp > 0
+            or (
+                bool(job_experience)
+                and any(
+                    item.get("display_value") is not None
+                    or item.get("minimum_months") is not None
+                    or item.get("maximum_months") is not None
+                    for item in job_experience
+                )
+            )
+        )
         has_edu = bool(req_deg or (getattr(job, "degree_requirements", None) or []))
         has_certs = bool(req_certs or (getattr(job, "certifications", None) or []))
 

@@ -32,10 +32,13 @@ _STEM_SUFFIXES = (
 _CONTEXTUAL = {
     RequirementKind.RESPONSIBILITY,
     RequirementKind.SKILL,
+    RequirementKind.REQUIRED_SKILL,
+    RequirementKind.PREFERRED_SKILL,
     RequirementKind.DEGREE,
     RequirementKind.CERTIFICATION,
     RequirementKind.LANGUAGE,
     RequirementKind.PROJECT_RELEVANCE,
+    RequirementKind.CANDIDATE_ATTRIBUTE,
 }
 
 
@@ -93,6 +96,43 @@ def _stem_tokens(value: str) -> set[str]:
 class RequirementBuilder:
     """Convert the existing normalized JD into stable requirement objects."""
 
+    SECTION_HEADERS = {
+        "good-to-have skills", "good to have skills", "good to have", "good-to-have",
+        "preferred skills", "nice to have", "nice-to-have", "bonus skills", "desired skills",
+        "candidate requirements", "candidate requirement", "key responsibilities",
+        "technical requirements", "screening notes", "screening note", "note", "notes",
+        "additional requirements", "general requirements", "qualifications & skills",
+        "skills & qualifications", "required skills", "core skills", "technical skills",
+        "required technical skills", "preferred requirements", "requirements", "qualifications",
+        "responsibilities", "duties", "job description", "overview", "summary",
+    }
+
+    SOFT_ATTRIBUTES_KEYWORDS = (
+        "analytical ability", "analytical skills", "communication", "communication skills",
+        "teamwork", "collaboration", "interpersonal skills", "willingness to learn",
+        "problem solving", "problem-solving ability", "critical thinking", "self-motivated",
+        "adaptability", "time management", "screening note", "candidate attribute",
+        "ability and willingness to learn", "eager to learn",
+    )
+
+    @staticmethod
+    def _is_section_header(text: str) -> bool:
+        cleaned = text.strip().strip(":").casefold()
+        return cleaned in RequirementBuilder.SECTION_HEADERS or _key(cleaned) in RequirementBuilder.SECTION_HEADERS
+
+    @staticmethod
+    def _is_meta_instruction(text: str) -> bool:
+        cleaned = text.strip().casefold()
+        return (
+            cleaned.startswith("required skills should determine")
+            or cleaned.startswith("good-to-have skills are optional")
+            or cleaned.startswith("good to have skills are optional")
+            or "must not independently cause" in cleaned
+            or cleaned.startswith("note:")
+            or cleaned.startswith("screening note")
+            or cleaned.startswith("business rule:")
+        )
+
     @staticmethod
     def build(job: Any, config: Any) -> list[Requirement]:
         rows: list[tuple[RequirementKind, str, bool, bool]] = []
@@ -101,42 +141,74 @@ class RequirementBuilder:
         preferred = {_key(value) for value in preferred_skills}
         required_skills = list(getattr(job, "required_skills", None) or [])
 
-        # 1. Add required skills (or skills not marked as preferred)
-        if required_skills:
-            for value in required_skills:
-                key = _key(value)
-                rows.append((RequirementKind.SKILL, value, True, key in mandatory))
-        else:
-            for value in getattr(job, "skills", None) or []:
-                key = _key(value)
-                if key not in preferred:
-                    rows.append((RequirementKind.SKILL, value, True, key in mandatory))
-
-        # 2. Explicitly add preferred skills with required=False
-        for value in preferred_skills:
-            rows.append((RequirementKind.SKILL, value, False, False))
-
-        # 3. Add any remaining skills from job.skills
-        for value in getattr(job, "skills", None) or []:
+        # 1. Required skills (filtering section headers & meta notes)
+        req_source = required_skills or getattr(job, "skills", None) or []
+        for value in req_source:
+            if not value or RequirementBuilder._is_section_header(value) or RequirementBuilder._is_meta_instruction(value):
+                continue
             key = _key(value)
-            if key in preferred:
-                rows.append((RequirementKind.SKILL, value, False, False))
-            else:
-                rows.append((RequirementKind.SKILL, value, True, key in mandatory))
+            val_cf = value.strip().casefold()
+            if any(sa in val_cf for sa in RequirementBuilder.SOFT_ATTRIBUTES_KEYWORDS):
+                rows.append((RequirementKind.CANDIDATE_ATTRIBUTE, value.strip(), False, False))
+            elif key not in preferred:
+                rows.append((RequirementKind.SKILL, value.strip(), True, key in mandatory))
 
+        # 2. Preferred skills (explicitly required=False)
+        for value in preferred_skills:
+            if not value or RequirementBuilder._is_section_header(value) or RequirementBuilder._is_meta_instruction(value):
+                continue
+            val_cf = value.strip().casefold()
+            if any(sa in val_cf for sa in RequirementBuilder.SOFT_ATTRIBUTES_KEYWORDS):
+                rows.append((RequirementKind.CANDIDATE_ATTRIBUTE, value.strip(), False, False))
+            else:
+                rows.append((RequirementKind.SKILL, value.strip(), False, False))
+
+        # 3. Experience requirements (deduplicate duplicate experience bounds into one canonical requirement)
+        seen_exp_bounds: set[tuple[int, int | None]] = set()
+        for item in (getattr(job, "experience_requirements", None) or []):
+            if isinstance(item, dict):
+                val = item.get("display_value") or str(item)
+                min_m = item.get("minimum_months")
+                max_m = item.get("maximum_months")
+            else:
+                val = str(item)
+                min_m, max_m = None, None
+            if not val or RequirementBuilder._is_section_header(val) or RequirementBuilder._is_meta_instruction(val):
+                continue
+            exp_key = (min_m if min_m is not None else -1, max_m)
+            if exp_key in seen_exp_bounds:
+                continue
+            seen_exp_bounds.add(exp_key)
+            rows.append((RequirementKind.EXPERIENCE, val.strip(), True, False))
+
+        # 4. Degree, Certification, Language, Project requirements
         for value in getattr(job, "degree_requirements", None) or []:
-            rows.append((RequirementKind.DEGREE, value, True, False))
+            if value and not RequirementBuilder._is_section_header(value):
+                rows.append((RequirementKind.DEGREE, value.strip(), True, False))
         for value in [
             *(getattr(job, "certifications", None) or []),
             *(getattr(config, "required_certifications", None) or []),
         ]:
-            rows.append((RequirementKind.CERTIFICATION, value, True, False))
+            if value and not RequirementBuilder._is_section_header(value):
+                rows.append((RequirementKind.CERTIFICATION, value.strip(), True, False))
         for value in getattr(config, "required_languages", None) or []:
-            rows.append((RequirementKind.LANGUAGE, value, True, False))
+            if value and not RequirementBuilder._is_section_header(value):
+                rows.append((RequirementKind.LANGUAGE, value.strip(), True, False))
         for value in getattr(job, "project_requirements", None) or []:
-            rows.append((RequirementKind.PROJECT_RELEVANCE, value, True, False))
+            if value and not RequirementBuilder._is_section_header(value):
+                rows.append((RequirementKind.PROJECT_RELEVANCE, value.strip(), True, False))
+
+        # 5. Responsibilities vs Soft Candidate Attributes
         for value in getattr(job, "responsibilities", None) or []:
-            rows.append((RequirementKind.RESPONSIBILITY, value, True, False))
+            if not value or not value.strip() or RequirementBuilder._is_section_header(value) or RequirementBuilder._is_meta_instruction(value):
+                continue
+            val_cf = value.strip().casefold()
+            is_soft = any(sk in val_cf for sk in RequirementBuilder.SOFT_ATTRIBUTES_KEYWORDS)
+            has_tech = any(tk in val_cf for tk in ("python", "sql", "etl", "data", "api", "pipeline", "design", "build", "develop", "create", "implement", "architect", "deploy", "test", "database", "query", "schema", "spark", "airflow", "aws", "docker"))
+            if is_soft and not has_tech:
+                rows.append((RequirementKind.CANDIDATE_ATTRIBUTE, value.strip(), False, False))
+            else:
+                rows.append((RequirementKind.RESPONSIBILITY, value.strip(), True, False))
 
         result: list[Requirement] = []
         seen: set[tuple[RequirementKind, str]] = set()
@@ -157,16 +229,36 @@ class RequirementBuilder:
 
 class EvidenceBuilder:
     @staticmethod
-
-
-    @staticmethod
+    def _projects(extracted: Any) -> list[dict[str, Any]]:
+        raw_projs = list(getattr(extracted, "projects", None) or [])
+        if raw_projs:
+            return raw_projs
+        meta = getattr(extracted, "raw_metadata", None) or {}
+        if isinstance(meta, dict):
+            profile_projs = list((meta.get("affinda_normalized_profile") or {}).get("projects") or [])
+            if profile_projs:
+                return profile_projs
+        return []
     def build(extracted: Any) -> list[Evidence]:
         result: list[Evidence] = []
         for index, project in enumerate(EvidenceBuilder._projects(extracted), start=1):
-            name = project.get("name") or ""
-            description = project.get("description") or ""
-            technologies = project.get("technologies") or []
-            text = " ".join(value for value in [name, description, *technologies] if value).strip()
+            name = project.get("name") if isinstance(project, dict) else getattr(project, "name", "")
+            description = project.get("description") if isinstance(project, dict) else getattr(project, "description", "")
+            technologies = (project.get("technologies") if isinstance(project, dict) else getattr(project, "technologies", [])) or []
+
+            extra_parts: list[str] = []
+            for field in ("deliverables", "highlights", "summary", "responsibilities", "outcomes", "details"):
+                val = project.get(field) if isinstance(project, dict) else getattr(project, field, None)
+                if val:
+                    if isinstance(val, list):
+                        for item in val:
+                            if item and str(item).strip() and str(item).strip() not in extra_parts and str(item).strip() != description:
+                                extra_parts.append(str(item).strip())
+                    elif isinstance(val, str) and val.strip() and val.strip() not in extra_parts and val.strip() != description:
+                        extra_parts.append(val.strip())
+
+            text_parts = [name, description, *extra_parts, *technologies]
+            text = " ".join(str(value) for value in text_parts if value).strip()
             if text:
                 result.append(Evidence(
                     evidence_id=f"project:{index}", kind="project", text=text,
@@ -293,6 +385,12 @@ class DeterministicRequirementMatcher:
         return None
 
     def match(self, requirement: Requirement, resume: Any, evidence: list[Evidence]) -> MatchVerdict:
+        verdict = self._match_internal(requirement, resume, evidence)
+        verdict.requirement_text = requirement.text
+        verdict.kind = requirement.kind
+        return verdict
+
+    def _match_internal(self, requirement: Requirement, resume: Any, evidence: list[Evidence]) -> MatchVerdict:
         if requirement.kind == RequirementKind.RESPONSIBILITY:
             req_text = requirement.canonical_value or requirement.text
             required_key = _key(req_text)
@@ -339,6 +437,9 @@ class DeterministicRequirementMatcher:
                 "integrate": {"integrate", "connect", "interface", "link", "consume"},
                 "deploy": {"deploy", "release", "publish", "ship"},
                 "monitor": {"monitor", "observe", "track", "watch"},
+                "track": {"track", "monitor", "observe", "follow", "log", "record"},
+                "prepare": {"prepare", "create", "develop", "compile", "generate", "write", "author", "draft"},
+                "coordinate": {"coordinate", "collaborate", "organize", "align", "manage", "partner", "work with"},
                 "document": {"document", "record", "write", "log"},
                 "analyze": {"analyze", "study", "investigate", "inspect", "assess"},
                 "investigate": {"investigate", "analyze", "inspect", "triage"},
@@ -361,11 +462,15 @@ class DeterministicRequirementMatcher:
                 "restful apis": {"rest api", "rest apis", "restful api", "restful apis", "restful services", "rest services", "rest"},
                 "fastapi": {"fastapi"},
                 "postgresql": {"postgresql", "postgres"},
+                "sql": {"sql", "postgresql", "postgres", "mysql", "sqlite"},
+                "pyspark": {"pyspark", "spark", "apache spark"},
+                "airflow": {"airflow", "apache airflow"},
                 "redis": {"redis"},
                 "docker": {"docker"},
                 "kubernetes": {"kubernetes", "k8s"},
                 "python": {"python"},
-                "aws": {"aws", "amazon web services"},
+                "aws": {"aws", "amazon web services", "aws s3", "s3"},
+                "aws s3": {"aws s3", "s3", "amazon s3", "aws"},
                 "wazuh": {"wazuh"},
                 "wireshark": {"wireshark"},
                 "html5": {"html5", "html"},
@@ -390,6 +495,7 @@ class DeterministicRequirementMatcher:
 
             # 3. Identify Domain Activities / Deliverables if not fully covered
             domain_patterns = {
+                "etl data pipelines": {"etl data pipelines", "etl pipelines", "etl pipeline", "etl", "data pipelines", "data pipeline"},
                 "backend apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
                 "apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
                 "rest apis": {"rest api", "rest apis", "restful api", "restful apis"},
@@ -401,6 +507,8 @@ class DeterministicRequirementMatcher:
                 "microservices": {"microservices", "microservice", "services"},
                 "ci/cd pipelines": {"ci/cd", "pipelines", "pipeline", "automation"},
                 "unit tests": {"unit tests", "testing", "tests", "integration tests"},
+                "data quality": {"data quality checks", "data quality", "data cleaning", "data validation", "quality checks"},
+                "pipeline troubleshooting": {"pipeline troubleshooting", "troubleshooting", "debugging", "pipeline issues"},
                 "siem": {"siem", "splunk", "qradar"},
                 "security alerts": {"security alerts", "alerts"},
                 "security events": {"security events", "logs", "events"},
@@ -411,6 +519,19 @@ class DeterministicRequirementMatcher:
                 "findings": {"findings", "recommendation", "recommendations", "reports"},
                 "vulnerability assessment": {"vulnerability assessment", "vulnerabilities", "vulnerability"},
                 "cloud infrastructure": {"cloud infrastructure", "infrastructure", "deployments", "cloud"},
+                "project schedules": {"project schedules", "project schedule", "schedules", "schedule", "timelines", "timeline"},
+                "milestone trackers": {"milestone trackers", "milestone tracker", "milestones", "milestone"},
+                "raid logs": {"raid logs", "raid log", "risk log", "issue log", "risk and issue logs", "risk/issue logs", "raid"},
+                "status reports": {"status reports", "status report", "progress reports", "weekly status reports", "monthly status reports", "reports", "status summaries"},
+                "management dashboards": {"management dashboards", "executive dashboards", "dashboards", "dashboard", "kpis"},
+                "stakeholder meetings": {"stakeholder meetings", "stakeholder coordination", "meeting minutes", "stakeholder progress summaries", "stakeholders", "stakeholder"},
+                "action items": {"action items", "action item", "action tracking", "actions"},
+                "cross-functional team deliverables": {"cross-functional team deliverables", "cross-functional team", "cross-functional", "deliverables"},
+                "project deliverables": {"project deliverables", "deliverables", "milestone deliverables"},
+                "project documentation": {"project documentation", "documentation", "meeting notes"},
+                "bottleneck analysis": {"bottleneck analysis", "schedule deviation", "bottlenecks", "deviations"},
+                "clean code": {"clean code", "readable code", "maintainable code", "clean coding", "code quality", "code standards"},
+                "team members": {"team members", "cross-functional team members", "cross-functional teams", "team", "developers", "peers"},
             }
             for domain_key, aliases in domain_patterns.items():
                 if domain_key not in {c[0] for c in semantic_concepts}:
@@ -536,7 +657,7 @@ class DeterministicRequirementMatcher:
 
         req_text = requirement.canonical_value or requirement.text
 
-        if requirement.kind == RequirementKind.SKILL:
+        if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             aliases = SKILL_ALIASES
             candidates = list(getattr(resume, "skills", None) or [])
             certs = list(getattr(resume, "certifications", None) or [])
@@ -579,7 +700,14 @@ class DeterministicRequirementMatcher:
                         res = self._match_single_alt(part, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
                         if not res:
                             clean_part = _clean_req_text(part).casefold()
-                            if clean_part in {"database concepts", "database", "debugging", "concepts", "fundamentals", "basics", "principles", "json", "problem-solving ability", "teamwork", "soft skills"} and matched_skills_list:
+                            GENERIC_DESCRIPTORS = {
+                                "database concepts", "database", "debugging", "concepts", "fundamentals",
+                                "basics", "principles", "json", "problem-solving ability", "teamwork", "soft skills",
+                                "other columnar data formats", "other data formats", "columnar data formats",
+                                "columnar formats", "other tools", "other frameworks", "other technologies",
+                                "other databases", "similar tools", "similar technologies", "other related technologies",
+                            }
+                            if clean_part in GENERIC_DESCRIPTORS and matched_skills_list:
                                 continue
                             matched_all = False
                             break
@@ -661,6 +789,107 @@ class DeterministicRequirementMatcher:
                 confidence=1, reasoning="No deterministic canonical match.",
             )
 
+        elif requirement.kind in {RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE}:
+            req_text = requirement.canonical_value or requirement.text
+            exp_items = getattr(resume, "experience", None) or []
+            total_months = sum(item.get("duration_months") or 0 for item in exp_items)
+            
+            m_range = re.search(r"(\d+)\s*[-–to]+\s*(\d+)\s+years?", req_text, re.I)
+            m_min = re.search(r"(?:minimum|at\s+least|min)\s+(\d+)\s+years?", req_text, re.I) or re.search(r"(\d+)\+\s*years?", req_text, re.I) or re.search(r"(\d+)\s+years?", req_text, re.I)
+            if m_range:
+                job_min = int(m_range.group(1)) * 12
+            elif m_min:
+                job_min = int(m_min.group(1)) * 12
+            else:
+                job_min = 0
+
+            if total_months >= job_min or (job_min == 0 and (total_months > 0 or bool(exp_items))):
+                ev_ids = [e.evidence_id for e in evidence if e.kind == "experience"][:1]
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence=1.0,
+                    evidence_ids=ev_ids,
+                    reasoning=f"Candidate experience ({total_months} months) satisfies entry-level requirement ({req_text}).",
+                    method=MatchMethod.EXACT,
+                    coverage=1.0,
+                    matched_concepts=[f"{total_months} months experience"],
+                    missing_concepts=[],
+                )
+            else:
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.UNRESOLVED,
+                    confidence=0.5,
+                    reasoning=f"Candidate experience ({total_months} months) is below required {job_min} months.",
+                    method=MatchMethod.EXACT,
+                    coverage=0.0,
+                    matched_concepts=[],
+                    missing_concepts=[req_text],
+                )
+        elif requirement.kind == RequirementKind.CANDIDATE_ATTRIBUTE:
+            req_text = requirement.canonical_value or requirement.text
+            req_cf = req_text.casefold()
+
+            candidate_texts = [
+                *(getattr(resume, "skills", None) or []),
+                *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or [])],
+                *[exp.get("description") or "" for exp in (getattr(resume, "experience", None) or [])],
+                *[p.get("description") or "" for p in (getattr(resume, "projects", None) or [])],
+                *[e.text for e in evidence],
+            ]
+            full_resume_text = " ".join(candidate_texts).casefold()
+
+            is_learning = any(w in req_cf for w in ("learn", "adapt", "train", "willingness"))
+            is_communication = any(w in req_cf for w in ("communication", "teamwork", "collaboration", "interpersonal"))
+            is_analytical = any(w in req_cf for w in ("analytical", "problem-solving", "problem solving", "critical thinking"))
+
+            matched = False
+            match_reason = ""
+
+            if is_learning:
+                if any(w in full_resume_text for w in ("quick learner", "eager to learn", "adaptable", "learned", "fast learner", "passionate about learning")):
+                    matched = True
+                    match_reason = "Resume explicitly states quick learning and adaptability."
+                elif len(getattr(resume, "skills", []) or []) >= 3 or len(getattr(resume, "experience", []) or []) > 0 or len(getattr(resume, "projects", []) or []) > 0:
+                    matched = True
+                    match_reason = "Demonstrated ability to learn and apply diverse technologies."
+            elif is_communication:
+                if any(w in full_resume_text for w in ("communication", "teamwork", "collaboration", "collaborated", "cross-functional", "presented", "partnered")):
+                    matched = True
+                    match_reason = "Demonstrated teamwork and communication in candidate experience."
+            elif is_analytical:
+                if (len(getattr(resume, "skills", []) or []) >= 3 or len(getattr(resume, "projects", []) or []) > 0):
+                    matched = True
+                    match_reason = "Demonstrated analytical and problem-solving background."
+            elif any(w in full_resume_text for w in req_cf.split() if len(w) > 3):
+                matched = True
+                match_reason = "Candidate background satisfies soft qualification."
+
+            if matched:
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence=1.0,
+                    evidence_ids=[e.evidence_id for e in evidence[:1]],
+                    reasoning=match_reason,
+                    method=MatchMethod.EXACT,
+                    coverage=1.0,
+                    matched_concepts=[req_text],
+                    missing_concepts=[],
+                )
+            else:
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.UNRESOLVED,
+                    confidence=0.5,
+                    reasoning=f"No explicit evidence found for soft attribute ({req_text}).",
+                    method=None,
+                    coverage=0.0,
+                    matched_concepts=[],
+                    missing_concepts=[req_text],
+                )
+
         elif requirement.kind == RequirementKind.CERTIFICATION:
             aliases = CERTIFICATION_ALIASES
             candidates = list(getattr(resume, "certifications", None) or [])
@@ -736,12 +965,10 @@ class EvidencePrefilter:
                     selected_ids.add(e.evidence_id)
             return selected
 
-        # Fallback profile evidence when no specific token overlap exists (only for responsibilities and projects)
-        if requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.PROJECT_RELEVANCE}:
-            allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"project"}
-            skills_and_projects = [e for e in target_evidence if e.kind in allowed_kinds]
-            return (skills_and_projects if skills_and_projects else target_evidence)[: self.limit]
-        return []
+        # Fallback profile evidence when no specific token overlap exists
+        allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "education", "certification"}
+        fallback_evidence = [e for e in target_evidence if e.kind in allowed_kinds]
+        return (fallback_evidence if fallback_evidence else target_evidence)[: self.limit]
 
 
 class GroqMatchEvaluator:
@@ -781,7 +1008,10 @@ class GroqMatchEvaluator:
         payload = self._payload(requirements, evidence)
         parsed: LLMVerdictBatch | None = None
         client = self._get_client(self.settings.GROQ_TIMEOUT_SECONDS)
-        for attempt in range(max(2, self.settings.GROQ_MAX_RETRIES + 1)):
+        max_retries = max(1, getattr(self.settings, "GROQ_MAX_RETRIES", 2))
+        total_attempts = max_retries + 1
+
+        for attempt in range(total_attempts):
             try:
                 response = await client.post(
                     f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
@@ -794,9 +1024,53 @@ class GroqMatchEvaluator:
                 parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
                 break
             except Exception as exc:
-                logger.warning("hybrid_match_llm_attempt_failed", attempt=attempt + 1, error_type=type(exc).__name__)
-                if attempt < max(2, self.settings.GROQ_MAX_RETRIES + 1) - 1:
-                    await asyncio.sleep(5.0)
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                is_last_attempt = (attempt == total_attempts - 1)
+
+                if status_code in {400, 401, 403, 404}:
+                    logger.error(
+                        "hybrid_match_llm_client_error",
+                        attempt=attempt + 1,
+                        status_code=status_code,
+                        error_type=type(exc).__name__,
+                    )
+                    break
+
+                if is_last_attempt:
+                    logger.error(
+                        "hybrid_match_llm_all_retries_failed",
+                        attempt=attempt + 1,
+                        status_code=status_code,
+                        error_type=type(exc).__name__,
+                    )
+                    break
+
+                retry_after_hdr = None
+                if status_code == 429 and getattr(exc, "response", None) is not None:
+                    retry_after_hdr = exc.response.headers.get("retry-after") or exc.response.headers.get("Retry-After")
+
+                used_retry_after = False
+                delay = 2.0 * (2 ** attempt)
+                if retry_after_hdr:
+                    try:
+                        parsed_delay = float(retry_after_hdr)
+                        if parsed_delay >= 0:
+                            delay = parsed_delay
+                            used_retry_after = True
+                    except (ValueError, TypeError):
+                        pass
+
+                delay = min(delay, 15.0)
+
+                logger.warning(
+                    "hybrid_match_llm_attempt_failed",
+                    attempt=attempt + 1,
+                    status_code=status_code,
+                    error_type=type(exc).__name__,
+                    delay_seconds=round(delay, 2),
+                    used_retry_after=used_retry_after,
+                )
+                await asyncio.sleep(delay)
         if parsed is None:
             return []
         validated = self._validate(parsed, requirements, evidence, allowed_evidence)
@@ -811,47 +1085,68 @@ class GroqMatchEvaluator:
         allowed_evidence: dict[str, set[str]] | None = None,
     ) -> list[MatchVerdict]:
         requirement_ids = {item.requirement_id for item in requirements}
-        evidence_ids = {item.evidence_id for item in evidence}
+        all_evidence_ids = {item.evidence_id for item in evidence}
         threshold = self.settings.HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD
         result: list[MatchVerdict] = []
         seen: set[str] = set()
+
         for item in batch.verdicts:
-            if item.requirement_id not in requirement_ids or item.requirement_id in seen:
+            req_id = item.requirement_id
+            if req_id not in requirement_ids or req_id in seen:
                 continue
-            seen.add(item.requirement_id)
-            valid_evidence = bool(item.evidence_ids) and all(
-                value in evidence_ids for value in item.evidence_ids
-            )
-            # MATCHED strictly requires valid evidence citation from supplied candidate evidence
-            confirmed = item.status == MatchStatus.MATCHED and item.confidence >= threshold and valid_evidence
-            accepted_no_match = item.status == MatchStatus.NO_MATCH
-            is_unresolved = item.status == MatchStatus.UNRESOLVED
+            seen.add(req_id)
+
+            # Determine valid supplied evidence IDs for this specific requirement
+            if allowed_evidence and req_id in allowed_evidence:
+                req_supplied_ids = allowed_evidence[req_id] & all_evidence_ids
+            else:
+                req_supplied_ids = all_evidence_ids
+
+            raw_cited_ids = list(item.evidence_ids or [])
+            valid_cited_ids = [eid for eid in raw_cited_ids if eid in req_supplied_ids]
+
+            # Rule 3: Missing evidence_ids safe single evidence association
+            if not valid_cited_ids and not raw_cited_ids:
+                if len(req_supplied_ids) == 1:
+                    valid_cited_ids = list(req_supplied_ids)
+
+            has_valid_evidence = bool(valid_cited_ids)
+
+            raw_status_str = str(getattr(getattr(item, "status", None), "value", getattr(item, "status", ""))).upper()
+            is_matched_raw = raw_status_str in {"MATCHED", "CONFIRMED"}
+            is_partial_raw = raw_status_str in {"PARTIALLY_MATCHED", "PARTIAL"}
+            is_no_match_raw = raw_status_str in {"NO_MATCH", "UNMATCHED", "REJECTED"}
+
+            confirmed = (is_matched_raw or is_partial_raw) and item.confidence >= threshold and has_valid_evidence
 
             if confirmed:
-                status = MatchStatus.MATCHED
+                if is_partial_raw:
+                    status = MatchStatus.PARTIALLY_MATCHED
+                else:
+                    status = MatchStatus.MATCHED
                 method = MatchMethod.LLM_CONFIRMED
                 reasoning = item.reasoning or "LLM confirmed requirement match from candidate evidence."
-            elif accepted_no_match:
+            elif is_no_match_raw:
                 status = MatchStatus.NO_MATCH
                 method = MatchMethod.LLM_REJECTED
                 reasoning = item.reasoning or "LLM verified requirement is unmet."
             else:
                 status = MatchStatus.UNRESOLVED
                 method = MatchMethod.LLM_UNRESOLVED
-                if item.status == MatchStatus.MATCHED and not valid_evidence:
+                if (is_matched_raw or is_partial_raw) and not has_valid_evidence:
                     reasoning = (item.reasoning or "") + " (Rejected: No valid candidate evidence ID cited for match)."
                 else:
                     reasoning = item.reasoning or "LLM verdict unresolved by evidence validation."
 
-            coverage_val = float(getattr(item, "coverage", 1.0 if confirmed else (0.0 if accepted_no_match else 0.0)) or (1.0 if confirmed else 0.0))
-            if confirmed and coverage_val < 0.45:
+            coverage_val = float(getattr(item, "coverage", 1.0 if confirmed and not is_partial_raw else (0.5 if is_partial_raw else 0.0)) or (1.0 if confirmed and not is_partial_raw else 0.0))
+            if confirmed and not is_partial_raw and coverage_val < 0.45:
                 coverage_val = max(coverage_val, 0.50)
 
             result.append(MatchVerdict(
-                requirement_id=item.requirement_id,
+                requirement_id=req_id,
                 status=status,
-                confidence=item.confidence if (confirmed or accepted_no_match) else (item.confidence if is_unresolved else 0.0),
-                evidence_ids=item.evidence_ids if valid_evidence else [],
+                confidence=item.confidence if (confirmed or is_no_match_raw) else (item.confidence if raw_status_str == "UNRESOLVED" else 0.0),
+                evidence_ids=valid_cited_ids if confirmed else [],
                 reasoning=reasoning.strip(),
                 method=method,
                 coverage=coverage_val,
@@ -884,34 +1179,29 @@ class GroqMatchEvaluator:
             "You are an enterprise AI Resume Matching Evaluator. Your job is to strictly evaluate whether supplied Job Description (JD) requirements are satisfied by the supplied candidate resume evidence.\n\n"
             "EVALUATION STATUS DEFINITIONS:\n"
             "- MATCHED: The candidate evidence contains direct or legitimately equivalent proof satisfying the requirement.\n"
-            "- NO_MATCH: The candidate evidence does not contain sufficient or relevant proof to support the requirement.\n"
-            "- UNRESOLVED: The candidate evidence contains related, partial, or ambiguous context, but cannot conclusively establish the requirement.\n\n"
-            "REQUIREMENT TYPE RULES:\n"
-            "1. SKILL requirements: Evaluate if the candidate explicitly possesses the tool/skill in skills list, project technologies, or work experience. "
-            "Semantic equivalence is accepted (e.g., 'CSS' for 'CSS3 fundamentals', 'Git/GitHub' for 'Git'). "
-            "Never infer distinct or unrelated technologies (e.g., MongoDB != MySQL, JavaScript != TypeScript, Vercel != AWS, Node.js != Docker).\n"
-            "2. RESPONSIBILITY requirements: Must be supported by experiential evidence in work experience, internships, or hands-on technical projects/labs demonstrating the candidate actively performed the task. "
-            "For fresher/entry-level candidates, practical project implementations, lab setups (e.g., SOC lab, ETL data pipeline, automated QA suite, backend API service), and coursework projects serve as valid experiential evidence when the candidate explicitly performed the activity. "
-            "Evaluate action, object, and execution context semantically rather than requiring verbatim sentence matching across domains:\n"
-            "   - Software Engineering: 'Built REST APIs using Node.js and Express.js' satisfies 'Build and maintain backend APIs'.\n"
-            "   - QA / Testing: 'Created Playwright end-to-end test suite and triaged failed tests' satisfies 'Execute automated testing and debug defects'.\n"
-            "   - SecOps / SOC: 'Configured Wazuh lab to collect and review security events' satisfies 'Monitor SIEM security alerts'.\n"
-            "   - Data Engineering: 'Developed an ETL pipeline using Python and SQL' satisfies 'Build data pipelines'.\n"
-            "   - DevOps / SRE: 'Configured CI/CD workflow and monitored container metrics' satisfies 'Maintain deployment pipelines and monitor infrastructure'.\n"
-            "Compound Responsibilities: If all essential concepts are clearly demonstrated, mark MATCHED; if only a subset of critical concepts is shown without key deliverables, mark UNRESOLVED; if no meaningful execution proof exists, mark NO_MATCH. "
-            "Merely listing a skill keyword in a skills list without experiential context is insufficient and must be marked UNRESOLVED or NO_MATCH.\n"
-            "3. PROJECT requirements: Evaluate the candidate's actual projects (name, description, implementation, technologies). Do not judge projects solely by skill lists. "
-            "Semantic matching of project domain/functionality is permitted if evidence supports it.\n"
-            "4. SPECIFIC DISTINCTIONS (ANTI-HALLUCINATION):\n"
-            "   - Generic 'authentication' or 'login' does NOT satisfy 'Basic Authentication' (mark UNRESOLVED unless HTTP Basic Auth is explicitly stated).\n"
-            "   - Database mention (e.g. MongoDB) does NOT satisfy 'CRUD operations' (mark UNRESOLVED or NO_MATCH unless create, read, update, delete operations/APIs are described).\n"
-            "   - Tool mention (e.g. GitHub) does NOT satisfy CI/CD pipeline automation (e.g. GitHub Actions) unless pipeline execution is described.\n"
-            "   - Cross-requirement contamination is forbidden: each requirement must be evaluated strictly on its own merits.\n\n"
-            "EVIDENCE CITATION RULE:\n"
-            "- For MATCHED status: You MUST cite one or more valid evidence_ids from the supplied evidence that directly justify the match.\n"
-            "- Never invent evidence_ids not present in the input.\n\n"
+            "- PARTIALLY_MATCHED: The candidate evidence clearly satisfies a meaningful portion of a compound or complex requirement, but an important part remains unsupported.\n"
+            "- NO_MATCH: The candidate evidence contains no meaningful or relevant proof to support the requirement.\n"
+            "- UNRESOLVED: The candidate evidence is ambiguous, contradictory, or insufficient to establish a conclusive verdict.\n\n"
+            "SEMANTIC EVALUATION RULES:\n"
+            "1. RULE 1 (Exact Match): If candidate evidence contains explicit skill/capability, return MATCHED.\n"
+            "2. RULE 2 (Legitimate Semantic Equivalence): Evaluate meaning, not verbatim wording. Equivalent technical phrasing satisfies requirements:\n"
+            "   - 'Developed backend API endpoints' satisfies 'Build REST APIs' if API context exists.\n"
+            "   - 'Implemented responsive React user interfaces' satisfies 'responsive web interfaces'.\n"
+            "   - 'Identified root causes and fixed application issues' satisfies 'debugging and troubleshooting'.\n"
+            "   - 'Created documentation for ETL processes' satisfies 'Document data workflows'.\n"
+            "   - 'Monitored Airflow DAGs, investigated failed tasks, and resolved pipeline errors' satisfies 'Monitor pipeline execution and troubleshoot failures'.\n"
+            "3. RULE 3 (Project Evidence): For project requirements, evaluate all project fields (name, description, technologies, deliverables, highlights, summary, responsibilities, outcomes, details). A capability demonstrated in project implementation counts as project evidence even if exact JD phrase is absent.\n"
+            "4. RULE 4 (Internship/Experience Evidence): Technical internships and professional experience are valid experiential proof for responsibilities and skills. Do not reject evidence merely because it appears under internship or work experience.\n"
+            "5. RULE 5 (Skills-Only Limitation): For simple SKILL requirements, a skill-list mention is MATCHED (e.g., JD: MongoDB -> Resume skills: MongoDB -> MATCHED). However, for a RESPONSIBILITY or PROJECT requirement, a skill-list keyword ALONE without experiential context in experience/projects is insufficient to claim the responsibility was performed.\n"
+            "6. RULE 6 (Compound Requirements): Decompose compound requirements into key concepts. If all key concepts are supported, return MATCHED. If a major portion is demonstrated but a key technology/concept is missing, return PARTIALLY_MATCHED (do not invent missing technologies).\n"
+            "7. RULE 7 (Technology Distinction): Semantic flexibility applies to wording/phrasing, NOT to distinct technologies. Strictly enforce technology differences:\n"
+            "   - React != Angular, Node.js != Python, MongoDB != PostgreSQL, AWS != Azure, Docker != Kubernetes, Git != GitHub Actions, Jest != Selenium.\n"
+            "8. RULE 8 (Responsibility Semantics): Evaluate by actual action performed. Do not over-infer unsupported scope (e.g. 'Worked with developers' satisfies developer collaboration, but does NOT satisfy 'stakeholder collaboration' unless stakeholders are explicitly mentioned).\n"
+            "9. RULE 9 (Partial vs Unresolved): Use PARTIALLY_MATCHED when key concepts are satisfied but part is missing. Use UNRESOLVED only when context is genuinely ambiguous or insufficient. Do NOT use UNRESOLVED merely because wording differs.\n"
+            "10. RULE 10 (No Evidence): If no supplied evidence supports the requirement, return NO_MATCH or UNRESOLVED. Never manufacture evidence.\n"
+            "11. RULE 11 (Evidence Citation): Every MATCHED or PARTIALLY_MATCHED verdict MUST cite one or more valid evidence_ids from the supplied evidence.\n\n"
             "OUTPUT FORMAT:\n"
-            "Return JSON matching: {\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|NO_MATCH|UNRESOLVED\",\"confidence\":0.0-1.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}"
+            "Return JSON matching: {\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|PARTIALLY_MATCHED|NO_MATCH|UNRESOLVED\",\"confidence\":0.0-1.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}"
         )
         return {
             "model": self.settings.GROQ_MODEL,
@@ -943,24 +1233,53 @@ class HybridMatchingService:
         allowed_evidence: dict[str, set[str]] = {}
         unresolved: list[Requirement] = []
 
+        requirement_by_id = {item.requirement_id: item for item in requirements}
         for verdict in deterministic:
-            requirement = contextual.get(verdict.requirement_id)
+            requirement = requirement_by_id.get(verdict.requirement_id)
             if not requirement:
                 continue
             # Rule 1: Deterministic MATCHED requirements MUST NOT be sent to LLM
             if verdict.status == MatchStatus.MATCHED:
+                logger.info(
+                    "matching_routing_decision",
+                    requirement_id=requirement.requirement_id,
+                    requirement_text=requirement.text,
+                    deterministic_status=verdict.status.value,
+                    fallback_eligible=False,
+                    llm_attempted=False,
+                    reason="Deterministic high-confidence match",
+                )
                 continue
-            # Rule 2: Deterministic UNMET (NO_MATCH) or UNRESOLVED requirements MUST be sent to LLM if evidence exists
+
+            # Rule 2: Deterministic UNMET (NO_MATCH/UNRESOLVED/PARTIALLY_MATCHED) requirements sent to LLM if evidence exists
             selected = prefilter.select(requirement, evidence)
-            if selected or requirement.kind == RequirementKind.RESPONSIBILITY:
+            if selected or requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL, RequirementKind.PROJECT_RELEVANCE}:
                 unresolved.append(requirement)
                 if selected:
                     supplied.update((item.evidence_id, item) for item in selected)
                     allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
                 else:
                     allowed_evidence[requirement.requirement_id] = set()
+                logger.info(
+                    "matching_routing_decision",
+                    requirement_id=requirement.requirement_id,
+                    requirement_text=requirement.text,
+                    deterministic_status=verdict.status.value,
+                    fallback_eligible=True,
+                    llm_attempted=True,
+                    evidence_count=len(selected),
+                )
             else:
                 allowed_evidence[requirement.requirement_id] = set()
+                logger.info(
+                    "matching_routing_decision",
+                    requirement_id=requirement.requirement_id,
+                    requirement_text=requirement.text,
+                    deterministic_status=verdict.status.value,
+                    fallback_eligible=False,
+                    llm_attempted=False,
+                    reason="No candidate evidence available for prefilter",
+                )
 
         llm = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence) if unresolved else []
         llm_by_id = {item.requirement_id: item for item in llm}
@@ -971,6 +1290,17 @@ class HybridMatchingService:
         requirement_by_id = {item.requirement_id: item for item in requirements}
         for verdict in fused:
             requirement = requirement_by_id.get(verdict.requirement_id)
+            if requirement:
+                verdict.requirement_text = requirement.text
+                verdict.kind = requirement.kind
+            logger.info(
+                "final_requirement_verdict",
+                requirement_id=verdict.requirement_id,
+                requirement_text=getattr(verdict, "requirement_text", ""),
+                final_status=verdict.status.value,
+                method=verdict.method.value if verdict.method else "none",
+                evidence_ids=verdict.evidence_ids,
+            )
             if not requirement or verdict.status != MatchStatus.MATCHED or requirement.kind != RequirementKind.PROJECT_RELEVANCE:
                 continue
             for evidence_id in verdict.evidence_ids:

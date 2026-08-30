@@ -32,6 +32,12 @@ class ProjectItem(BaseModel):
     name: str | None = None
     description: str | None = None
     technologies: list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+    outcomes: list[str] = Field(default_factory=list)
+    details: str | None = None
 
 
 class ConfidenceMixin(BaseModel):

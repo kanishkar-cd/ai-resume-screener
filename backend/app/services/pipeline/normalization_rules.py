@@ -74,17 +74,25 @@ def normalize_date(value: str | None, field: str, audit: NormalizationAudit) -> 
     return source, False
 
 
-def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
+def normalize_phone(value: Any, audit: NormalizationAudit) -> str | None:
     if not value:
+        return None
+    if isinstance(value, dict):
+        value = value.get("formattedNumber") or value.get("rawText") or value.get("raw")
+    if not isinstance(value, str) or not value.strip():
         return None
     source = clean_text(value)
     digits = re.sub(r"\D", "", source)
-    if (source.startswith("+") or len(digits) >= 10) and 8 <= len(digits) <= 15:
-        canonical = f"+{digits}" if not source.startswith("+") and len(digits) == 10 else (f"+{digits}" if source.startswith("+") else source)
-        audit.record("phone", source, canonical, "e164_format", 1.0)
-        return canonical
-    audit.record("phone", source, source, "preserved_unknown", 1.0)
-    return source
+    if not digits or len(digits) < 7 or len(digits) > 15:
+        return None
+    if len(digits) == 10 and not source.startswith("+"):
+        canonical = f"+91{digits}"
+    elif source.startswith("+"):
+        canonical = f"+{digits}"
+    else:
+        canonical = source
+    audit.record("phone", source, canonical, "e164_format", 1.0)
+    return canonical
 
 
 
@@ -270,7 +278,7 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
         return None
         
     digits = re.sub(r"\D", "", source)
-    if len(digits) < 10 or len(digits) > 15:
+    if len(digits) < 8 or len(digits) > 15:
         return None
         
     # Reject dummy repeating digits (e.g. 0000000000, 9999999999, 1234567890)
@@ -284,7 +292,7 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
         return canonical
 
     # Already has + or standard international digits
-    if source.startswith("+") and 10 <= len(digits) <= 15:
+    if source.startswith("+") and 8 <= len(digits) <= 15:
         canonical = f"+{digits}"
         audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical
@@ -299,7 +307,7 @@ def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
         audit.record("phone", source, canonical, "e164_format", 1.0)
         return canonical
 
-    canonical = f"+{digits}" if 10 <= len(digits) <= 15 else source
+    canonical = f"+{digits}" if 8 <= len(digits) <= 15 else source
     audit.record("phone", source, canonical, "e164_format" if canonical.startswith("+") else "preserved_unknown", 1.0)
     return canonical
 

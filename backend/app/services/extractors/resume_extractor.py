@@ -997,20 +997,19 @@ class ResumeExtractor:
                 "technologies": techs,
             }
 
-        # 4. Title • Description (e.g. Retail Sales Data Pipeline • Built a batch ETL...)
+        # 4. Title • Description or Title line followed by action verb
         bullet_match = re.match(
-            r"^([A-Z][A-Za-z0-9\s/&+\-–—\'.]{1,60}?\b(?:Pipeline|System|Platform|App|Application|Tool|Dashboard|Service|Services|API|Engine|Portal|Database|Website|Model|Bot|Tracker|Finder|Sync|DApp|Network|Scrapper|Scanner)\b)\s*[•●▪*\ufffd\s-]+(.*)",
+            r"^([A-Z0-9][A-Za-z0-9\s/&+\-–—\'.()]{1,80}?)\s*(?=\n\s*(?:Developed\b|Built\b|Designed\b|Created\b|Implemented\b|Engineered\b|Integrated\b|\u2022)|$)(.*)",
             clean,
             re.DOTALL,
         )
         if bullet_match:
             title = bullet_match.group(1).strip()
             rest = bullet_match.group(2).strip()
-            desc = re.sub(r"^[•●▪*\ufffd\s-]+", "", rest).strip() if rest else clean
-            techs = cls._extract_project_technologies(title + " " + desc)
+            techs = cls._extract_project_technologies(title + " " + rest)
             return {
                 "name": title[:255],
-                "description": desc or clean,
+                "description": clean,
                 "technologies": techs,
             }
 
@@ -1023,11 +1022,10 @@ class ResumeExtractor:
         if proj_prefix_match:
             title = proj_prefix_match.group(1).strip()
             rest = proj_prefix_match.group(2).strip()
-            desc = re.sub(r"^[•●▪*\ufffd\s-]+", "", rest).strip() if rest else clean
-            techs = cls._extract_project_technologies(title + " " + desc)
+            techs = cls._extract_project_technologies(title + " " + rest)
             return {
                 "name": title[:255],
-                "description": desc or clean,
+                "description": clean,
                 "technologies": techs,
             }
 
@@ -1036,10 +1034,9 @@ class ResumeExtractor:
         if len(lines) > 1 and len(lines[0].split()) <= 8 and not lines[0].endswith("."):
             title = lines[0].strip()
             title = re.split(r"\s+[|–—]\s+", title)[0].strip()
-            desc = " ".join(lines[1:]).strip()
             return {
                 "name": title[:255],
-                "description": desc or clean,
+                "description": clean,
                 "technologies": cls._extract_project_technologies(clean),
             }
 
@@ -1060,6 +1057,14 @@ class ResumeExtractor:
 
         normalized_block = re.sub(r"[\ufffd\u2022\u25cf\u25aa\u25cb]", " \u2022 ", block)
 
+        if "\n\n" in normalized_block or "\n \n" in normalized_block:
+            para_chunks = [c.strip() for c in re.split(r"\n\s*\n+", normalized_block) if c.strip()]
+            if len(para_chunks) > 1:
+                parsed = [cls._parse_single_project_chunk(chunk) for chunk in para_chunks]
+                parsed = [p for p in parsed if p and p.get("name")]
+                if len(parsed) > 1:
+                    return parsed
+
         heading_boundary_re = re.compile(
             r"(?:^|(?<=\.)\s+|(?<=\u2022)\s+|\n|(?<=APIs)\s+|(?<=React\.js)\s+|(?<=Next\.js)\s+)"
             r"(?:"
@@ -1068,6 +1073,8 @@ class ResumeExtractor:
             r"(?P<p2>[A-Z0-9][^•\n\.\ufffd|]{1,60}?\s*(?:\||\s+[–—]\s+)\s*[^•\n\ufffd]+?(?=\s*\u2022|\s+Built\b|\s+Developed\b|\s+Designed\b|\s+Created\b|\s+Implemented\b|\s+Engineered\b|\n|$))"
             r"|"
             r"(?P<p3>(?:(?:(?:19|20)\d{2}\s+)[A-Z0-9][^•\n\.\ufffd|]{2,60}?|[A-Z0-9][^•\n\.\ufffd|]{2,60}?\s*(?:\.|\s+)*(?:19|20)\d{2})(?=\s+Developed\b|\s+Built\b|\s+Designed\b|\s+Created\b|\s+Implemented\b|\s+Engineered\b|\s+Integrated\b|\s+with focus\b|\s*\u2022|\n|$))"
+            r"|"
+            r"(?P<p4>[A-Z0-9][^•\n\.\ufffd|]{1,70}?\s*(?=\n\s*(?:Developed\b|Built\b|Designed\b|Created\b|Implemented\b|Engineered\b|Integrated\b)))"
             r")",
             re.IGNORECASE,
         )

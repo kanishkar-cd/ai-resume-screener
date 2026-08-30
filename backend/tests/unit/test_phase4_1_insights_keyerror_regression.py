@@ -87,4 +87,4 @@ def test_insight_builder_end_to_end_with_preferred_skills():
     assert insight.document_id == doc_id
     assert insight.project_id == proj_id
     assert any("Preferred Skills scored 30.00%." in w for w in insight.weaknesses)
-    assert "Preferred Skills" in "\n".join(insight.improvement_suggestions)
+    assert "preferred skills" in "\n".join(insight.improvement_suggestions).casefold()

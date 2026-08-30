@@ -212,7 +212,14 @@ _INVALID_STANDALONE_SKILLS: frozenset[str] = frozenset({
     "hands-on", "handson",
     # Standalone generic non-skill terms
     "active", "inactive", "log", "logs", "analysis", "analytics",
-    "triage", "findings", "policies", "procedures",
+    "triage", "findings", "policies", "procedures", "user", "service", "process", "compute", "escalation", "end-user", "enterprise", "support",
+    "good-to-have skills", "good to have skills", "good-to-have", "good to have",
+    "preferred skills", "nice to have", "nice-to-have", "bonus skills", "desired skills",
+    "candidate requirements", "candidate requirement", "key responsibilities",
+    "technical requirements", "screening notes", "screening note", "note", "notes",
+    "additional requirements", "general requirements", "qualifications & skills",
+    "skills & qualifications", "required skills", "core skills", "technical skills",
+    "required technical skills", "preferred requirements",
 })
 
 BULLET_PATTERN = re.compile(r"^[\s]*[-•*►▸▶·‣⁃◆○●✦✧★☆✱*]+\s+", re.MULTILINE)
@@ -244,10 +251,12 @@ SECTION_HEADINGS = {
     "must have skills": "required_skills", "must have": "required_skills",
     "must-have": "required_skills", "minimum qualifications": "required_skills",
     "minimum requirements": "required_skills", "technical expertise": "required_skills",
+    "candidate requirements": "required_skills", "candidate requirement": "required_skills",
     # Preferred Skills
     "preferred skills": "preferred_skills", "nice to have": "preferred_skills",
     "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills",
     "bonus skills": "preferred_skills", "good to have": "preferred_skills",
+    "good-to-have skills": "preferred_skills", "good to have skills": "preferred_skills",
     "additional qualifications": "preferred_skills", "desired qualifications": "preferred_skills",
     "preferred requirements": "preferred_skills", "nice-to-have": "preferred_skills",
     # Education & Experience
@@ -494,11 +503,28 @@ def _is_valid_skill(skill: str) -> bool:
     words = cleaned.split()
     lower = cleaned.casefold()
 
-    if lower in _INVALID_STANDALONE_SKILLS:
+    if lower in STOP_WORDS:
         return False
 
     # Check if single word is an invalid fragment
-    if len(words) == 1 and lower in _INVALID_STANDALONE_SKILLS:
+    if len(words) == 1 and lower in STOP_WORDS:
+        return False
+
+    # Filter meta phrases & prose notes
+    meta_patterns = (
+        "encouraged to apply", "fresh graduates", "selection focus", "relevant technical skills",
+        "project exposure", "willingness to learn", "ability to learn", "screening note", "candidate attribute",
+        "must not independently cause", "required skills should determine"
+    )
+    if any(m in lower for m in meta_patterns):
+        return False
+
+    # Filter experience duration phrases to prevent duplicate experience requirements
+    if re.search(r"\b\d+\s*[-–to]+\s*\d+\s+years?\b", lower) or re.search(r"\b\d+\+\s*years?\b", lower) or re.search(r"\b\d+\s+years?\s+(?:of\s+)?experience\b", lower):
+        return False
+
+    # Filter catch-all alternative descriptors
+    if lower.startswith("another ") or lower.startswith("other ") or lower.startswith("similar "):
         return False
 
     if _GRAMMATICAL_FRAGMENTS.match(cleaned):
@@ -527,8 +553,8 @@ def _split_sentence_into_skills(sentence: str) -> list[str]:
     """
     Parse requirement sentences structurally:
     - Splits across clause/sentence period boundaries.
-    - Splits on comma and semicolon boundaries.
-    - Preserves slash alternative groups intact (e.g. 'Selenium/Playwright/Cypress', 'Java/Python/JavaScript', 'Agile/Scrum', 'Linux/Windows Server') as single requirements.
+    - Preserves OR alternative groups (e.g. 'React.js, Angular, or another frontend framework' -> 'React.js / Angular') intact.
+    - Preserves slash alternative groups intact as single requirements.
     """
     results: list[str] = []
     clauses = [c.strip() for c in re.split(r"\.\s+", sentence) if c.strip()]
@@ -538,6 +564,15 @@ def _split_sentence_into_skills(sentence: str) -> list[str]:
         stripped_clause = _FILLER_LEADERS.sub("", clause_clean).strip()
         stripped_clause = _FILLER_TRAILERS.sub("", stripped_clause).strip()
         stripped_clause = _CATEGORY_LABEL_PREFIX.sub("", stripped_clause).strip()
+
+        # Check if clause contains OR alternatives with 'or another' / 'or other' / 'or similar'
+        if re.search(r",?\s+or\s+(?:another|other|similar)\s+", stripped_clause, re.I):
+            base_clause = re.sub(r",?\s+or\s+(?:another|other|similar)\s+.*$", "", stripped_clause, flags=re.I).strip()
+            raw_parts = [p.strip() for p in re.split(r"[,;]\s*|\s+or\s+", base_clause) if p.strip()]
+            valid_parts = [_clean_skill_term(p) for p in raw_parts if _is_valid_skill(_clean_skill_term(p))]
+            if len(valid_parts) >= 2:
+                results.append(" / ".join(valid_parts))
+                continue
 
         # Split on semicolon or comma
         if "," in stripped_clause or ";" in stripped_clause:

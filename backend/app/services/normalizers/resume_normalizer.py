@@ -23,8 +23,9 @@ class ResumeNormalizer:
         job_titles = ([designation] if designation else []) + [item["job_title"] for item in experience if item["job_title"]]
         location = self._location(extracted.location, audit)
         raw_projects = getattr(extracted, "projects", None) or []
-        projects = [
-            {
+        projects = []
+        for item in raw_projects:
+            p_dict = {
                 "name": item.get("name") if isinstance(item, dict) else getattr(item, "name", None),
                 "description": item.get("description") if isinstance(item, dict) else getattr(item, "description", None),
                 "technologies": normalize_list(
@@ -32,8 +33,11 @@ class ResumeNormalizer:
                     SKILL_ALIASES, "skills", audit
                 ),
             }
-            for item in raw_projects
-        ]
+            for field in ("deliverables", "highlights", "summary", "responsibilities", "outcomes", "details"):
+                val = item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+                if val:
+                    p_dict[field] = val
+            projects.append(p_dict)
         return {
             "skills": skills,
             "education": education,
@@ -41,8 +45,8 @@ class ResumeNormalizer:
             "job_titles": stable_unique(job_titles),
             "experience": experience,
             "projects": projects,
-            "phone": normalize_phone(extracted.phone, audit),
-            "email": self._email(extracted.email, audit),
+            "phone": normalize_phone(getattr(extracted, "phone", None) or (extracted.get("phone") if isinstance(extracted, dict) else None), audit),
+            "email": self._email(getattr(extracted, "email", None) or (extracted.get("email") if isinstance(extracted, dict) else None), audit),
             "locations": [location] if location else [],
             "languages": normalize_list(list(extracted.languages or []), LANGUAGE_ALIASES, "languages", audit),
             "certifications": normalize_list(list(extracted.certifications or []), CERTIFICATION_ALIASES, "certifications", audit),

@@ -440,7 +440,7 @@ def map_affinda_resume(data: dict[str, Any], provider_id: str | None = None, sou
             phone = None
         else:
             digits = re.sub(r"\D", "", phone)
-            if len(digits) < 10 or len(digits) > 15 or len(set(digits)) <= 2 or digits == "1234567890":
+            if len(digits) < 8 or len(digits) > 15 or len(set(digits)) <= 2 or digits == "1234567890":
                 phone = None
     if not phone and source_text:
         from app.services.extractors.resume_extractor import ResumeExtractor

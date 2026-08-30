@@ -1,3 +1,4 @@
+import socket
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -185,6 +186,13 @@ class Settings(BaseSettings):
                 ssl_val = query_dict.pop("sslmode")
                 if ssl_val and "ssl" not in query_dict:
                     query_dict["ssl"] = ssl_val
+
+            if parsed_url.host and ("neon.tech" in parsed_url.host or "aws" in parsed_url.host):
+                try:
+                    ip = socket.gethostbyname(parsed_url.host)
+                    parsed_url = parsed_url._replace(host=ip)
+                except Exception:
+                    pass
 
             if parsed_url.password:
                 encoded_password = quote_plus(parsed_url.password)
