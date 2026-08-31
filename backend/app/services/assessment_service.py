@@ -5,6 +5,7 @@ import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.exceptions import AppException, ValidationException, InternalServerException
+from app.models.assessment_invitation import CandidateAssessmentModel
 from app.repositories.assessment_repository import AssessmentRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.extraction_repository import ExtractionRepository
@@ -126,6 +127,7 @@ class AssessmentService:
         else:
             batch_category = "FRESHER"
 
+        extracted_candidates_data = []
         for doc_id in candidate_ids:
             try:
                 document = await self.documents.get_document(doc_id)
@@ -164,27 +166,54 @@ class AssessmentService:
 
             exp_years = round(total_months / 12.0, 1)
 
-            candidate_payloads.append({
-                "name": candidate_name,
+            extracted_candidates_data.append({
+                "doc_id": doc_id,
+                "candidate_name": candidate_name,
                 "email": email,
                 "phone": phone,
                 "ai_score": ai_score,
+                "orig_filename": orig_filename,
+                "experience_tier": experience_tier,
+                "total_months": total_months,
+                "exp_years": exp_years,
+                "category": category,
+            })
+
+        for cdata in extracted_candidates_data:
+            doc_id = cdata["doc_id"]
+            experience_tier = cdata["experience_tier"]
+
+            if batch_category == "EXPERIENCED":
+                cand_level = experience_tier if experience_tier in ("2-5", "6-10", "11-15") else "2-5"
+            else:
+                cand_level = "0-1"
+
+            cand_payload: dict[str, Any] = {
+                "name": cdata["candidate_name"],
+                "email": cdata["email"],
+                "level": cand_level,
+                "external_candidate_ref": str(doc_id),
                 "metadata": {
                     "document_id": str(doc_id),
-                    "original_filename": orig_filename,
-                    "experience_tier": experience_tier,
-                    "experience_months": total_months,
-                    "experience_years": exp_years,
-                    "category": category,
+                    "original_filename": cdata["orig_filename"],
+                    "experience_tier": cand_level,
+                    "experience_months": cdata["total_months"],
+                    "experience_years": cdata["exp_years"],
+                    "category": batch_category,
+                    "ai_score": cdata["ai_score"],
                 },
-            })
+            }
+            if cdata.get("phone"):
+                cand_payload["phone"] = cdata["phone"]
+
+            candidate_payloads.append(cand_payload)
             candidate_meta_map[str(doc_id)] = {
-                "candidate_name": candidate_name,
-                "email": email,
-                "level": experience_tier,
-                "experience_tier": experience_tier,
-                "experience_months": total_months,
-                "category": category,
+                "candidate_name": cdata["candidate_name"],
+                "email": cdata["email"],
+                "level": cand_level,
+                "experience_tier": cand_level,
+                "experience_months": cdata["total_months"],
+                "category": batch_category,
             }
 
         # Call local CD-Recruit partner service (returns HTTP 201 Created)
@@ -195,12 +224,20 @@ class AssessmentService:
             candidate_payloads,
         )
 
-        drive_id = cd_response.get("drive_id") if isinstance(cd_response, dict) else None
+        logger.info("[CD-RECRUIT] response payload received from partner API", cd_response=cd_response)
+
+        drive_id = cd_response.get("drive_id") or cd_response.get("driveId") if isinstance(cd_response, dict) else None
 
         # Parse invites response
         cd_results = []
         if isinstance(cd_response, dict):
-            cd_results = cd_response.get("invites") or cd_response.get("candidates") or cd_response.get("data") or [cd_response]
+            inner_data = cd_response.get("data")
+            if isinstance(inner_data, dict):
+                cd_results = inner_data.get("invites") or inner_data.get("candidates") or [inner_data]
+            elif isinstance(inner_data, list):
+                cd_results = inner_data
+            else:
+                cd_results = cd_response.get("invites") or cd_response.get("candidates") or [cd_response]
         elif isinstance(cd_response, list):
             cd_results = cd_response
 
@@ -208,11 +245,21 @@ class AssessmentService:
         if isinstance(cd_results, list):
             for item in cd_results:
                 if isinstance(item, dict):
-                    ext_ref = str(item.get("external_candidate_ref") or (item.get("metadata", {}).get("document_id") if isinstance(item.get("metadata"), dict) else None) or "").strip()
-                    c_email = str(item.get("candidate_email") or item.get("email") or "").strip().lower()
+                    ext_ref = str(
+                        item.get("external_candidate_ref")
+                        or item.get("externalCandidateRef")
+                        or (item.get("metadata", {}).get("document_id") if isinstance(item.get("metadata"), dict) else None)
+                        or ""
+                    ).strip()
+                    c_email = str(
+                        item.get("candidate_email")
+                        or item.get("candidateEmail")
+                        or item.get("email")
+                        or ""
+                    ).strip().lower()
                     if ext_ref:
                         cd_map[ext_ref] = item
-                    elif c_email:
+                    if c_email:
                         cd_map[c_email] = item
 
         items: list[CandidateAssessmentItem] = []
@@ -223,12 +270,20 @@ class AssessmentService:
 
             assessment_link = (
                 cd_item.get("assessment_link")
-                or cd_item.get("assessmentUrl")
                 or cd_item.get("assessmentLink")
+                or cd_item.get("assessment_url")
+                or cd_item.get("assessmentUrl")
+                or cd_item.get("invite_url")
                 or cd_item.get("inviteUrl")
+                or cd_item.get("invite_link")
+                or cd_item.get("inviteLink")
                 or cd_item.get("link")
                 or cd_item.get("url")
             )
+            if not assessment_link and (token := cd_item.get("token") or cd_item.get("invite_token")):
+                base = self.cd_recruit.settings.CD_RECRUIT_BASE_URL.rstrip("/")
+                assessment_link = f"{base}/assessment/{token}"
+
             raw_exp = cd_item.get("expires_at") or cd_item.get("expiresAt")
             expires_at = None
             if isinstance(raw_exp, datetime):
@@ -264,7 +319,7 @@ class AssessmentService:
                         session_status="not_started",
                         score_status="not_graded",
                     )
-                    await self.assessments.create_assessment(assessment_model)
+                    await self.assessments.create_or_update_assessment(assessment_model)
                 except Exception as exc:
                     logger.warning("[ASSESSMENT_HANDOFF] unable to persist assessment record", document_id=str(doc_id), error=str(exc))
 

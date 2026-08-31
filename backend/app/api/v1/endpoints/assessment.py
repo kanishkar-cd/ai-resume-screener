@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
 from app.api.deps import DatabaseDependency
+from app.repositories.assessment_repository import AssessmentRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.project_repository import ProjectRepository
@@ -20,6 +21,7 @@ def get_assessment_service(db: DatabaseDependency) -> AssessmentService:
         DocumentRepository(db),
         ExtractionRepository(db),
         ScoringRepository(db),
+        assessments=AssessmentRepository(db),
     )
 
 
@@ -74,6 +76,8 @@ async def get_assessment_status(
 ) -> dict:
     from app.services.cd_recruit_poller import CDRecruitStatusPoller
     from app.repositories.project_repository import ProjectRepository
+    from app.repositories.document_repository import DocumentRepository
+    from app.repositories.extraction_repository import ExtractionRepository
     from app.models.assessment_invitation import CandidateAssessmentModel
     from sqlalchemy import select
 
@@ -95,5 +99,62 @@ async def get_assessment_status(
         requisition_ref = f"REQ-{project_id}"
 
     poller = CDRecruitStatusPoller(db=db)
-    return await poller.poll_requisition(requisition_ref)
+    poll_result = await poller.poll_requisition(requisition_ref)
+
+    stmt = select(CandidateAssessmentModel).where(
+        CandidateAssessmentModel.project_id == project_id
+    )
+    records = list((await db.execute(stmt)).scalars().all())
+
+    candidates_list = []
+    extraction_repo = ExtractionRepository(db)
+    doc_repo = DocumentRepository(db)
+
+    for rec in records:
+        cand_name = None
+        cand_email = None
+        try:
+            ext = await extraction_repo.get_resume_by_document_id(rec.document_id)
+            if ext:
+                cand_name = getattr(ext, "candidate_name", None)
+                cand_email = getattr(ext, "email", None)
+        except Exception:
+            pass
+
+        if not cand_name:
+            try:
+                doc = await doc_repo.get_document(rec.document_id)
+                cand_name = getattr(doc, "original_filename", None) or "Candidate"
+            except Exception:
+                cand_name = "Candidate"
+
+        if not cand_email:
+            cand_email = f"candidate_{str(rec.document_id)[:8]}@example.com"
+
+        candidates_list.append({
+            "candidate_id": str(rec.document_id),
+            "external_candidate_ref": str(rec.external_candidate_ref or rec.document_id),
+            "candidate_name": cand_name,
+            "email": cand_email,
+            "assessment_link": rec.assessment_link,
+            "session_status": rec.session_status,
+            "score_status": rec.score_status,
+            "composite_score": rec.composite_score,
+            "composite_score_band": rec.composite_score_band,
+            "identity_status": rec.identity_status,
+            "is_identity_verified": rec.is_identity_verified,
+            "started_at": rec.started_at.isoformat() if rec.started_at else None,
+            "submitted_at": rec.submitted_at.isoformat() if rec.submitted_at else None,
+            "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
+            "decision": rec.decision,
+        })
+
+    return {
+        "requisition_ref": requisition_ref,
+        "session_status": poll_result.get("session_status", "not_started"),
+        "score_status": poll_result.get("score_status", "not_graded"),
+        "composite_score_band": poll_result.get("composite_score_band"),
+        "decision": poll_result.get("decision"),
+        "candidates": candidates_list if candidates_list else poll_result.get("candidates", []),
+    }
 

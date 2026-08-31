@@ -57,6 +57,7 @@ class CDRecruitService:
             "requisition_ref": req_ref,
             "department_code": dept_code,
             "level": target_level,
+            "category": target_level,
             "drive_name": d_name,
             "candidates": cand_list,
         }

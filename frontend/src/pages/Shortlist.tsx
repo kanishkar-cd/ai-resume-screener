@@ -79,8 +79,9 @@ export default function Shortlist() {
         if (freshProj) {
           dispatch({ type: 'SELECT_PROJECT', payload: freshProj })
         }
-      } catch (err) {
-        console.warn('Backend handoff warning:', err)
+      } catch (err: any) {
+        console.error('Backend handoff error:', err)
+        alert(err?.message || 'Assessment handoff encountered an issue. Please try again.')
       }
     }
 

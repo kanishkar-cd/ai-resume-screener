@@ -13,6 +13,7 @@ import {
   Clock,
   UserCheck,
   FileCheck2,
+  Send,
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
@@ -49,6 +50,7 @@ export default function Assessment() {
             results: res.candidates.map((c: any) => ({
               candidateId: c.candidate_id,
               externalCandidateRef: c.external_candidate_ref || c.candidate_id,
+              candidateName: c.candidate_name || c.name || c.candidateName,
               email: c.email || c.candidate_email,
               sessionStatus: c.session_status || c.sessionstatus,
               scoreStatus: c.score_status || c.scorestatus,
@@ -60,7 +62,7 @@ export default function Assessment() {
               submittedAt: c.submitted_at || c.submittedat,
               expiresAt: c.expires_at || c.expiresat,
               decision: c.decision,
-              assessmentLink: c.assessment_link,
+              assessmentLink: c.assessment_link || c.assessment_url || c.assessmentUrl || c.invite_url || c.inviteUrl || c.link || c.url,
             })),
           },
         })

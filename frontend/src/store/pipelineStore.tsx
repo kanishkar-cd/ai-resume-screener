@@ -261,6 +261,32 @@ function reducer(state: PipelineState, action: Action): PipelineState {
             assessmentLink: res.assessmentLink || merged[idx].assessmentLink,
             status: res.sessionStatus === 'submitted' ? 'Submitted' : (res.sessionStatus || merged[idx].status),
           }
+        } else if (targetId) {
+          merged.push({
+            id: targetId,
+            candidateName: (res as any).candidateName || 'Candidate',
+            email: res.email || '',
+            currentTitle: 'Applicant',
+            reqRef: action.payload.reqRef || '',
+            meritScore: 0,
+            rank: 0,
+            status: res.sessionStatus === 'submitted' ? 'Submitted' : ((res.sessionStatus || 'Sent') as any),
+            sentAt: new Date().toLocaleDateString(),
+            techScore: 0,
+            codingScore: 0,
+            overallResult: 'PASSED',
+            assessmentLink: res.assessmentLink || null,
+            sessionStatus: res.sessionStatus || 'not_started',
+            scoreStatus: res.scoreStatus || 'not_graded',
+            compositeScore: res.compositeScore,
+            compositeScoreBand: res.compositeScoreBand,
+            identityStatus: res.identityStatus,
+            isIdentityVerified: res.isIdentityVerified,
+            startedAt: res.startedAt,
+            submittedAt: res.submittedAt,
+            expiresAt: res.expiresAt,
+            decision: res.decision,
+          })
         }
       }
       return { ...state, assessmentCandidates: merged }

@@ -18,6 +18,24 @@ class AssessmentRepository:
         await self.db.flush()
         return model
 
+    async def create_or_update_assessment(self, model: CandidateAssessmentModel) -> CandidateAssessmentModel:
+        existing = await self.get_by_document_and_project(model.document_id, model.project_id)
+        if existing:
+            existing.requisition_ref = model.requisition_ref
+            existing.drive_id = model.drive_id
+            existing.external_candidate_ref = model.external_candidate_ref
+            existing.idempotency_key = model.idempotency_key
+            existing.experience_tier = model.experience_tier
+            existing.assessment_link = model.assessment_link or existing.assessment_link
+            existing.expires_at = model.expires_at or existing.expires_at
+            existing.session_status = model.session_status
+            existing.score_status = model.score_status
+            await self.db.flush()
+            return existing
+        self.db.add(model)
+        await self.db.flush()
+        return model
+
     async def get_by_document_and_project(
         self, document_id: UUID, project_id: UUID
     ) -> CandidateAssessmentModel | None:
