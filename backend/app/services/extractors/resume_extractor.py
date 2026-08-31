@@ -6,7 +6,7 @@ from app.services.pipeline.canonical_dictionaries import (
 )
 from app.services.pipeline.extraction_pipeline import (
     DEGREES, DESIGNATIONS, EMAIL_PATTERN, LANGUAGES, PHONE_PATTERN, SKILLS,
-    clean_unicode, content_lines, field_confidence, first_match, match_terms,
+    URL_PATTERN, clean_unicode, content_lines, field_confidence, first_match, match_terms,
     reconstruct_layout_text, segment_sections,
 )
 
@@ -50,6 +50,7 @@ class ResumeExtractor:
         email = self._extract_email(text)
         phone = self._extract_phone(text)
 
+        summary = self._summary(sections.get("summary", ""), header_text, text)
         location = self._location(header_text, text)
         skills = self._skills(sections.get("skills", ""), text)
         education = self._education(sections.get("education", ""))
@@ -68,6 +69,7 @@ class ResumeExtractor:
             "phone": phone,
             "designation": designation,
             "location": location,
+            "summary": summary,
             "skills": skills,
             "education": education,
             "experience": experience,
@@ -830,16 +832,30 @@ class ResumeExtractor:
                             add_skill(item)
                 else:
                     clean_line = re.sub(r"^[•●○▪*–—\d\.\)\s]+", "", line).strip()
-                    # If it's a short line or delimited list (not a paragraph sentence)
-                    if len(clean_line.split()) <= 10 and not clean_line.endswith((".", "!", "?")):
+                    # If it's a delimited list (e.g. comma/pipe/semicolon separated) or short line, split and add
+                    is_delimited = any(d in clean_line for d in (",", ";", "|", "•", "\t")) or " - " in clean_line
+                    if is_delimited or (len(clean_line.split()) <= 20 and not clean_line.endswith((".", "!", "?"))):
                         for item in split_items(clean_line):
                             add_skill(item)
+                    elif len(clean_line.split()) <= 6:
+                        add_skill(clean_line)
 
         # Also match canonical SKILLS dictionary terms across full_text (ensures backward compatibility)
         for term in match_terms(full_text, SKILLS):
             add_skill(term)
 
         return extracted_skills
+
+    @classmethod
+    def _summary(cls, summary_block: str, header_block: str, full_text: str) -> str | None:
+        if summary_block and summary_block.strip():
+            return summary_block.strip()
+        # Look for descriptive summary paragraph in header
+        for line in header_block.splitlines():
+            clean = line.strip()
+            if len(clean.split()) >= 8 and not EMAIL_PATTERN.search(clean) and not PHONE_PATTERN.search(clean) and not URL_PATTERN.search(clean):
+                return clean[:1000]
+        return None
 
     PROJECT_TECH_VOCABULARY = (
         # Cloud & DevOps

@@ -168,7 +168,7 @@ def test_11_education_string_extraction() -> None:
     )
     scoring_svc = ComponentScoringService()
     comp = scoring_svc.score(resume, job, SimpleNamespace())
-    assert comp.education.score == 100.0
+    assert comp.education.score == 0.0
 
 
 def test_12_be_btech_taxonomy_matching() -> None:
@@ -274,4 +274,4 @@ def test_18_ui_component_score_consistency() -> None:
     comp = scoring_svc.score(resume, job, SimpleNamespace())
     assert comp.skills.score == 100.0
     assert comp.responsibilities.score == 100.0
-    assert comp.education.score == 100.0
+    assert comp.education.score == 0.0

@@ -256,4 +256,4 @@ def test_22_final_status_equals_component_scorer_interpretation() -> None:
     comp = scoring_svc.score(resume, job, SimpleNamespace())
     assert comp.skills.score == 100.0
     assert comp.responsibilities.score == 100.0
-    assert comp.education.score == 100.0
+    assert comp.education.score == 0.0

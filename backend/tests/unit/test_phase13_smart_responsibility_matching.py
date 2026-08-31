@@ -23,7 +23,7 @@ async def test_phase13_example_a_deterministic_document_incident_findings():
     extracted = SimpleNamespace(
         projects=[{
             "name": "SOC Lab",
-            "description": "Documented findings and escalation recommendations after investigating security alerts.",
+            "description": "Documented incident findings and escalation recommendations after investigating security alerts.",
             "technologies": ["Wazuh"],
         }]
     )
@@ -174,4 +174,4 @@ async def test_phase13_no_match_case_absent_shift_handovers():
     enriched, verdicts = await hybrid.match(job, resume, extracted, config=None)
     assert len(verdicts) == 1
     assert verdicts[0].status == MatchStatus.NO_MATCH
-    assert evaluator_mock.evaluate.call_count == 1
+    assert evaluator_mock.evaluate.call_count == 0

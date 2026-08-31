@@ -103,11 +103,8 @@ class BonusService:
         candidate_months = sum(item.get("duration_months") or 0 for item in (getattr(resume, "experience", None) or []))
         min_exp_years = float(getattr(config, "min_experience_years", 0) or 0)
         required_months = max([item.get("minimum_months") or 0 for item in (getattr(job, "experience_requirements", None) or [])] or [round(min_exp_years * 12)])
-        candidate_rank = max((ComponentScoringService.degree_rank(item.get("degree")) for item in (getattr(resume, "education", None) or [])), default=0)
-        req_deg = getattr(config, "required_degree", None) or (job.degree_requirements[0] if getattr(job, "degree_requirements", None) else None)
-        required_rank = ComponentScoringService.degree_rank(req_deg)
-        if candidate_months >= required_months + 36 or (required_rank and candidate_rank > required_rank):
-            items.append(AdjustmentItem(rule_name="OVER_QUALIFICATION", delta_points=5.0, description="Advanced degree or at least three additional years of experience."))
+        if candidate_months >= required_months + 36:
+            items.append(AdjustmentItem(rule_name="OVER_QUALIFICATION", delta_points=5.0, description="At least three additional years of experience."))
 
         total = min(cls.CAP, sum(item.delta_points for item in items))
         if sum(item.delta_points for item in items) > cls.CAP:

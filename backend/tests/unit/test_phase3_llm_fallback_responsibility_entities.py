@@ -51,21 +51,21 @@ async def test_phase3_unresolved_concept_routed_to_llm_fallback():
     evaluator_mock.evaluate = AsyncMock(return_value=[llm_verdict])
     hybrid = HybridMatchingService(evaluator=evaluator_mock)
 
-    job = SimpleNamespace(responsibilities=["Develop secure RESTful APIs and integrate third-party services."])
+    job = SimpleNamespace(responsibilities=["Establish SOC 2 compliance governance"])
     resume = SimpleNamespace(skills=[], projects=[], experience=[])
     extracted = SimpleNamespace(
         experience=[{
             "title": "Backend Developer",
             "company": "SaaS Co",
-            "description": "Engineered REST APIs using Python and integrated Stripe API for payments.",
-            "responsibilities": ["Integrated third-party APIs including Stripe and Twilio."],
+            "description": "Performed quarterly security audits and vulnerability assessments.",
+            "responsibilities": ["Maintained internal security standards."],
         }]
     )
 
     enriched, verdicts = await hybrid.match(job, resume, extracted, config=None)
     assert len(verdicts) == 1
     assert verdicts[0].status == MatchStatus.MATCHED
-    assert verdicts[0].method in (MatchMethod.LLM_CONFIRMED, MatchMethod.ALIAS, MatchMethod.DETERMINISTIC_EXACT, MatchMethod.DETERMINISTIC_CANONICAL)
+    assert verdicts[0].method in (MatchMethod.LLM_CONFIRMED, MatchMethod.ALIAS, MatchMethod.EXACT)
     assert evaluator_mock.evaluate.call_count == 1
 
 

@@ -68,7 +68,7 @@ async def test_deterministic_unmet_and_unresolved_trigger_llm():
             requirement_id="skill:2",  # Playwright
             status=MatchStatus.MATCHED,
             confidence=0.95,
-            evidence_ids=["skills:1"],
+            evidence_ids=["experience:1"],
             reasoning="Candidate explicitly demonstrates Playwright in tools evidence.",
             method=MatchMethod.LLM_CONFIRMED,
         ),
@@ -93,18 +93,18 @@ async def test_deterministic_unmet_and_unresolved_trigger_llm():
     service = HybridMatchingService(evaluator=mock_evaluator)
 
     resume = SimpleNamespace(
-        skills=["React.js", "Playwright"],
+        skills=["React.js"],
         certifications=[],
         education=[],
         languages=[],
-        experience=[{"description": "Implemented user authentication."}],
+        experience=[{"description": "Wrote automated tests with Playwright and implemented user services."}],
         projects=[],
     )
     extracted = SimpleNamespace(
         candidate_name="Jane Doe",
-        skills=["React.js", "Playwright"],
+        skills=["React.js"],
         education=[],
-        experience=[{"description": "Implemented user authentication."}],
+        experience=[{"description": "Wrote automated tests with Playwright and implemented user services."}],
         projects=[],
         certifications=[],
         languages=[],
@@ -113,7 +113,7 @@ async def test_deterministic_unmet_and_unresolved_trigger_llm():
         required_skills=["React.js", "Playwright", "Docker"],
         preferred_skills=[],
         skills=["React.js", "Playwright", "Docker"],
-        responsibilities=["Implement basic authentication"],
+        responsibilities=["Implement complex distributed systems"],
         degree_requirements=[],
         certifications=[],
     )
@@ -133,22 +133,22 @@ async def test_deterministic_unmet_and_unresolved_trigger_llm():
     assert playwright_verdict.status == MatchStatus.MATCHED
     assert playwright_verdict.method == MatchMethod.LLM_CONFIRMED
 
-    # 3. Docker: deterministic UNMET -> LLM -> NO_MATCH (UNMET)
+    # 3. Docker: deterministic UNMET + zero candidate evidence -> NO_MATCH (0 LLM calls)
     docker_verdict = next(v for v in verdicts if v.requirement_id == "skill:3")
     assert docker_verdict.status == MatchStatus.NO_MATCH
-    assert docker_verdict.method == MatchMethod.LLM_REJECTED
 
     # 4. Responsibility: deterministic UNRESOLVED -> LLM -> UNRESOLVED
     auth_verdict = next(v for v in verdicts if v.requirement_id == "responsibility:1")
     assert auth_verdict.status == MatchStatus.UNRESOLVED
     assert auth_verdict.method == MatchMethod.LLM_UNRESOLVED
 
-    # LLM called exactly once with the 3 unresolved/unmet requirements
+    # LLM called exactly once with the unresolved/unmet requirements that have candidate evidence
     assert mock_evaluator.evaluate.call_count == 1
     call_reqs = mock_evaluator.evaluate.call_args[0][0]
     call_ids = {r.requirement_id for r in call_reqs}
-    assert call_ids == {"skill:2", "skill:3", "responsibility:1"}
-    assert "skill:1" not in call_ids  # React.js was NOT sent
+    assert call_ids == {"skill:2", "responsibility:1"}
+    assert "skill:1" not in call_ids  # React.js was matched deterministically
+    assert "skill:3" not in call_ids  # Docker had zero candidate evidence
 
 
 @pytest.mark.asyncio

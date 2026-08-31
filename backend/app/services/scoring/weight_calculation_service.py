@@ -9,8 +9,8 @@ COMPONENT_WEIGHTS: dict[str, float] = {
     "projects": 20.0,
     "preferred_skills": 15.0,
     "experience": 5.0,
-    "certifications": 3.0,
-    "education": 2.0,
+    "certifications": 5.0,
+    "education": 0.0,
 }
 
 
@@ -45,7 +45,7 @@ class WeightCalculationService:
                 )
             )
         )
-        has_edu = bool(req_deg or (getattr(job, "degree_requirements", None) or []))
+        has_edu = False  # Education matching disabled (0% weight)
         has_certs = bool(req_certs or (getattr(job, "certifications", None) or []))
 
         return {
@@ -181,6 +181,4 @@ class WeightCalculationService:
             if missing: reasons.append(f"Missing mandatory skills: {', '.join(missing)}")
         if "INSUFFICIENT_EXPERIENCE" in enabled and components.experience.missing_items:
             reasons.append("Insufficient experience")
-        if "DEGREE_MISMATCH" in enabled and components.education.score < 100:
-            reasons.append("Required degree not met")
         return bool(reasons), "; ".join(reasons) or None

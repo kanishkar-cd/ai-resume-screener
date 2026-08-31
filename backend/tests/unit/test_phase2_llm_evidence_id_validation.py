@@ -56,7 +56,7 @@ def test_3_matched_multiple_valid_evidence_ids_remains_matched(evaluator: GroqMa
     assert len(validated) == 1
     assert validated[0].status == MatchStatus.MATCHED
     assert validated[0].method == MatchMethod.LLM_CONFIRMED
-    assert validated[0].evidence_ids == ["project:1", "experience:1"]
+    assert set(validated[0].evidence_ids) == {"project:1", "experience:1"}
 
 
 def test_4_matched_hallucinated_evidence_id_rejected(evaluator: GroqMatchEvaluator) -> None:

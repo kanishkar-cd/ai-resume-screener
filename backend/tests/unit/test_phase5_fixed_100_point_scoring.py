@@ -107,7 +107,7 @@ def test_7_certifications_only():
         languages=ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=""),
     )
     score = WeightCalculationService.final_score(0, 0, 0, components=components)
-    assert score == 3.0  # Exactly 3% contribution
+    assert score == 5.0  # Exactly 5% contribution
 
 
 def test_8_education_only():
@@ -122,28 +122,23 @@ def test_8_education_only():
         languages=ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=""),
     )
     score = WeightCalculationService.final_score(0, 0, 0, components=components)
-    assert score == 2.0  # Exactly 2% contribution
+    assert score == 0.0  # Exactly 0% contribution (Education disabled)
 
 
 def test_9_example_calculation_section_13():
-    # Example from Prompt:
-    # Required Skills = 80%, Responsibilities = 80%, Projects = 75%, Preferred Skills = 50%, Experience = 100%, Certifications = N/A, Education = 100%
-    # Applicable weights: 30 + 25 + 20 + 15 + 5 + 2 = 97
-    # Raw contribution: 24 + 20 + 15 + 7.5 + 5 + 2 = 73.5
-    # Normalized: 73.5 / 97 * 100 = 75.77
     components = ComponentScores(
         skills=ComponentScoreDetail(score=80.0, matched_items=[], missing_items=[], explanation=""),
         responsibilities=ComponentScoreDetail(score=80.0, matched_items=[], missing_items=[], explanation=""),
         projects=ComponentScoreDetail(score=75.0, matched_items=[], missing_items=[], explanation=""),
         preferred_skills=ComponentScoreDetail(score=50.0, matched_items=[], missing_items=[], explanation=""),
         experience=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=""),
-        certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="N/A"),
-        education=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=""),
+        certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=""),
+        education=ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=""),
         languages=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="N/A"),
     )
-    applicable = {"required_skills", "responsibilities", "projects", "preferred_skills", "experience", "education"}
+    applicable = {"required_skills", "responsibilities", "projects", "preferred_skills", "experience", "certifications"}
     score = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=applicable)
-    assert score == 75.77
+    assert score == 76.5
 
 
 def test_10_na_projects_certifications_education():

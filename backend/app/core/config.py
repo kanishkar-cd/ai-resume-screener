@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "openai/gpt-oss-20b"
     GROQ_TIMEOUT_SECONDS: float = 30.0
     GROQ_MAX_RETRIES: int = 1
+    GROQ_TPM_LIMIT: int = Field(default=8000, ge=100)
+    GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+    GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
 
     ENABLE_OCR_FALLBACK: bool = False
     OCR_ENGINE: str = "easyocr"

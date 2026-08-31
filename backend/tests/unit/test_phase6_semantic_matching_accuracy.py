@@ -134,10 +134,10 @@ def test_phase6_test11_alternative_or_semantics():
 
 
 def test_phase6_test12_education_degree_rank_matching():
-    """TEST 12: B.Tech satisfies Bachelor's degree requirement via taxonomy."""
+    """TEST 12: Degree matching is disabled -> NO_MATCH."""
     education = [{"degree": "B.Tech", "field_of_study": "Computer Science"}]
     v = _run_matcher(RequirementKind.DEGREE, "Bachelor's Degree", [], education=education)
-    assert v.status == MatchStatus.MATCHED
+    assert v.status == MatchStatus.NO_MATCH
 
 
 def test_phase6_test13_anti_hallucination_evidence_id_validation():

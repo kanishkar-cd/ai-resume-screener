@@ -150,24 +150,24 @@ class TestDegreeMatchingAfterFix:
     """Ensure the matching layer correctly evaluates the canonical degree string."""
 
     def test_btech_satisfies_bachelors_degree(self):
-        """B.Tech candidate satisfies 'Bachelor's Degree' via taxonomy rank."""
+        """Education matching disabled -> NO_MATCH."""
         status = _match_degree("Bachelor's Degree", "B.Tech")
-        assert status == MatchStatus.MATCHED
+        assert status == MatchStatus.NO_MATCH
 
     def test_be_satisfies_bachelor_of_engineering(self):
-        """B.E. satisfies 'Bachelor of Engineering'."""
+        """Education matching disabled -> NO_MATCH."""
         status = _match_degree("Bachelor of Engineering", "B.E.")
-        assert status == MatchStatus.MATCHED
+        assert status == MatchStatus.NO_MATCH
 
     def test_bsc_satisfies_bachelors_degree(self):
-        """B.Sc satisfies 'Bachelor's Degree' via taxonomy."""
+        """Education matching disabled -> NO_MATCH."""
         status = _match_degree("Bachelor's Degree", "B.Sc")
-        assert status == MatchStatus.MATCHED
+        assert status == MatchStatus.NO_MATCH
 
     def test_msc_satisfies_masters_degree(self):
-        """M.Sc satisfies 'Master's Degree'."""
+        """Education matching disabled -> NO_MATCH."""
         status = _match_degree("Master's Degree", "M.Sc")
-        assert status == MatchStatus.MATCHED
+        assert status == MatchStatus.NO_MATCH
 
     def test_degree_rank_for_bachelors_degree(self):
         """degree_rank('Bachelor's Degree') returns 3."""
@@ -176,14 +176,11 @@ class TestDegreeMatchingAfterFix:
 
     def test_degree_rank_for_bachelors_degree_canonical(self):
         """degree_rank on a full-sentence extraction returns a non-zero rank."""
-        # Simulates the normalised canonical value after _canonicalize_degree
         rank = ComponentScoringService.degree_rank("Bachelor's Degree")
         assert rank > 0
 
     def test_requirement_builder_produces_single_degree_requirement(self):
-        """RequirementBuilder emits exactly one DEGREE requirement when JD has one education sentence."""
-        # Simulates what happens after _extract_education + _canonicalize_degree
-        # produce a single canonical degree string for a complex OR-list JD sentence.
+        """RequirementBuilder emits 0 DEGREE requirements (Education matching disabled)."""
         job = _build_job(["Bachelor's Degree"])
         config = SimpleNamespace(
             mandatory_skills=[], required_certifications=[], required_languages=[],
@@ -191,9 +188,7 @@ class TestDegreeMatchingAfterFix:
         )
         reqs = RequirementBuilder.build(job, config)
         degree_reqs = [r for r in reqs if r.kind == RequirementKind.DEGREE]
-        assert len(degree_reqs) == 1, (
-            f"Expected 1 DEGREE requirement, got {len(degree_reqs)}: {degree_reqs}"
-        )
+        assert len(degree_reqs) == 0
 
 
 # ─── End-to-End: No Invented Requirements ────────────────────────────────────

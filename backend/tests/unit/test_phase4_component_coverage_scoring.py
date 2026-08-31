@@ -292,11 +292,11 @@ def test_phase4_test12_effective_weights_and_overall_score():
     assert components.preferred_skills.score == 50.0
     # Responsibilities: 1/2 = 50.0%
     assert components.responsibilities.score == 50.0
-    # Education: 100.0%
-    assert components.education.score == 100.0
+    # Education: 0.0% (disabled)
+    assert components.education.score == 0.0
 
     applicable = WeightCalculationService.applicable_categories(job, config=None)
-    # Applicable: required_skills (30), responsibilities (25), preferred_skills (15), education (2) = 72 base points
+    # Applicable: required_skills (30), responsibilities (25), preferred_skills (15) = 70 base points
     weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
         components, config=None, applicable_categories=applicable
     )
@@ -304,6 +304,6 @@ def test_phase4_test12_effective_weights_and_overall_score():
     assert round(sum(effective_weights.values()), 1) == 100.0
 
     # Mathematical reproduction:
-    # 90.0 * (30/72) + 50.0 * (25/72) + 50.0 * (15/72) + 100.0 * (2/72)
-    # = 37.5 + 17.361 + 10.417 + 2.778 = 68.055... -> 68.06%
-    assert round(weighted_total, 2) == 68.06
+    # 90.0 * (30/70) + 50.0 * (25/70) + 50.0 * (15/70)
+    # = 38.5714 + 17.8571 + 10.7143 = 67.14%
+    assert round(weighted_total, 2) == 67.14

@@ -47,7 +47,8 @@ def test_empty_evidence_id_on_matched_rejected():
         Requirement(requirement_id="skill:1", kind=RequirementKind.SKILL, text="AWS", required=True)
     ]
     evidence = [
-        Evidence(evidence_id="skills:1", kind="skills", text="React.js, Node.js", canonical_terms=["React.js", "Node.js"])
+        Evidence(evidence_id="skills:1", kind="skills", text="React.js, Node.js", canonical_terms=["React.js", "Node.js"]),
+        Evidence(evidence_id="skills:2", kind="skills", text="HTML, CSS", canonical_terms=["HTML", "CSS"]),
     ]
 
     batch = LLMVerdictBatch(verdicts=[

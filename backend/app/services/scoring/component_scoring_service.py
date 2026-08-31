@@ -130,9 +130,11 @@ class ComponentScoringService:
         projects: list[dict[str, Any]] | None = None,
         match_verdicts: list[Any] | None = None,
     ) -> ComponentScores:
+        raw_certs = getattr(resume, "certifications", None) or []
+        cert_names = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in raw_certs]
         candidate_skills = list(dict.fromkeys([
-            *(getattr(resume, "skills", None) or []),
-            *(getattr(resume, "certifications", None) or []),
+            *[str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()],
+            *[c for c in cert_names if c],
             *[t for p in (projects or []) for t in (p.get("technologies") or [])],
             *[t for exp in (getattr(resume, "experience", None) or []) for t in (exp.get("technologies") or [])],
             *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or []) if line],
@@ -217,11 +219,14 @@ class ComponentScoringService:
         if responsibility_verdicts:
             matched_verdicts = [v for v in responsibility_verdicts if _is_matched(v)]
             matched_resp = len(matched_verdicts)
-            total_coverage_sum = sum(
-                1.0 if _is_matched(v)
-                else (float(getattr(v, "coverage", 0.0) or 0.0) if str(getattr(getattr(v, "status", None), "value", getattr(v, "status", ""))).upper() == "PARTIAL" else 0.0)
-                for v in responsibility_verdicts
-            )
+            total_coverage_sum = 0.0
+            for v in responsibility_verdicts:
+                if _is_matched(v):
+                    total_coverage_sum += float(getattr(v, "coverage", 1.0) or 1.0)
+                elif str(getattr(getattr(v, "status", None), "value", getattr(v, "status", ""))).upper() in {"PARTIAL", "PARTIALLY_MATCHED"}:
+                    total_coverage_sum += float(getattr(v, "coverage", 0.5) or 0.5)
+                else:
+                    total_coverage_sum += 0.0
             denom = max(len(job_responsibilities), len(responsibility_verdicts))
             resp_score = round((total_coverage_sum / denom) * 100.0, 2)
             responsibilities = ComponentScoreDetail(
@@ -332,8 +337,22 @@ class ComponentScoringService:
 
         candidate_months = sum(_extract_item_months(item) for item in (getattr(resume, "experience", None) or []))
         job_experience = getattr(job, "experience_requirements", None) or []
-        job_min_months = max([item.get("minimum_months") or 0 for item in job_experience] or [0])
-        job_max_months = max([item.get("maximum_months") or 0 for item in job_experience] or [0])
+        job_min_months = 0
+        job_max_months = 0
+        for item in job_experience:
+            if isinstance(item, dict):
+                min_val = item.get("minimum_months") or 0
+                max_val = item.get("maximum_months") or 0
+                job_min_months = max(job_min_months, min_val)
+                job_max_months = max(job_max_months, max_val)
+            elif isinstance(item, str):
+                m_range = re.search(r"(\d+)\s*[-–to]+\s*(\d+)\s+years?", item, re.I)
+                m_min = re.search(r"(?:minimum|at\s+least|min)\s+(\d+)\s+years?", item, re.I) or re.search(r"(\d+)\+\s*years?", item, re.I) or re.search(r"(\d+)\s+years?", item, re.I)
+                if m_range:
+                    job_min_months = max(job_min_months, int(m_range.group(1)) * 12)
+                    job_max_months = max(job_max_months, int(m_range.group(2)) * 12)
+                elif m_min:
+                    job_min_months = max(job_min_months, int(m_min.group(1)) * 12)
         min_exp = float(getattr(config, "min_experience_years", 0) or 0)
         required_months = max(job_min_months, round(min_exp * 12))
 
@@ -390,28 +409,11 @@ class ComponentScoringService:
         )
 
     def _education_component(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
-        req_deg = getattr(config, "required_degree", None) or (job.degree_requirements[0] if getattr(job, "degree_requirements", None) else None)
-        candidate_degrees = []
-        for item in (getattr(resume, "education", None) or []):
-            if isinstance(item, dict):
-                deg = item.get("degree") or item.get("degree_name") or item.get("name") or item.get("title") or str(item)
-            else:
-                deg = str(item)
-            if deg and deg.strip():
-                candidate_degrees.append(deg.strip())
-        education_score = self._education_score(candidate_degrees, req_deg)
-        if education_score < 100 and match_verdicts:
-            confirmed_deg = [
-                v for v in match_verdicts
-                if str(getattr(v, "requirement_id", "")).startswith("degree:")
-                and str(getattr(getattr(v, "status", None), "value", getattr(v, "status", None))).upper() == "MATCHED"
-            ]
-            if confirmed_deg:
-                education_score = 100.0
         return ComponentScoreDetail(
-            score=education_score, matched_items=candidate_degrees if education_score == 100 else [],
-            missing_items=[req_deg] if req_deg and education_score < 100 else [],
-            explanation="Education meets the configured requirement." if education_score == 100 else "Candidate degree is below or does not match the requirement.",
+            score=0.0,
+            matched_items=[],
+            missing_items=[],
+            explanation="Education matching disabled (0% weight).",
         )
 
     def _projects_score(self, projects: list[dict[str, Any]], job: Any, resume: Any = None, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
@@ -619,7 +621,10 @@ class ComponentScoringService:
     def _certifications_score(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
         req_certs = list(getattr(config, "required_certifications", None) or [])
         if req_certs:
-            cert_detail = self._match(list(resume.certifications or []), req_certs, "required certifications")
+            raw_certs = getattr(resume, "certifications", None) or []
+            cand_certs = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in raw_certs]
+            cand_certs = [c for c in cand_certs if c]
+            cert_detail = self._match(cand_certs, req_certs, "required certifications")
             if match_verdicts and cert_detail.missing_items:
                 confirmed_certs = [
                     v for v in match_verdicts

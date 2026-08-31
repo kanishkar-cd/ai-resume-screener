@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time
 from collections import OrderedDict
 from types import SimpleNamespace
 from typing import Any
@@ -181,10 +182,7 @@ class RequirementBuilder:
             seen_exp_bounds.add(exp_key)
             rows.append((RequirementKind.EXPERIENCE, val.strip(), True, False))
 
-        # 4. Degree, Certification, Language, Project requirements
-        for value in getattr(job, "degree_requirements", None) or []:
-            if value and not RequirementBuilder._is_section_header(value):
-                rows.append((RequirementKind.DEGREE, value.strip(), True, False))
+        # 4. Certification, Language, Project requirements (Degree matching disabled)
         for value in [
             *(getattr(job, "certifications", None) or []),
             *(getattr(config, "required_certifications", None) or []),
@@ -282,23 +280,27 @@ class EvidenceBuilder:
                 evidence_id="skills:1", kind="skills", text=", ".join(skills),
                 canonical_terms=list(skills),
             ))
-        for index, item in enumerate(getattr(extracted, "education", None) or [], start=1):
-            degree = item.get("degree") or ""
-            field = item.get("field_of_study") or ""
-            inst = item.get("institution") or ""
-            text = " ".join(v for v in [degree, field, inst] if v).strip()
-            if text:
-                result.append(Evidence(
-                    evidence_id=f"education:{index}", kind="education", text=text,
-                    canonical_terms=[v for v in [degree, field] if v],
-                ))
-        certs = [c.strip() for c in (getattr(extracted, "certifications", None) or []) if str(c).strip()]
-        for index, cert in enumerate(certs, start=1):
+        summary = getattr(extracted, "summary", None) or (getattr(extracted, "raw_metadata", None) or {}).get("summary")
+        if not summary:
+            meta = getattr(extracted, "raw_metadata", None) or {}
+            if isinstance(meta, dict):
+                summary = (meta.get("affinda_normalized_profile") or {}).get("summary")
+        if summary and str(summary).strip():
             result.append(Evidence(
-                evidence_id=f"certification:{index}", kind="certification", text=cert,
-                canonical_terms=[cert],
+                evidence_id="summary:1", kind="summary", text=str(summary).strip(),
+                canonical_terms=[],
             ))
-        langs = [l.strip() for l in (getattr(extracted, "languages", None) or []) if str(l).strip()]
+        # Education evidence disabled (0% weight)
+        raw_certs = getattr(extracted, "certifications", None) or []
+        for index, c in enumerate(raw_certs, start=1):
+            cert_text = (c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip()
+            if cert_text:
+                result.append(Evidence(
+                    evidence_id=f"certification:{index}", kind="certification", text=cert_text,
+                    canonical_terms=[cert_text],
+                ))
+        langs = [(l.get("name") or l.get("language") or "") if isinstance(l, dict) else str(l).strip() for l in (getattr(extracted, "languages", None) or [])]
+        langs = [l for l in langs if l]
         if langs:
             result.append(Evidence(
                 evidence_id="languages:1", kind="languages", text=", ".join(langs),
@@ -483,77 +485,117 @@ class DeterministicRequirementMatcher:
             semantic_concepts: list[tuple[str, str, set[str]]] = []  # (name, type, target_stems/aliases)
 
             # 1. Identify Technologies
+            tech_concepts: list[tuple[str, str, set[str]]] = []
             for tech_key, aliases in tech_aliases.items():
                 if any(re.search(rf"\b{re.escape(a)}\b", req_lower) for a in aliases):
-                    semantic_concepts.append((tech_key, "tech", aliases))
+                    tech_concepts.append((tech_key, "tech", aliases))
 
-            # 2. Identify Actions
-            for action_key, syns in action_synonyms.items():
-                if re.search(rf"\b{re.escape(action_key)}\b", req_lower):
-                    stemmed_syns = {_stem_token(s) for s in syns}
-                    semantic_concepts.append((action_key, "action", stemmed_syns))
+            # 2. Identify Domain Activities / Deliverables
+            domain_concepts: list[tuple[str, str, set[str]]] = []
+            domain_patterns = [
+                ("etl data pipelines", {"etl data pipelines", "etl pipelines", "etl pipeline", "etl", "data pipelines", "data pipeline"}),
+                ("rest apis", {"rest api", "rest apis", "restful api", "restful apis", "backend apis", "backend api", "apis", "api"}),
+                ("reusable components", {"reusable components", "reusable react components", "reusable ui components", "reusable"}),
+                ("responsive design", {"responsive design", "responsive ui", "responsive", "mobile-first", "mobile responsive", "responsive user interfaces"}),
+                ("high performance", {"high performance", "high-performance", "performance optimization"}),
+                ("scalable applications", {"scalable applications", "scalable application", "scalable backend", "scalable"}),
+                ("schemas", {"database schemas", "database schema", "mongodb schemas", "schemas", "schema design"}),
+                ("indexing", {"indexes", "indexing", "database indexes", "index design"}),
+                ("queries", {"queries", "query", "sql queries", "nosql queries", "query optimization", "optimized queries"}),
+                ("aggregation", {"aggregation pipelines", "aggregation pipeline", "aggregations", "aggregation"}),
+                ("caching", {"redis caching", "caching", "cache"}),
+                ("authentication", {"authentication", "auth", "jwt"}),
+                ("authorization", {"role-based access control", "role-based access", "rbac", "authorization", "access workflows"}),
+                ("microservices", {"microservices", "microservice", "distributed microservices"}),
+                ("ci/cd pipelines", {"ci/cd pipelines", "ci/cd pipeline", "ci/cd", "deployment pipelines", "deployment pipeline"}),
+                ("unit tests", {"unit tests", "testing", "tests", "integration tests"}),
+                ("data quality", {"data quality checks", "data quality", "data cleaning", "data validation", "quality checks"}),
+                ("pipeline troubleshooting", {"pipeline troubleshooting", "troubleshooting", "debugging", "pipeline issues"}),
+                ("siem", {"siem", "splunk", "qradar"}),
+                ("security alerts", {"security alerts", "alerts"}),
+                ("security events", {"security events", "logs", "events"}),
+                ("incidents", {"production incidents", "incident", "incidents"}),
+                ("root causes", {"root causes", "root cause", "incident findings"}),
+                ("incident triage", {"incident triage", "triage", "investigation"}),
+                ("findings", {"findings", "recommendation", "recommendations", "reports"}),
+                ("vulnerability assessment", {"vulnerability assessment", "vulnerabilities", "vulnerability"}),
+                ("cloud infrastructure", {"cloud infrastructure", "infrastructure", "deployments"}),
+                ("project schedules", {"project schedules", "project schedule", "schedules", "schedule", "timelines", "timeline"}),
+                ("milestone trackers", {"milestone trackers", "milestone tracker", "milestones", "milestone"}),
+                ("raid logs", {"raid logs", "raid log", "risk log", "issue log", "risk and issue logs", "risk/issue logs", "raid"}),
+                ("status reports", {"status reports", "status report", "progress reports", "weekly status reports", "monthly status reports", "reports", "status summaries"}),
+                ("management dashboards", {"management dashboards", "executive dashboards", "dashboards", "dashboard", "kpis"}),
+                ("stakeholder meetings", {"stakeholder meetings", "stakeholder coordination", "meeting minutes", "stakeholder progress summaries", "stakeholders", "stakeholder"}),
+                ("action items", {"action items", "action item", "action tracking", "actions"}),
+                ("cross-functional team deliverables", {"cross-functional team deliverables", "cross-functional team", "cross-functional", "deliverables"}),
+                ("project deliverables", {"project deliverables", "deliverables", "milestone deliverables"}),
+                ("project documentation", {"project documentation", "documentation", "meeting notes"}),
+                ("relational databases", {"relational databases", "relational database", "relational", "rdbms"}),
+                ("non-relational databases", {"non-relational databases", "non-relational database", "non-relational", "nosql databases", "nosql database", "nosql"}),
+                ("clean code", {"clean code", "readable code", "maintainable code", "clean coding", "code quality", "code standards"}),
+                ("mentoring", {"mentor", "mentored", "mentoring", "guidance", "coach", "coaching", "mentorship"}),
+                ("junior developers", {"junior developers", "junior engineers", "juniors"}),
+                ("team members", {"team members", "cross-functional team members", "cross-functional teams", "team", "developers", "peers"}),
+                ("user interfaces", {"user interfaces", "user interface", "ui", "interfaces", "components"}),
+            ]
 
-            # 3. Identify Domain Activities / Deliverables if not fully covered
-            domain_patterns = {
-                "etl data pipelines": {"etl data pipelines", "etl pipelines", "etl pipeline", "etl", "data pipelines", "data pipeline"},
-                "backend apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
-                "apis": {"backend apis", "backend api", "apis", "api", "rest apis", "rest api"},
-                "rest apis": {"rest api", "rest apis", "restful api", "restful apis"},
-                "user interfaces": {"user interfaces", "user interface", "ui", "interfaces", "components"},
-                "database schemas": {"database schemas", "database schema", "schemas", "schema", "data models"},
-                "schemas": {"database schemas", "database schema", "schemas", "schema"},
-                "database": {"database", "databases", "relational database", "relational databases", "schemas", "schema", "data models"},
-                "authentication": {"authentication", "auth", "jwt", "authorization"},
-                "microservices": {"microservices", "microservice", "services"},
-                "ci/cd pipelines": {"ci/cd", "pipelines", "pipeline", "automation"},
-                "unit tests": {"unit tests", "testing", "tests", "integration tests"},
-                "data quality": {"data quality checks", "data quality", "data cleaning", "data validation", "quality checks"},
-                "pipeline troubleshooting": {"pipeline troubleshooting", "troubleshooting", "debugging", "pipeline issues"},
-                "siem": {"siem", "splunk", "qradar"},
-                "security alerts": {"security alerts", "alerts"},
-                "security events": {"security events", "logs", "events"},
-                "incidents": {"production incidents", "incident", "incidents", "security events", "events"},
-                "root causes": {"root causes", "root cause", "incident findings", "findings", "recommendations"},
-                "incident triage": {"incident triage", "triage", "investigation"},
-                "incident findings": {"incident findings", "findings", "investigation findings", "escalation recommendations", "recommendations", "reports"},
-                "findings": {"findings", "recommendation", "recommendations", "reports"},
-                "vulnerability assessment": {"vulnerability assessment", "vulnerabilities", "vulnerability"},
-                "cloud infrastructure": {"cloud infrastructure", "infrastructure", "deployments", "cloud"},
-                "project schedules": {"project schedules", "project schedule", "schedules", "schedule", "timelines", "timeline"},
-                "milestone trackers": {"milestone trackers", "milestone tracker", "milestones", "milestone"},
-                "raid logs": {"raid logs", "raid log", "risk log", "issue log", "risk and issue logs", "risk/issue logs", "raid"},
-                "status reports": {"status reports", "status report", "progress reports", "weekly status reports", "monthly status reports", "reports", "status summaries"},
-                "management dashboards": {"management dashboards", "executive dashboards", "dashboards", "dashboard", "kpis"},
-                "stakeholder meetings": {"stakeholder meetings", "stakeholder coordination", "meeting minutes", "stakeholder progress summaries", "stakeholders", "stakeholder"},
-                "action items": {"action items", "action item", "action tracking", "actions"},
-                "cross-functional team deliverables": {"cross-functional team deliverables", "cross-functional team", "cross-functional", "deliverables"},
-                "project deliverables": {"project deliverables", "deliverables", "milestone deliverables"},
-                "project documentation": {"project documentation", "documentation", "meeting notes"},
-                "bottleneck analysis": {"bottleneck analysis", "schedule deviation", "bottlenecks", "deviations"},
-                "clean code": {"clean code", "readable code", "maintainable code", "clean coding", "code quality", "code standards"},
-                "team members": {"team members", "cross-functional team members", "cross-functional teams", "team", "developers", "peers"},
-            }
-            for domain_key, aliases in domain_patterns.items():
-                if domain_key not in {c[0] for c in semantic_concepts}:
-                    if any(re.search(rf"\b{re.escape(a)}\b", req_lower) for a in aliases):
-                        semantic_concepts.append((domain_key, "domain", aliases))
+            seen_domains: set[str] = set()
+            for domain_key, aliases in domain_patterns:
+                if domain_key in seen_domains:
+                    continue
+                matched_alias = False
+                for a in aliases:
+                    pattern = rf"\b{re.escape(a)}\b"
+                    if a.startswith("relational"):
+                        pattern = rf"(?<!non-)(?<!non\s)\b{re.escape(a)}\b"
+                    if re.search(pattern, req_lower):
+                        matched_alias = True
+                        break
+                if matched_alias:
+                    if not any(domain_key == c[0] for c in domain_concepts):
+                        domain_concepts.append((domain_key, "domain", aliases))
+                        seen_domains.add(domain_key)
 
-            # If semantic_concepts only contains generic actions and req_text has multiple comma-separated items (e.g. "Support item1, item2, ..., item20"):
-            has_tech_or_domain = any(c[1] in {"tech", "domain"} for c in semantic_concepts)
-            raw_clauses = [c.strip() for c in re.split(r"[,;]|\s+(?:and|&|\/|\+)\s+", req_text, flags=re.I) if c.strip()]
-            if not has_tech_or_domain and len(raw_clauses) >= 3:
-                semantic_concepts = []
-                stop_words = {
-                    "the", "a", "an", "and", "of", "to", "with", "from", "for", "on", "in",
-                    "by", "as", "at", "during", "across", "into", "through", "using", "or", "&",
-                    "work", "working", "experience", "knowledge", "proficiency", "support", "etc",
-                }
-                for clause in raw_clauses:
-                    tokens = [t for t in _TOKEN.findall(clause.casefold()) if len(t) > 1 and t not in stop_words]
-                    if tokens:
-                        c_name = " ".join(tokens)
-                        c_stemmed = {_stem_token(t) for t in tokens}
-                        semantic_concepts.append((c_name, "general", c_stemmed))
+            # Filter out technologies that act as direct qualifiers for a domain concept (e.g. "MongoDB schemas", "Redis caching", "React components")
+            filtered_tech_concepts: list[tuple[str, str, set[str]]] = []
+            for tech_key, kind, aliases in tech_concepts:
+                is_qualifier = False
+                for d_key, _, d_aliases in domain_concepts:
+                    if any(re.search(rf"\b{re.escape(a)}\s+{re.escape(da)}\b", req_lower) for a in aliases for da in d_aliases if len(da.split()) == 1):
+                        is_qualifier = True
+                        break
+                    if any(a in da for a in aliases for da in d_aliases):
+                        is_qualifier = True
+                        break
+                if not is_qualifier:
+                    filtered_tech_concepts.append((tech_key, kind, aliases))
+
+            # Combine tech and domain concepts
+            semantic_concepts: list[tuple[str, str, set[str]]] = []
+            semantic_concepts.extend(filtered_tech_concepts)
+            semantic_concepts.extend(domain_concepts)
+
+            # 3. Only if no tech or domain concepts were found, use action synonyms or clause decomposition
+            if not semantic_concepts:
+                for action_key, syns in action_synonyms.items():
+                    if re.search(rf"\b{re.escape(action_key)}\b", req_lower):
+                        stemmed_syns = {_stem_token(s) for s in syns}
+                        semantic_concepts.append((action_key, "action", stemmed_syns))
+
+                raw_clauses = [c.strip() for c in re.split(r"[,;]|\s+(?:and|&|\/|\+)\s+", req_text, flags=re.I) if c.strip()]
+                if len(raw_clauses) >= 3:
+                    semantic_concepts = []
+                    stop_words = {
+                        "the", "a", "an", "and", "of", "to", "with", "from", "for", "on", "in",
+                        "by", "as", "at", "during", "across", "into", "through", "using", "or", "&",
+                        "work", "working", "experience", "knowledge", "proficiency", "support", "etc",
+                    }
+                    for clause in raw_clauses:
+                        tokens = [t for t in _TOKEN.findall(clause.casefold()) if len(t) > 1 and t not in stop_words]
+                        if tokens:
+                            c_name = " ".join(tokens)
+                            c_stemmed = {_stem_token(t) for t in tokens}
+                            semantic_concepts.append((c_name, "general", c_stemmed))
 
             # If only action verbs were matched with no tech, domain, or itemized concepts, require LLM evaluation
             if semantic_concepts and all(c[1] == "action" for c in semantic_concepts):
@@ -577,7 +619,18 @@ class DeterministicRequirementMatcher:
                     e_stemmed = {_stem_token(t) for t in _TOKEN.findall(e_text_lower) if len(t) > 1}
 
                     if c_type == "tech" or c_type == "domain":
-                        if any(re.search(rf"\b{re.escape(a)}\b", e_text_lower) for a in targets) or any(a in e_terms for a in targets):
+                        matched_target = False
+                        for a in targets:
+                            if a in e_terms:
+                                matched_target = True
+                                break
+                            pattern = rf"\b{re.escape(a)}\b"
+                            if a.startswith("relational"):
+                                pattern = rf"(?<!non-)(?<!non\s)\b{re.escape(a)}\b"
+                            if re.search(pattern, e_text_lower):
+                                matched_target = True
+                                break
+                        if matched_target:
                             concept_matched = True
                             if e.evidence_id not in ev_ids:
                                 ev_ids.append(e.evidence_id)
@@ -600,30 +653,43 @@ class DeterministicRequirementMatcher:
                 else:
                     missing_concepts.append(c_name)
 
+            satisfied_count = len(matched_concepts)
             total_concepts_count = len(matched_concepts) + len(missing_concepts)
-            coverage = round(len(matched_concepts) / total_concepts_count, 2) if total_concepts_count > 0 else 0.0
+            coverage = round(satisfied_count / total_concepts_count, 2) if total_concepts_count > 0 else 0.0
 
-            # 45% Business Rule Classification:
-            # Coverage >= 45% -> MATCHED
-            # Coverage > 0% and < 45% -> PARTIALLY_MATCHED
-            # Coverage == 0% -> UNRESOLVED (routes to LLM fallback) / UNMATCHED
-            if coverage >= 0.45:
-                status = MatchStatus.MATCHED
-                method = MatchMethod.ALIAS if ev_ids else MatchMethod.EXACT
-                reasoning = f"Contextual evidence satisfies {int(coverage * 100)}% of responsibility concepts (>=45% shortlisting threshold)."
-            elif coverage > 0.0:
-                status = MatchStatus.PARTIALLY_MATCHED
-                method = MatchMethod.ALIAS if ev_ids else MatchMethod.EXACT
-                reasoning = f"Contextual evidence partially satisfies {int(coverage * 100)}% of responsibility concepts (<45% threshold)."
+            # Phase 5A Business Rules:
+            # 1. Single-concept responsibility: satisfied_count >= 1 -> MATCHED (100%)
+            # 2. Multi-concept responsibility (>=2 concepts):
+            #    satisfied_count >= 2 -> MATCHED (score proportional to coverage, e.g. 2/4=50%, 2/5=40%, 3/4=75%)
+            #    satisfied_count == 1 -> PARTIALLY_MATCHED (score proportional to coverage, e.g. 1/4=25%, 1/5=20%)
+            #    satisfied_count == 0 -> UNRESOLVED / NO_MATCH
+            if total_concepts_count == 1:
+                if satisfied_count >= 1:
+                    status = MatchStatus.MATCHED
+                    method = MatchMethod.ALIAS if ev_ids else MatchMethod.EXACT
+                    reasoning = f"Single core responsibility concept satisfied (100% coverage)."
+                else:
+                    status = MatchStatus.UNRESOLVED
+                    method = None
+                    reasoning = "No evidence for single responsibility requirement; requires semantic experiential review."
             else:
-                status = MatchStatus.UNRESOLVED
-                method = None
-                reasoning = "No direct deterministic concept match; requires semantic experiential review."
+                if satisfied_count >= 2:
+                    status = MatchStatus.MATCHED
+                    method = MatchMethod.ALIAS if ev_ids else MatchMethod.EXACT
+                    reasoning = f"Contextual evidence satisfies {satisfied_count} of {total_concepts_count} responsibility concepts ({int(coverage * 100)}% coverage, >=2 concepts rule satisfied)."
+                elif satisfied_count == 1:
+                    status = MatchStatus.PARTIALLY_MATCHED
+                    method = MatchMethod.ALIAS if ev_ids else MatchMethod.EXACT
+                    reasoning = f"Contextual evidence satisfies only 1 of {total_concepts_count} responsibility concepts ({int(coverage * 100)}% coverage, <2 concepts threshold)."
+                else:
+                    status = MatchStatus.UNRESOLVED
+                    method = None
+                    reasoning = "No direct deterministic concept match; requires semantic experiential review."
 
             return MatchVerdict(
                 requirement_id=requirement.requirement_id,
                 status=status,
-                confidence=1.0 if coverage >= 0.45 else (coverage if coverage > 0 else 0.0),
+                confidence=1.0 if status == MatchStatus.MATCHED else (coverage if coverage > 0 else 0.0),
                 evidence_ids=ev_ids[:3],
                 reasoning=reasoning,
                 method=method,
@@ -659,8 +725,9 @@ class DeterministicRequirementMatcher:
 
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             aliases = SKILL_ALIASES
-            candidates = list(getattr(resume, "skills", None) or [])
-            certs = list(getattr(resume, "certifications", None) or [])
+            candidates = [str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()]
+            certs = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in (getattr(resume, "certifications", None) or [])]
+            certs = [c for c in certs if c]
             evidence_terms = [term for e in evidence for term in e.canonical_terms if term]
             evidence_text = " ".join(e.text for e in evidence).casefold()
             candidate_pool = list(dict.fromkeys([*candidates, *certs, *evidence_terms]))
@@ -760,33 +827,9 @@ class DeterministicRequirementMatcher:
             )
 
         elif requirement.kind == RequirementKind.DEGREE:
-            aliases = DEGREE_ALIASES
-            edu_items = getattr(resume, "education", None) or []
-            candidates = [item.get("degree") for item in edu_items if item.get("degree")]
-            fields = [item.get("field_of_study") for item in edu_items if item.get("field_of_study")]
-            edu_text = " ".join(e.text for e in evidence if e.kind == "education").casefold()
-
-            required_rank = ComponentScoringService.degree_rank(req_text)
-            if required_rank and any(ComponentScoringService.degree_rank(value) >= required_rank for value in candidates):
-                return MatchVerdict(
-                    requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
-                    confidence=1, reasoning="Degree taxonomy level satisfies requirement.",
-                    method=MatchMethod.TAXONOMY,
-                )
-
-            # Check discipline alternatives (e.g. "Computer Science, Engineering, Information Technology")
-            disc_alts = re.split(r"[,;/]|\s+or\s+|\s+and\s+", req_text, flags=re.IGNORECASE)
-            for d in [a.strip().casefold() for a in disc_alts if a.strip()]:
-                if any(d in (f or "").casefold() for f in fields) or any(d in (c or "").casefold() for c in candidates) or (len(d) >= 4 and d in edu_text):
-                    return MatchVerdict(
-                        requirement_id=requirement.requirement_id, status=MatchStatus.MATCHED,
-                        confidence=1, reasoning=f"Educational background satisfies requirement ({d.title()}).",
-                        method=MatchMethod.TAXONOMY,
-                    )
-
             return MatchVerdict(
                 requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
-                confidence=1, reasoning="No deterministic canonical match.",
+                confidence=1, reasoning="Education matching disabled.",
             )
 
         elif requirement.kind in {RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE}:
@@ -892,10 +935,14 @@ class DeterministicRequirementMatcher:
 
         elif requirement.kind == RequirementKind.CERTIFICATION:
             aliases = CERTIFICATION_ALIASES
-            candidates = list(getattr(resume, "certifications", None) or [])
+            raw_certs = getattr(resume, "certifications", None) or []
+            candidates = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in raw_certs]
+            candidates = [c for c in candidates if c]
         elif requirement.kind == RequirementKind.LANGUAGE:
             aliases = LANGUAGE_ALIASES
-            candidates = list(getattr(resume, "languages", None) or [])
+            raw_langs = getattr(resume, "languages", None) or []
+            candidates = [(l.get("name") or l.get("language") or "") if isinstance(l, dict) else str(l).strip() for l in raw_langs]
+            candidates = [l for l in candidates if l]
         else:
             return MatchVerdict(
                 requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
@@ -919,6 +966,27 @@ class DeterministicRequirementMatcher:
         )
 
 
+SEMANTIC_SYNONYMS: dict[str, set[str]] = {
+    "authorization": {"auth", "rbac", "role", "roles", "permission", "permissions", "access", "jwt", "oauth", "token", "security", "privilege", "privileges", "role-based access", "role-based access control"},
+    "authentication": {"auth", "login", "jwt", "oauth", "sso", "password", "token", "session", "sessions", "credential", "credentials", "security", "login authentication"},
+    "responsive design": {"responsive", "mobile", "mobile-first", "mobile first", "layout", "layouts", "flexbox", "grid", "bootstrap", "tailwind", "css", "html", "viewport", "media", "query", "queries", "media queries", "responsive ui"},
+    "asynchronous programming": {"async", "await", "asynchronous", "promise", "promises", "non-blocking", "blocking", "event", "events", "concurrency", "thread", "threads", "coroutine", "goroutine", "event-driven", "event driven", "event-driven services", "messaging", "message", "queue", "queues", "kafka", "rabbitmq"},
+    "schema design": {"schema", "schemas", "model", "models", "modeling", "table", "tables", "collection", "collections", "entity", "database", "mongodb", "sql", "relational", "normalization", "database schemas", "data modeling", "collection design"},
+    "query optimization": {"query", "queries", "optimize", "optimization", "index", "indexes", "indexing", "performance", "tuning", "explain", "execution", "aggregation", "query optimization", "optimized queries", "database performance"},
+    "ci/cd": {"ci", "cd", "pipeline", "pipelines", "github", "actions", "jenkins", "gitlab", "deploy", "deployment", "build", "automate", "automation", "devops", "github actions", "gitlab ci", "deployment pipelines"},
+    "state management": {"redux", "zustand", "mobx", "context", "store", "state", "recoil"},
+    "clean code": {"refactor", "refactoring", "clean", "solid", "maintainable", "pattern", "patterns", "standards", "code quality"},
+    "api documentation": {"swagger", "openapi", "postman", "docs", "documentation", "endpoints"},
+    "testing": {"test", "tests", "unit", "integration", "jest", "pytest", "mocha", "cypress", "playwright", "tdd", "bdd"},
+    "cloud": {"aws", "azure", "gcp", "s3", "ec2", "lambda", "cloud", "cloudformation", "terraform", "infrastructure"},
+    "cloud infrastructure": {"aws", "azure", "gcp", "s3", "ec2", "instances", "terraform", "cloud", "infrastructure", "devops"},
+    "cloud infrastructure operations": {"aws", "azure", "gcp", "s3", "ec2", "instances", "terraform", "cloud", "infrastructure", "operations", "provisioned", "provisioning"},
+    "mentoring": {"mentor", "mentored", "mentoring", "guidance", "coach", "coaching", "mentorship", "led junior developers"},
+    "code review": {"code reviews", "reviewed code", "code quality", "pr reviews", "pull request", "code review"},
+    "troubleshooting": {"troubleshooting", "debugging", "fixed defects", "incident triage", "root cause", "resolved issues", "production defects", "production bugs"},
+}
+
+
 class EvidencePrefilter:
     def __init__(self, threshold: float, limit: int) -> None:
         self.threshold, self.limit = threshold, limit
@@ -929,12 +997,12 @@ class EvidencePrefilter:
 
         # Filter candidate evidence by requirement kind priority
         if requirement.kind == RequirementKind.RESPONSIBILITY:
-            kind_evidence = [e for e in evidence if e.kind in {"experience", "project"}]
+            kind_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary"}]
             if not kind_evidence:
                 return []
             target_evidence = kind_evidence
         elif requirement.kind == RequirementKind.PROJECT_RELEVANCE:
-            kind_evidence = [e for e in evidence if e.kind == "project"]
+            kind_evidence = [e for e in evidence if e.kind in {"project", "experience", "summary"}]
             if not kind_evidence:
                 return []
             target_evidence = kind_evidence
@@ -947,28 +1015,248 @@ class EvidencePrefilter:
         else:
             target_evidence = evidence
 
-        required = _stem_tokens(requirement.text)
+        req_lower = requirement.text.casefold()
+        synonym_phrases: set[str] = set()
+        for term, syns in SEMANTIC_SYNONYMS.items():
+            if term in req_lower or any(t in req_lower for t in term.split()):
+                synonym_phrases.update(syns)
+                synonym_phrases.add(term)
+
+        required_stems = _stem_tokens(requirement.text)
+        for s in synonym_phrases:
+            required_stems.update(_stem_tokens(s))
+
         scored = []
         for item in target_evidence:
-            overlap = len(required & _stem_tokens(item.text)) / len(required) if required else 0.0
-            if overlap > 0:
-                scored.append((overlap, item.evidence_id, item))
+            item_lower = item.text.casefold()
+            phrase_bonus = 0.5 if any(p in item_lower for p in synonym_phrases if len(p.split()) > 1) else 0.0
+            item_stems = _stem_tokens(item.text)
+            overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
+            score = overlap + phrase_bonus
+            if score > 0:
+                scored.append((score, item.evidence_id, item))
+
         if scored:
             scored.sort(key=lambda row: (-row[0], row[1]))
             passing = [row[2] for row in scored if row[0] >= self.threshold]
-            selected = passing[: self.limit] if passing else [row[2] for row in scored[: self.limit]]
-            selected_ids = {e.evidence_id for e in selected}
-            for e in target_evidence:
-                allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience"}
-                if e.kind in allowed_kinds and e.evidence_id not in selected_ids and len(selected) < self.limit:
-                    selected.append(e)
-                    selected_ids.add(e.evidence_id)
-            return selected
+            return passing[: self.limit] if passing else [row[2] for row in scored[: self.limit]]
 
-        # Fallback profile evidence when no specific token overlap exists
-        allowed_kinds = {"experience", "project"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "education", "certification"}
+        # Fallback profile evidence when no specific token overlap exists (for responsibilities, degrees, certifications)
+        if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
+            return []
+
+        allowed_kinds = {"experience", "project", "summary"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "summary", "certification"}
         fallback_evidence = [e for e in target_evidence if e.kind in allowed_kinds]
         return (fallback_evidence if fallback_evidence else target_evidence)[: self.limit]
+
+
+class GroqTokenBudgetGate:
+    _instance: GroqTokenBudgetGate | None = None
+    _lock: asyncio.Lock | None = None
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.window_seconds = 60.0
+        self.usage_history: list[tuple[float, int]] = []
+        self.reserved_in_flight = 0
+
+        self.header_remaining_tokens: int | None = None
+        self.header_reset_timestamp: float | None = None
+        self.header_remaining_requests: int | None = None
+
+    @classmethod
+    def get_gate(cls, settings: Settings | None = None) -> GroqTokenBudgetGate:
+        if cls._instance is None:
+            cls._instance = cls(settings)
+        if cls._instance._lock is None:
+            cls._instance._lock = asyncio.Lock()
+        return cls._instance
+
+    @classmethod
+    def reset_gate(cls) -> None:
+        """Reset gate state for testing isolation."""
+        if cls._instance is not None:
+            cls._instance.usage_history.clear()
+            cls._instance.reserved_in_flight = 0
+            cls._instance.header_remaining_tokens = None
+            cls._instance.header_reset_timestamp = None
+            cls._instance.header_remaining_requests = None
+
+    @property
+    def tpm_limit(self) -> int:
+        return getattr(self.settings, "GROQ_TPM_LIMIT", 8000)
+
+    @property
+    def safety_margin(self) -> float:
+        return getattr(self.settings, "GROQ_TPM_SAFETY_MARGIN", 0.10)
+
+    @property
+    def usable_tpm(self) -> int:
+        return int(self.tpm_limit * (1.0 - self.safety_margin))
+
+    def estimate_tokens(self, payload: dict[str, Any], output_estimate: int | None = None) -> int:
+        """Estimate total tokens required (prompt input + estimated output)."""
+        prompt_text = ""
+        user_content = ""
+        for msg in payload.get("messages", []):
+            content = str(msg.get("content", ""))
+            prompt_text += content
+            if msg.get("role") == "user":
+                user_content = content
+
+        input_tokens = int(len(prompt_text) / 2.8 * 1.05) + 10
+        if output_estimate is None:
+            try:
+                data = json.loads(user_content)
+                req_count = len(data.get("requirements", []))
+                output_estimate = min(350, max(120, req_count * 20))
+            except Exception:
+                output_estimate = getattr(self.settings, "GROQ_ESTIMATED_OUTPUT_TOKENS", 350)
+        return input_tokens + output_estimate
+
+    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> None:
+        """
+        Check token budget. If insufficient capacity, wait until reset/capacity available.
+        Once capacity exists, reserve estimated_tokens and return.
+        """
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+
+                self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+                local_window_used = sum(tok for _, tok in self.usage_history)
+
+                if self.header_reset_timestamp is not None:
+                    if now >= self.header_reset_timestamp or self.reserved_in_flight == 0:
+                        self.header_remaining_tokens = None
+                        self.header_reset_timestamp = None
+
+                if self.header_remaining_tokens is not None:
+                    avail_from_header = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+                    avail_from_local = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
+                    available_tokens = min(avail_from_header, avail_from_local)
+                else:
+                    available_tokens = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
+
+                if available_tokens >= estimated_tokens:
+                    self.reserved_in_flight += estimated_tokens
+                    self._last_wait_ts = None
+                    logger.info(
+                        "llm_request_allowed",
+                        reserved_tokens=estimated_tokens,
+                        available_tokens_before=available_tokens,
+                        usable_limit=self.usable_tpm,
+                        correlation_id=correlation_id,
+                    )
+                    return
+
+                wait_seconds = 1.0
+                if self.header_reset_timestamp is not None and self.header_reset_timestamp > now:
+                    wait_seconds = max(0.05, self.header_reset_timestamp - now + 0.05)
+                elif self.usage_history:
+                    needed_release = estimated_tokens - available_tokens
+                    accumulated = 0
+                    target_ts = self.usage_history[0][0]
+                    for ts, tok in self.usage_history:
+                        accumulated += tok
+                        if accumulated >= needed_release:
+                            target_ts = ts
+                            break
+                    wait_seconds = max(0.05, (target_ts + self.window_seconds) - now + 0.05)
+
+                wait_seconds = min(wait_seconds, 60.0)
+                self._last_wait_ts = now
+
+                logger.info(
+                    "llm_token_budget_wait",
+                    required_tokens=estimated_tokens,
+                    available_tokens=available_tokens,
+                    wait_seconds=round(wait_seconds, 2),
+                    usable_limit=self.usable_tpm,
+                    correlation_id=correlation_id,
+                )
+
+            await asyncio.sleep(wait_seconds)
+
+    async def release_reservation(self, estimated_tokens: int) -> None:
+        """Release in-flight reservation."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+
+    async def record_response(self, estimated_tokens: int, response: httpx.Response | None = None, actual_tokens: int | None = None) -> None:
+        """Release reservation, record used tokens into sliding window, sync headers."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+            now = time.monotonic()
+
+            used_tokens = actual_tokens if actual_tokens is not None else estimated_tokens
+            self.usage_history.append((now, used_tokens))
+
+            if response is not None and hasattr(response, "headers"):
+                headers = response.headers
+                if isinstance(headers, dict) or hasattr(headers, "get"):
+                    rem_tok = headers.get("x-ratelimit-remaining-tokens")
+                    res_tok = headers.get("x-ratelimit-reset-tokens")
+                    if rem_tok is not None and type(rem_tok) in (int, float, str):
+                        try:
+                            self.header_remaining_tokens = int(rem_tok)
+                        except (ValueError, TypeError):
+                            pass
+                    if res_tok is not None and type(res_tok) in (int, float, str):
+                        try:
+                            res_str = str(res_tok).strip()
+                            if res_str.endswith("ms"):
+                                seconds = float(res_str[:-2]) / 1000.0
+                            elif res_str.endswith("s"):
+                                seconds = float(res_str[:-1])
+                            else:
+                                seconds = float(res_str)
+                            self.header_reset_timestamp = now + seconds
+                        except (ValueError, TypeError):
+                            pass
+
+    async def record_429(self, estimated_tokens: int, response: httpx.Response | None = None) -> float:
+        """Handle 429 response: release reservation, update reset timestamp, return wait seconds."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+            now = time.monotonic()
+
+            self.header_remaining_tokens = 0
+            retry_after = 2.0
+
+            if response is not None and hasattr(response, "headers"):
+                headers = response.headers
+                if isinstance(headers, dict) or hasattr(headers, "get"):
+                    hdr_retry = headers.get("retry-after") or headers.get("Retry-After")
+                    res_tok = headers.get("x-ratelimit-reset-tokens")
+                    if hdr_retry is not None and type(hdr_retry) in (int, float, str):
+                        try:
+                            retry_after = float(hdr_retry)
+                        except (ValueError, TypeError):
+                            pass
+                    elif res_tok is not None and type(res_tok) in (int, float, str):
+                        try:
+                            res_str = str(res_tok).strip()
+                            if res_str.endswith("ms"):
+                                retry_after = float(res_str[:-2]) / 1000.0
+                            elif res_str.endswith("s"):
+                                retry_after = float(res_str[:-1])
+                            else:
+                                retry_after = float(res_str)
+                        except (ValueError, TypeError):
+                            pass
+
+            self.header_reset_timestamp = now + retry_after
+            return retry_after
 
 
 class GroqMatchEvaluator:
@@ -994,6 +1282,22 @@ class GroqMatchEvaluator:
     ) -> list[MatchVerdict]:
         if not self.enabled or not requirements:
             return []
+
+        # Safe batch chunking to avoid LLM token overflow on large inputs (> 15 requirements)
+        if len(requirements) > 15:
+            all_verdicts: list[MatchVerdict] = []
+            chunk_size = 12
+            for i in range(0, len(requirements), chunk_size):
+                req_chunk = requirements[i:i + chunk_size]
+                chunk_allowed = {
+                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                    for r in req_chunk
+                } if allowed_evidence else None
+                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
+                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
+                chunk_verdicts = await self.evaluate(req_chunk, chunk_ev, chunk_allowed)
+                all_verdicts.extend(chunk_verdicts)
+            return all_verdicts
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
             "evidence": [e.model_dump(mode="json") for e in evidence],
@@ -1006,12 +1310,16 @@ class GroqMatchEvaluator:
             return [verdict.model_copy(deep=True) for verdict in self._cache[digest]]
 
         payload = self._payload(requirements, evidence)
+        gate = GroqTokenBudgetGate.get_gate(self.settings)
+        estimated_tokens = gate.estimate_tokens(payload)
+
         parsed: LLMVerdictBatch | None = None
         client = self._get_client(self.settings.GROQ_TIMEOUT_SECONDS)
         max_retries = max(1, getattr(self.settings, "GROQ_MAX_RETRIES", 2))
         total_attempts = max_retries + 1
 
         for attempt in range(total_attempts):
+            await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
             try:
                 response = await client.post(
                     f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
@@ -1020,11 +1328,47 @@ class GroqMatchEvaluator:
                     timeout=self.settings.GROQ_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
+
+                resp_json = response.json()
+                usage = resp_json.get("usage", {})
+                actual_tokens = usage.get("total_tokens")
+
+                await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
+
+                logger.info(
+                    "llm_request_completed",
+                    attempt=attempt + 1,
+                    status_code=response.status_code,
+                    estimated_tokens=estimated_tokens,
+                    actual_tokens=actual_tokens,
+                    correlation_id=digest[:8],
+                )
+
+                content = resp_json["choices"][0]["message"]["content"]
                 parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
                 break
             except Exception as exc:
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                resp_obj = getattr(exc, "response", None)
+
+                if status_code == 429:
+                    retry_after = await gate.record_429(estimated_tokens, response=resp_obj)
+                    logger.info(
+                        "llm_429_received",
+                        attempt=attempt + 1,
+                        status_code=429,
+                        retry_after=retry_after,
+                        correlation_id=digest[:8],
+                    )
+                else:
+                    await gate.release_reservation(estimated_tokens)
+
+                resp_body = None
+                if resp_obj is not None:
+                    try:
+                        resp_body = resp_obj.text
+                    except Exception:
+                        pass
                 is_last_attempt = (attempt == total_attempts - 1)
 
                 if status_code in {400, 401, 403, 404}:
@@ -1033,6 +1377,7 @@ class GroqMatchEvaluator:
                         attempt=attempt + 1,
                         status_code=status_code,
                         error_type=type(exc).__name__,
+                        response_body=resp_body,
                     )
                     break
 
@@ -1042,12 +1387,13 @@ class GroqMatchEvaluator:
                         attempt=attempt + 1,
                         status_code=status_code,
                         error_type=type(exc).__name__,
+                        response_body=resp_body,
                     )
                     break
 
                 retry_after_hdr = None
-                if status_code == 429 and getattr(exc, "response", None) is not None:
-                    retry_after_hdr = exc.response.headers.get("retry-after") or exc.response.headers.get("Retry-After")
+                if status_code == 429 and resp_obj is not None:
+                    retry_after_hdr = resp_obj.headers.get("retry-after") or resp_obj.headers.get("Retry-After")
 
                 used_retry_after = False
                 delay = 2.0 * (2 ** attempt)
@@ -1069,8 +1415,10 @@ class GroqMatchEvaluator:
                     error_type=type(exc).__name__,
                     delay_seconds=round(delay, 2),
                     used_retry_after=used_retry_after,
+                    response_body=resp_body,
                 )
                 await asyncio.sleep(delay)
+
         if parsed is None:
             return []
         validated = self._validate(parsed, requirements, evidence, allowed_evidence)
@@ -1079,6 +1427,34 @@ class GroqMatchEvaluator:
         while len(self._cache) > self.settings.HYBRID_MATCHING_CACHE_SIZE:
             self._cache.popitem(last=False)
         return [verdict.model_copy(deep=True) for verdict in validated]
+
+    @staticmethod
+    def _normalize_evidence_id(raw_id: str, valid_supplied_ids: set[str]) -> str | None:
+        if not raw_id or not isinstance(raw_id, str):
+            return None
+        clean = raw_id.strip()
+        if clean in valid_supplied_ids:
+            return clean
+
+        clean_lower = clean.casefold()
+        for sid in valid_supplied_ids:
+            if sid.casefold() == clean_lower:
+                return sid
+
+        # Normalize delimiter variants: "experience 1", "Experience: 1", "experience-1", "experience_1", "Experience #1"
+        normalized_form = re.sub(r"[\s_#-]+", ":", clean_lower)
+        normalized_form = re.sub(r":+", ":", normalized_form)
+        for sid in valid_supplied_ids:
+            if sid.casefold() == normalized_form:
+                return sid
+
+        # Suffix matching (e.g. "1" matches "experience:1" if only 1 matching kind exists)
+        if clean.isdigit():
+            candidates = [sid for sid in valid_supplied_ids if sid.endswith(f":{clean}")]
+            if len(candidates) == 1:
+                return candidates[0]
+
+        return None
 
     def _validate(
         self, batch: LLMVerdictBatch, requirements: list[Requirement], evidence: list[Evidence],
@@ -1102,18 +1478,22 @@ class GroqMatchEvaluator:
             else:
                 req_supplied_ids = all_evidence_ids
 
-            raw_cited_ids = list(item.evidence_ids or [])
-            valid_cited_ids = [eid for eid in raw_cited_ids if eid in req_supplied_ids]
+            # Normalize and validate all cited evidence IDs
+            raw_cited_ids = list(item.evidence_ids) if item.evidence_ids else []
+            valid_cited_ids: list[str] = []
+            for raw_id in raw_cited_ids:
+                norm_id = self._normalize_evidence_id(raw_id, req_supplied_ids)
+                if norm_id and norm_id not in valid_cited_ids:
+                    valid_cited_ids.append(norm_id)
 
-            # Rule 3: Missing evidence_ids safe single evidence association
-            if not valid_cited_ids and not raw_cited_ids:
-                if len(req_supplied_ids) == 1:
-                    valid_cited_ids = list(req_supplied_ids)
+            # If no valid citations found from raw list, but only 1 evidence item was supplied for this requirement:
+            if not valid_cited_ids and not raw_cited_ids and len(req_supplied_ids) == 1:
+                valid_cited_ids = list(req_supplied_ids)
 
             has_valid_evidence = bool(valid_cited_ids)
 
-            raw_status_str = str(getattr(getattr(item, "status", None), "value", getattr(item, "status", ""))).upper()
-            is_matched_raw = raw_status_str in {"MATCHED", "CONFIRMED"}
+            raw_status_str = str(getattr(item.status, "value", item.status)).upper()
+            is_matched_raw = raw_status_str in {"MATCHED", "MATCH"}
             is_partial_raw = raw_status_str in {"PARTIALLY_MATCHED", "PARTIAL"}
             is_no_match_raw = raw_status_str in {"NO_MATCH", "UNMATCHED", "REJECTED"}
 
@@ -1146,7 +1526,7 @@ class GroqMatchEvaluator:
                 requirement_id=req_id,
                 status=status,
                 confidence=item.confidence if (confirmed or is_no_match_raw) else (item.confidence if raw_status_str == "UNRESOLVED" else 0.0),
-                evidence_ids=valid_cited_ids if confirmed else [],
+                evidence_ids=sorted(valid_cited_ids) if confirmed else [],
                 reasoning=reasoning.strip(),
                 method=method,
                 coverage=coverage_val,
@@ -1176,32 +1556,22 @@ class GroqMatchEvaluator:
         ]
         content = json.dumps({"requirements": req_list, "evidence": ev_list})
         system_prompt = (
-            "You are an enterprise AI Resume Matching Evaluator. Your job is to strictly evaluate whether supplied Job Description (JD) requirements are satisfied by the supplied candidate resume evidence.\n\n"
-            "EVALUATION STATUS DEFINITIONS:\n"
-            "- MATCHED: The candidate evidence contains direct or legitimately equivalent proof satisfying the requirement.\n"
-            "- PARTIALLY_MATCHED: The candidate evidence clearly satisfies a meaningful portion of a compound or complex requirement, but an important part remains unsupported.\n"
-            "- NO_MATCH: The candidate evidence contains no meaningful or relevant proof to support the requirement.\n"
-            "- UNRESOLVED: The candidate evidence is ambiguous, contradictory, or insufficient to establish a conclusive verdict.\n\n"
-            "SEMANTIC EVALUATION RULES:\n"
-            "1. RULE 1 (Exact Match): If candidate evidence contains explicit skill/capability, return MATCHED.\n"
-            "2. RULE 2 (Legitimate Semantic Equivalence): Evaluate meaning, not verbatim wording. Equivalent technical phrasing satisfies requirements:\n"
-            "   - 'Developed backend API endpoints' satisfies 'Build REST APIs' if API context exists.\n"
-            "   - 'Implemented responsive React user interfaces' satisfies 'responsive web interfaces'.\n"
-            "   - 'Identified root causes and fixed application issues' satisfies 'debugging and troubleshooting'.\n"
-            "   - 'Created documentation for ETL processes' satisfies 'Document data workflows'.\n"
-            "   - 'Monitored Airflow DAGs, investigated failed tasks, and resolved pipeline errors' satisfies 'Monitor pipeline execution and troubleshoot failures'.\n"
-            "3. RULE 3 (Project Evidence): For project requirements, evaluate all project fields (name, description, technologies, deliverables, highlights, summary, responsibilities, outcomes, details). A capability demonstrated in project implementation counts as project evidence even if exact JD phrase is absent.\n"
-            "4. RULE 4 (Internship/Experience Evidence): Technical internships and professional experience are valid experiential proof for responsibilities and skills. Do not reject evidence merely because it appears under internship or work experience.\n"
-            "5. RULE 5 (Skills-Only Limitation): For simple SKILL requirements, a skill-list mention is MATCHED (e.g., JD: MongoDB -> Resume skills: MongoDB -> MATCHED). However, for a RESPONSIBILITY or PROJECT requirement, a skill-list keyword ALONE without experiential context in experience/projects is insufficient to claim the responsibility was performed.\n"
-            "6. RULE 6 (Compound Requirements): Decompose compound requirements into key concepts. If all key concepts are supported, return MATCHED. If a major portion is demonstrated but a key technology/concept is missing, return PARTIALLY_MATCHED (do not invent missing technologies).\n"
-            "7. RULE 7 (Technology Distinction): Semantic flexibility applies to wording/phrasing, NOT to distinct technologies. Strictly enforce technology differences:\n"
-            "   - React != Angular, Node.js != Python, MongoDB != PostgreSQL, AWS != Azure, Docker != Kubernetes, Git != GitHub Actions, Jest != Selenium.\n"
-            "8. RULE 8 (Responsibility Semantics): Evaluate by actual action performed. Do not over-infer unsupported scope (e.g. 'Worked with developers' satisfies developer collaboration, but does NOT satisfy 'stakeholder collaboration' unless stakeholders are explicitly mentioned).\n"
-            "9. RULE 9 (Partial vs Unresolved): Use PARTIALLY_MATCHED when key concepts are satisfied but part is missing. Use UNRESOLVED only when context is genuinely ambiguous or insufficient. Do NOT use UNRESOLVED merely because wording differs.\n"
-            "10. RULE 10 (No Evidence): If no supplied evidence supports the requirement, return NO_MATCH or UNRESOLVED. Never manufacture evidence.\n"
-            "11. RULE 11 (Evidence Citation): Every MATCHED or PARTIALLY_MATCHED verdict MUST cite one or more valid evidence_ids from the supplied evidence.\n\n"
+            "You are an enterprise AI Resume Matching Evaluator. Evaluate whether supplied candidate evidence satisfies JD requirements.\n\n"
+            "STATUS DEFINITIONS:\n"
+            "- MATCHED: Direct or equivalent proof satisfying requirement.\n"
+            "- PARTIALLY_MATCHED: Satisfies part of compound/complex requirement, but key part unsupported.\n"
+            "- NO_MATCH: No relevant proof.\n"
+            "- UNRESOLVED: Ambiguous or insufficient evidence.\n\n"
+            "EVALUATION RULES & HIERARCHY:\n"
+            "1. TIER 1 (Direct): Explicit mention of required skill/responsibility -> MATCHED.\n"
+            "2. TIER 2 (Semantic Equivalents): Technical equivalence, industry aliases, or standardized concepts (JWT/RBAC->auth, async/await->asynchronous, CI/CD pipelines, MongoDB/PostgreSQL->schema design, REST endpoints->REST APIs, root cause->debugging) -> MATCHED.\n"
+            "3. TIER 3 (Implementation): Practical proof in projects, experience, or internships is valid.\n"
+            "4. TIER 4 (Strict Negative Boundaries): General language (JS) NEVER satisfies framework (Next.js). React NEVER satisfies Next.js without proof. Backend NEVER satisfies Docker/AWS without proof. Do not invent evidence.\n"
+            "5. Rule 5 (Compound): Decompose compound expectations. If major portion shown but key concept missing -> PARTIALLY_MATCHED.\n"
+            "6. Rule 6 (Citations): Every MATCHED or PARTIALLY_MATCHED verdict MUST cite valid evidence_ids.\n\n"
+            "DOMAINS: Software Engineering, QA / Testing, SecOps / SOC, Data Engineering, DevOps / SRE, Compound Responsibilities.\n\n"
             "OUTPUT FORMAT:\n"
-            "Return JSON matching: {\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|PARTIALLY_MATCHED|NO_MATCH|UNRESOLVED\",\"confidence\":0.0-1.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"string\"}]}"
+            "Return JSON: {\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|PARTIALLY_MATCHED|NO_MATCH|UNRESOLVED\",\"confidence\":0.0-1.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"1 concise sentence under 15 words.\"}]}"
         )
         return {
             "model": self.settings.GROQ_MODEL,
@@ -1220,7 +1590,7 @@ class HybridMatchingService:
         self.evaluator = evaluator or GroqMatchEvaluator(self.settings)
         self.matcher = DeterministicRequirementMatcher()
 
-    async def match(self, job: Any, resume: Any, extracted: Any, config: Any) -> tuple[Any, list[MatchVerdict]]:
+    async def match(self, job: Any, resume: Any, extracted: Any, config: Any = None) -> tuple[Any, list[MatchVerdict]]:
         requirements = RequirementBuilder.build(job, config)
         evidence = EvidenceBuilder.build(extracted)
         deterministic = [self.matcher.match(item, resume, evidence) for item in requirements]
@@ -1228,7 +1598,6 @@ class HybridMatchingService:
             self.settings.HYBRID_MATCHING_KEYWORD_OVERLAP_THRESHOLD,
             self.settings.HYBRID_MATCHING_MAX_EVIDENCE_PER_REQUIREMENT,
         )
-        contextual = {item.requirement_id: item for item in requirements if item.kind in _CONTEXTUAL}
         supplied: dict[str, Evidence] = {}
         allowed_evidence: dict[str, set[str]] = {}
         unresolved: list[Requirement] = []
@@ -1238,7 +1607,7 @@ class HybridMatchingService:
             requirement = requirement_by_id.get(verdict.requirement_id)
             if not requirement:
                 continue
-            # Rule 1: Deterministic MATCHED requirements MUST NOT be sent to LLM
+            # Rule 1: Canonical / deterministic success -> MATCHED -> STOP (Do NOT call LLM)
             if verdict.status == MatchStatus.MATCHED:
                 logger.info(
                     "matching_routing_decision",
@@ -1251,15 +1620,13 @@ class HybridMatchingService:
                 )
                 continue
 
-            # Rule 2: Deterministic UNMET (NO_MATCH/UNRESOLVED/PARTIALLY_MATCHED) requirements sent to LLM if evidence exists
+            # Rule 2: Canonical matching FAILS -> Check candidate evidence via prefilter
             selected = prefilter.select(requirement, evidence)
-            if selected or requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL, RequirementKind.PROJECT_RELEVANCE}:
+            if selected:
+                # Evidence exists -> route to LLM fallback
                 unresolved.append(requirement)
-                if selected:
-                    supplied.update((item.evidence_id, item) for item in selected)
-                    allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
-                else:
-                    allowed_evidence[requirement.requirement_id] = set()
+                supplied.update((item.evidence_id, item) for item in selected)
+                allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
                 logger.info(
                     "matching_routing_decision",
                     requirement_id=requirement.requirement_id,
@@ -1270,7 +1637,10 @@ class HybridMatchingService:
                     evidence_count=len(selected),
                 )
             else:
+                # Rule 3: Canonical fails + genuinely NO candidate evidence -> NO_MATCH (0 LLM calls)
                 allowed_evidence[requirement.requirement_id] = set()
+                verdict.status = MatchStatus.NO_MATCH
+                verdict.reasoning = "No candidate evidence available for prefilter."
                 logger.info(
                     "matching_routing_decision",
                     requirement_id=requirement.requirement_id,
@@ -1315,7 +1685,37 @@ class HybridMatchingService:
                 except Exception:
                     pass
         enriched = SimpleNamespace(projects=projects)
-        counts = {status.value: sum(v.status == status for v in fused) for status in MatchStatus}
-        logger.info("hybrid_requirement_matching_completed", requirement_count=len(requirements), **counts)
-        logger.info("hybrid_llm_decisions_validated", requested_count=len(unresolved), accepted_count=sum(v.method == MatchMethod.LLM_CONFIRMED for v in fused))
+
+        # Routing and Execution Metrics Calculation
+        total_requirements = len(requirements)
+        canonical_matched_count = sum(1 for v in deterministic if v.status == MatchStatus.MATCHED)
+        canonical_unmatched_count = total_requirements - canonical_matched_count
+        llm_submitted_count = len(unresolved)
+        no_evidence_no_llm_count = total_requirements - canonical_matched_count - llm_submitted_count
+        llm_eligible_count = llm_submitted_count
+
+        llm_verdicts = [v for v in fused if v.method in {MatchMethod.LLM_CONFIRMED, MatchMethod.LLM_REJECTED, MatchMethod.LLM_UNRESOLVED}]
+        confirmed_count = sum(1 for v in llm_verdicts if v.method == MatchMethod.LLM_CONFIRMED)
+        rejected_count = sum(1 for v in llm_verdicts if v.method == MatchMethod.LLM_REJECTED)
+        unresolved_count = sum(1 for v in llm_verdicts if v.method == MatchMethod.LLM_UNRESOLVED)
+        validation_failure_count = sum(1 for v in llm_verdicts if "(Rejected: No valid candidate evidence ID cited for match)" in getattr(v, "reasoning", ""))
+        validated_count = len(llm_verdicts)
+
+        logger.info(
+            "hybrid_llm_decisions_validated",
+            total_requirements=total_requirements,
+            canonical_matched_count=canonical_matched_count,
+            canonical_unmatched_count=canonical_unmatched_count,
+            llm_eligible_count=llm_eligible_count,
+            llm_submitted_count=llm_submitted_count,
+            llm_confirmed_count=confirmed_count,
+            llm_rejected_count=rejected_count,
+            llm_unresolved_count=unresolved_count,
+            no_evidence_no_llm_count=no_evidence_no_llm_count,
+            validation_failure_count=validation_failure_count,
+            requested_count=llm_submitted_count,
+            validated_count=validated_count,
+            accepted_count=confirmed_count,
+            invariant_holds=(canonical_matched_count + llm_submitted_count + no_evidence_no_llm_count == total_requirements),
+        )
         return enriched, fused
