@@ -631,8 +631,8 @@ export default function CreateRequisition() {
                         )}
                         {extractedJd?.education_disciplines && extractedJd.education_disciplines.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
-                            {extractedJd.education_disciplines.map((d) => (
-                              <span key={d} className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">{d}</span>
+                            {extractedJd.education_disciplines.map((d, i) => (
+                              <span key={`${d}-${i}`} className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">{d}</span>
                             ))}
                           </div>
                         )}
@@ -653,8 +653,8 @@ export default function CreateRequisition() {
                             : extractedJd?.skills || []
                           )
                             .filter(isValidSkill)
-                            .map((s) => (
-                              <span key={s} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
+                            .map((s, i) => (
+                              <span key={`${s}-${i}`} className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">{s}</span>
                             ))}
                         </div>
                       </div>
@@ -668,8 +668,8 @@ export default function CreateRequisition() {
                       <div className="space-y-1.5 w-full">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preferred Skills</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {extractedJd.preferred_skills.filter(isValidSkill).map((ps) => (
-                            <span key={ps} className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold border border-indigo-100">{ps}</span>
+                          {extractedJd.preferred_skills.filter(isValidSkill).map((ps, i) => (
+                            <span key={`${ps}-${i}`} className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold border border-indigo-100">{ps}</span>
                           ))}
                         </div>
                       </div>
@@ -697,8 +697,8 @@ export default function CreateRequisition() {
                           {(showAllResponsibilities
                             ? extractedJd.responsibilities
                             : extractedJd.responsibilities.slice(0, 3)
-                          ).map((r) => (
-                            <li key={r} className="flex items-start gap-2 text-xs text-slate-600">
+                          ).map((r, i) => (
+                            <li key={`req-resp-${i}`} className="flex items-start gap-2 text-xs text-slate-600">
                               <span className="w-1 h-1 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
                               {r}
                             </li>

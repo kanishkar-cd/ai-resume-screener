@@ -60,11 +60,10 @@ export default function ProjectHeader() {
               type="button"
               key={label}
               onClick={() => navigate(path)}
-              className={`border-b-2 px-3 py-3 text-[11px] font-semibold cursor-pointer ${
-                active
+              className={`border-b-2 px-3 py-3 text-[11px] font-semibold cursor-pointer ${active
                   ? 'border-blue-600 text-blue-700'
                   : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+                }`}
             >
               {label}
             </button>

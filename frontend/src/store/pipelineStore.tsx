@@ -17,7 +17,7 @@ const LEGACY_PROJECT_STORAGE_KEY = 'ai-resume-screener.active-project-id'
 
 const emptyState: PipelineState = {
   currentStep: 1,
-  completedSteps: [1, 2, 3, 4, 5],
+  completedSteps: [],
   projectId: null,
   selectedProject: null,
   jdDocumentId: null,
@@ -55,11 +55,11 @@ function restorePipelineState(): PipelineState {
       upload: {
         jobDescription: restored.upload?.jobDescription
           ? {
-              ...restored.upload.jobDescription,
-              uploadedAt: restored.upload.jobDescription.uploadedAt
-                ? new Date(restored.upload.jobDescription.uploadedAt)
-                : undefined,
-            }
+            ...restored.upload.jobDescription,
+            uploadedAt: restored.upload.jobDescription.uploadedAt
+              ? new Date(restored.upload.jobDescription.uploadedAt)
+              : undefined,
+          }
           : null,
         resumes: (restored.upload?.resumes ?? []).map((resume: any) => ({
           ...resume,
@@ -85,60 +85,60 @@ type Action =
   | { type: 'SELECT_PROJECT'; payload: NonNullable<PipelineState['selectedProject']> }
   | { type: 'SET_JD_DOCUMENT_ID'; payload: string | null }
   | {
-      type: 'SET_JD_PROCESSING'
-      payload: {
-        status?: JdProcessingStatus | null
-        stage?: JdProcessingStage | null
-        normalized?: boolean
-      }
+    type: 'SET_JD_PROCESSING'
+    payload: {
+      status?: JdProcessingStatus | null
+      stage?: JdProcessingStage | null
+      normalized?: boolean
     }
+  }
   | { type: 'SET_JD'; payload: UploadedFile | null }
   | { type: 'ADD_RESUMES'; payload: UploadedFile[] }
   | { type: 'SET_RESUMES'; payload: UploadedFile[] }
   | { type: 'REMOVE_RESUME'; payload: string }
   | {
-      type: 'UPDATE_RESUME'
-      payload: { id: string; patch: Partial<UploadedFile> }
-    }
+    type: 'UPDATE_RESUME'
+    payload: { id: string; patch: Partial<UploadedFile> }
+  }
   | {
-      type: 'UPSERT_RESUME_PROCESSING'
-      payload: ResumeProcessingState
-    }
+    type: 'UPSERT_RESUME_PROCESSING'
+    payload: ResumeProcessingState
+  }
   | { type: 'CLEAR_UPLOAD' }
   | { type: 'UPDATE_WEIGHT'; payload: { id: string; weight: number } }
   | {
-      type: 'SET_WEIGHT_CONFIG_SAVED'
-      payload: { saved: boolean; weightConfigId?: string | null }
-    }
+    type: 'SET_WEIGHT_CONFIG_SAVED'
+    payload: { saved: boolean; weightConfigId?: string | null }
+  }
   | {
-      type: 'SET_SCORING_RESULT'
-      payload: {
-        scoring: PipelineState['projectScoring']
-        candidates: Candidate[]
-      }
+    type: 'SET_SCORING_RESULT'
+    payload: {
+      scoring: PipelineState['projectScoring']
+      candidates: Candidate[]
     }
+  }
   | { type: 'REMOVE_RESUME'; payload: string }
   | {
-      type: 'UPDATE_RESUME'
-      payload: { id: string; patch: Partial<UploadedFile> }
-    }
+    type: 'UPDATE_RESUME'
+    payload: { id: string; patch: Partial<UploadedFile> }
+  }
   | {
-      type: 'UPSERT_RESUME_PROCESSING'
-      payload: ResumeProcessingState
-    }
+    type: 'UPSERT_RESUME_PROCESSING'
+    payload: ResumeProcessingState
+  }
   | { type: 'CLEAR_UPLOAD' }
   | { type: 'UPDATE_WEIGHT'; payload: { id: string; weight: number } }
   | {
-      type: 'SET_WEIGHT_CONFIG_SAVED'
-      payload: { saved: boolean; weightConfigId?: string | null }
-    }
+    type: 'SET_WEIGHT_CONFIG_SAVED'
+    payload: { saved: boolean; weightConfigId?: string | null }
+  }
   | {
-      type: 'SET_SCORING_RESULT'
-      payload: {
-        scoring: PipelineState['projectScoring']
-        candidates: Candidate[]
-      }
+    type: 'SET_SCORING_RESULT'
+    payload: {
+      scoring: PipelineState['projectScoring']
+      candidates: Candidate[]
     }
+  }
   | { type: 'SET_SCORING_ERROR'; payload: string | null }
   | { type: 'SET_RANKED_CANDIDATES'; payload: Candidate[] }
   | { type: 'SET_PROCESSING'; payload: boolean }
@@ -150,35 +150,35 @@ type Action =
   | { type: 'TOGGLE_SHORTLIST_CANDIDATE'; payload: string }
   | { type: 'SET_SHORTLIST_CANDIDATES'; payload: string[] }
   | {
-      type: 'SEND_TO_ASSESSMENT'
-      payload: {
-        candidateIds: string[]
-        reqRef: string
-        linksMap?: Record<string, string | null>
-      }
+    type: 'SEND_TO_ASSESSMENT'
+    payload: {
+      candidateIds: string[]
+      reqRef: string
+      linksMap?: Record<string, string | null>
     }
+  }
   | {
-      type: 'UPDATE_ASSESSMENT_RESULTS'
-      payload: {
-        reqRef?: string
-        results: Array<{
-          candidateId?: string
-          externalCandidateRef?: string
-          email?: string
-          sessionStatus?: string
-          scoreStatus?: string
-          compositeScore?: number | null
-          compositeScoreBand?: string | null
-          identityStatus?: string | null
-          isIdentityVerified?: boolean | null
-          startedAt?: string | null
-          submittedAt?: string | null
-          expiresAt?: string | null
-          decision?: string | null
-          assessmentLink?: string | null
-        }>
-      }
+    type: 'UPDATE_ASSESSMENT_RESULTS'
+    payload: {
+      reqRef?: string
+      results: Array<{
+        candidateId?: string
+        externalCandidateRef?: string
+        email?: string
+        sessionStatus?: string
+        scoreStatus?: string
+        compositeScore?: number | null
+        compositeScoreBand?: string | null
+        identityStatus?: string | null
+        isIdentityVerified?: boolean | null
+        startedAt?: string | null
+        submittedAt?: string | null
+        expiresAt?: string | null
+        decision?: string | null
+        assessmentLink?: string | null
+      }>
     }
+  }
 
 function reducer(state: PipelineState, action: Action): PipelineState {
   switch (action.type) {
@@ -209,10 +209,11 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           meritScore: c?.overallScore || 0,
           rank: c?.rank || 0,
           status: 'Sent' as const,
+          sessionStatus: 'not_started',
+          scoreStatus: 'not_graded',
+          compositeScore: null,
+          compositeScoreBand: null,
           sentAt: new Date().toLocaleDateString(),
-          techScore: Math.floor(75 + Math.random() * 20),
-          codingScore: Math.floor(80 + Math.random() * 18),
-          overallResult: 'PASSED' as const,
           assessmentLink: action.payload.linksMap?.[cid] || null,
         }
       })
@@ -229,28 +230,14 @@ function reducer(state: PipelineState, action: Action): PipelineState {
     }
 
     case 'UPDATE_ASSESSMENT_RESULTS': {
-      const existing = state.assessmentCandidates || []
       const results = action.payload.results || []
-      const merged = [...existing]
+      const candidatesMap = new Map(state.candidates.map((c) => [c.id, c]))
 
-      for (const res of results) {
-        const targetId = res.candidateId || res.externalCandidateRef || (res as any).id
-        const targetEmail = (res.email || '').trim().toLowerCase()
-        const targetName = ((res as any).candidateName || (res as any).name || '').trim().toLowerCase()
+      const newItems: PipelineState['assessmentCandidates'] = results.map((res, i) => {
+        const targetId = res.candidateId || res.externalCandidateRef || (res as any).id || `cand_${i}`
+        const c = candidatesMap.get(targetId)
 
-        let idx = -1
-        if (targetId) {
-          idx = merged.findIndex((m) => m.id === targetId || (m as any).candidateId === targetId || (m as any).externalCandidateRef === targetId)
-        }
-        if (idx < 0 && targetEmail) {
-          idx = merged.findIndex((m) => (m.email || '').trim().toLowerCase() === targetEmail)
-        }
-        if (idx < 0 && targetName) {
-          idx = merged.findIndex((m) => (m.candidateName || '').trim().toLowerCase() === targetName)
-        }
-
-        // Parse score robustly
-        let scoreVal: number | null | undefined = undefined
+        let scoreVal: number | null = null
         const rawScore = res.compositeScore !== undefined && res.compositeScore !== null
           ? res.compositeScore
           : ((res as any).composite_score !== undefined && (res as any).composite_score !== null
@@ -266,65 +253,34 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           }
         }
 
-        // Parse band robustly
-        let bandVal = res.compositeScoreBand || (res as any).composite_score_band || (res as any).compositescoreband || (res as any).score_band || (res as any).scoreband || (res as any).scoreBand || null
-        if (!bandVal && scoreVal !== undefined && scoreVal !== null) {
-          if (scoreVal >= 85) bandVal = 'Excellent'
-          else if (scoreVal >= 70) bandVal = 'Good'
-          else if (scoreVal >= 55) bandVal = 'Average'
-          else bandVal = 'Below Bar'
-        }
+        const bandVal = res.compositeScoreBand || (res as any).composite_score_band || (res as any).score_band || null
+        const sessStatus = (res.sessionStatus || (res as any).session_status || 'not_started').toLowerCase()
 
-        if (idx >= 0) {
-          const resolvedScore = scoreVal !== undefined ? scoreVal : merged[idx].compositeScore
-          const resolvedBand = bandVal || merged[idx].compositeScoreBand
-
-          merged[idx] = {
-            ...merged[idx],
-            candidateName: (res as any).candidateName || (res as any).name || merged[idx].candidateName,
-            email: res.email || merged[idx].email,
-            sessionStatus: res.sessionStatus || (res as any).session_status || merged[idx].sessionStatus,
-            scoreStatus: res.scoreStatus || (res as any).score_status || (resolvedScore !== undefined && resolvedScore !== null ? 'graded' : merged[idx].scoreStatus),
-            compositeScore: resolvedScore,
-            compositeScoreBand: resolvedBand,
-            identityStatus: res.identityStatus || (res as any).identity_status || merged[idx].identityStatus,
-            isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : ((res as any).is_identity_verified !== undefined ? (res as any).is_identity_verified : merged[idx].isIdentityVerified),
-            startedAt: res.startedAt || (res as any).started_at || merged[idx].startedAt,
-            submittedAt: res.submittedAt || (res as any).submitted_at || merged[idx].submittedAt,
-            expiresAt: res.expiresAt || (res as any).expires_at || merged[idx].expiresAt,
-            decision: res.decision || merged[idx].decision,
-            assessmentLink: res.assessmentLink || (res as any).assessment_link || merged[idx].assessmentLink,
-            status: (res.sessionStatus === 'submitted' || (res as any).session_status === 'submitted') ? 'Submitted' : (res.sessionStatus || (res as any).session_status || merged[idx].status),
-          }
-        } else if (targetId || targetName) {
-          merged.push({
-            id: targetId || `cand_${Date.now()}`,
-            candidateName: (res as any).candidateName || (res as any).name || 'Candidate',
-            email: res.email || '',
-            currentTitle: 'Applicant',
-            reqRef: action.payload.reqRef || '',
-            meritScore: 0,
-            rank: 0,
-            status: res.sessionStatus === 'submitted' ? 'Submitted' : ((res.sessionStatus || 'Sent') as any),
-            sentAt: new Date().toLocaleDateString(),
-            techScore: 0,
-            codingScore: 0,
-            overallResult: 'PASSED',
-            assessmentLink: res.assessmentLink || (res as any).assessment_link || null,
-            sessionStatus: res.sessionStatus || (res as any).session_status || 'not_started',
-            scoreStatus: res.scoreStatus || (res as any).score_status || (scoreVal !== undefined && scoreVal !== null ? 'graded' : 'not_graded'),
-            compositeScore: scoreVal ?? null,
-            compositeScoreBand: bandVal ?? null,
-            identityStatus: res.identityStatus || (res as any).identity_status,
-            isIdentityVerified: res.isIdentityVerified ?? (res as any).is_identity_verified ?? null,
-            startedAt: res.startedAt || (res as any).started_at,
-            submittedAt: res.submittedAt || (res as any).submitted_at,
-            expiresAt: res.expiresAt || (res as any).expires_at,
-            decision: res.decision,
-          })
+        return {
+          id: targetId,
+          candidateName: (res as any).candidateName || (res as any).name || c?.name || 'Candidate',
+          email: res.email || c?.email || '',
+          currentTitle: c?.currentTitle || 'Applicant',
+          reqRef: action.payload.reqRef || '',
+          meritScore: c?.overallScore || 0,
+          rank: c?.rank || i + 1,
+          status: (sessStatus === 'submitted' || sessStatus === 'completed') ? 'Submitted' : 'Sent',
+          sentAt: new Date().toLocaleDateString(),
+          assessmentLink: res.assessmentLink || (res as any).assessment_link || null,
+          sessionStatus: sessStatus,
+          scoreStatus: res.scoreStatus || (res as any).score_status || (scoreVal !== null ? 'graded' : 'not_graded'),
+          compositeScore: scoreVal,
+          compositeScoreBand: bandVal,
+          identityStatus: res.identityStatus || (res as any).identity_status || null,
+          isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : ((res as any).is_identity_verified ?? null),
+          startedAt: res.startedAt || (res as any).started_at || null,
+          submittedAt: res.submittedAt || (res as any).submitted_at || null,
+          expiresAt: res.expiresAt || (res as any).expires_at || null,
+          decision: res.decision || null,
         }
-      }
-      return { ...state, assessmentCandidates: merged }
+      })
+
+      return { ...state, assessmentCandidates: newItems }
     }
 
     case 'RESET_PIPELINE':
@@ -380,10 +336,10 @@ function reducer(state: PipelineState, action: Action): PipelineState {
           action.payload === null ? null : state.jdDocumentId,
         ...(action.payload === null
           ? {
-              jdProcessingStatus: null,
-              jdProcessingStage: null,
-              jdNormalized: false,
-            }
+            jdProcessingStatus: null,
+            jdProcessingStage: null,
+            jdNormalized: false,
+          }
           : {}),
       }
 

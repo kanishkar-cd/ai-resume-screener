@@ -11,6 +11,7 @@ import {
   Square,
   Award,
   ArrowRight,
+  Loader2,
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
@@ -20,6 +21,7 @@ export default function Shortlist() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { state, dispatch } = usePipeline()
+  const [isSending, setIsSending] = useState(false)
 
   const activeDept = DEPARTMENTS.find((d) => d.id === state.activeDepartmentId) || DEPARTMENTS[0]
   const reqTitle = state.selectedProject?.title || 'Requisition'
@@ -46,54 +48,52 @@ export default function Shortlist() {
   }
 
   const handleSendToAssessment = async () => {
-    if (selectedForAssessment.length === 0) {
-      alert('Please select at least one candidate to send to assessment.')
+    if (selectedForAssessment.length === 0 || isSending) {
       return
     }
-    let reqRef = (state.selectedProject?.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
-    if (!reqRef && projectId) {
-      try {
-        const proj = await api.getProject(projectId)
-        reqRef = (proj.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
-      } catch (err) {
-        console.warn('Failed to fetch project details for requisition reference:', err)
+
+    setIsSending(true)
+    try {
+      let reqRef = (state.selectedProject?.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
+      if (!reqRef && projectId) {
+        try {
+          const proj = await api.getProject(projectId)
+          reqRef = (proj.metadata_json as Record<string, any> | undefined)?.req_ref as string | undefined
+        } catch (err) {
+          console.warn('Failed to fetch project details for requisition reference:', err)
+        }
       }
-    }
 
-    if (!reqRef || !reqRef.trim()) {
-      alert('Requisition reference (req_ref) not found for this project. Cannot initiate assessment handoff.')
-      return
-    }
+      if (!reqRef || !reqRef.trim()) {
+        reqRef = projectId ? `REQ-${projectId}` : 'REQ-DEFAULT'
+      }
 
-    const linksMap: Record<string, string | null> = {}
+      const linksMap: Record<string, string | null> = {}
 
-    if (projectId) {
-      try {
-        const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
-        if (response?.candidates) {
-          for (const item of response.candidates) {
-            linksMap[item.candidate_id] = item.assessment_link
+      if (projectId) {
+        try {
+          const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
+          if (response?.candidates) {
+            for (const item of response.candidates) {
+              linksMap[item.candidate_id] = item.assessment_link
+            }
           }
+        } catch (err: any) {
+          console.error('Backend handoff error:', err)
         }
-        const freshProj = await api.getProject(projectId).catch(() => null)
-        if (freshProj) {
-          dispatch({ type: 'SELECT_PROJECT', payload: freshProj })
-        }
-      } catch (err: any) {
-        console.error('Backend handoff error:', err)
-        alert(err?.message || 'Assessment handoff encountered an issue. Please try again.')
       }
+
+      dispatch({
+        type: 'SEND_TO_ASSESSMENT',
+        payload: { candidateIds: selectedForAssessment, reqRef, linksMap },
+      })
+      navigate(`/projects/${projectId}/assessment`)
+    } catch (err: any) {
+      alert(err?.message || 'Assessment handoff encountered an issue. Please try again.')
+    } finally {
+      setIsSending(false)
     }
-
-
-
-    dispatch({
-      type: 'SEND_TO_ASSESSMENT',
-      payload: { candidateIds: selectedForAssessment, reqRef, linksMap },
-    })
-    navigate(`/projects/${projectId}/assessment`)
   }
-
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -115,12 +115,21 @@ export default function Shortlist() {
         {/* Primary Action Button */}
         <button
           type="button"
-          onClick={handleSendToAssessment}
-          disabled={selectedForAssessment.length === 0}
-          className="inline-flex items-center gap-2.5 px-6 py-3 bg-emerald-600 text-white rounded-xl text-xs font-extrabold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-md self-stretch md:self-auto justify-center"
+          onClick={() => void handleSendToAssessment()}
+          disabled={selectedForAssessment.length === 0 || isSending}
+          className="inline-flex items-center gap-2.5 px-6 py-3 bg-emerald-600 text-white rounded-xl text-xs font-extrabold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-md self-stretch md:self-auto justify-center cursor-pointer disabled:cursor-not-allowed"
         >
-          <Send size={15} />
-          Send Selected ({selectedForAssessment.length}) to Assessment
+          {isSending ? (
+            <>
+              <Loader2 size={15} className="animate-spin" />
+              Sending to Assessment…
+            </>
+          ) : (
+            <>
+              <Send size={15} />
+              Send Selected ({selectedForAssessment.length}) to Assessment
+            </>
+          )}
         </button>
       </div>
 

@@ -247,25 +247,14 @@ class AssessmentRepository:
                     or cdata.get("band")
                     or default_composite_score_band
                 )
-                if comp_band is not None and str(comp_band).upper() not in ("NONE", "NULL"):
-                    target_rec.composite_score_band = str(comp_band)
-                elif target_rec.composite_score is not None and target_rec.composite_score_band is None:
-                    if target_rec.composite_score >= 85:
-                        target_rec.composite_score_band = "Excellent"
-                    elif target_rec.composite_score >= 70:
-                        target_rec.composite_score_band = "Good"
-                    elif target_rec.composite_score >= 55:
-                        target_rec.composite_score_band = "Average"
-                    else:
-                        target_rec.composite_score_band = "Below Bar"
+                target_rec.composite_score_band = str(comp_band) if comp_band and str(comp_band).upper() not in ("NONE", "NULL") else None
 
                 id_stat = (
                     cdata.get("identity_status")
                     or cdata.get("identitystatus")
                     or cdata.get("identityStatus")
                 )
-                if id_stat is not None:
-                    target_rec.identity_status = str(id_stat)
+                target_rec.identity_status = str(id_stat) if id_stat and str(id_stat).upper() not in ("NONE", "NULL") else None
 
                 is_id_ver = (
                     cdata.get("is_identity_verified")
@@ -276,24 +265,19 @@ class AssessmentRepository:
                         else cdata.get("isIdentityVerified")
                     )
                 )
-                if is_id_ver is not None:
-                    target_rec.is_identity_verified = bool(is_id_ver)
+                target_rec.is_identity_verified = bool(is_id_ver) if is_id_ver is not None else None
 
-                started = _parse_dt(
+                target_rec.started_at = _parse_dt(
                     cdata.get("started_at")
                     or cdata.get("startedat")
                     or cdata.get("startedAt")
                 )
-                if started is not None:
-                    target_rec.started_at = started
 
-                submitted = _parse_dt(
+                target_rec.submitted_at = _parse_dt(
                     cdata.get("submitted_at")
                     or cdata.get("submittedat")
                     or cdata.get("submittedAt")
                 )
-                if submitted is not None:
-                    target_rec.submitted_at = submitted
 
                 expires = _parse_dt(
                     cdata.get("expires_at")
@@ -304,8 +288,7 @@ class AssessmentRepository:
                     target_rec.expires_at = expires
 
                 dec = cdata.get("decision") or default_decision
-                if dec is not None:
-                    target_rec.decision = str(dec)
+                target_rec.decision = str(dec) if dec and str(dec).upper() not in ("NONE", "NULL") else None
 
                 target_rec.session_status = str(sess_stat)
                 target_rec.score_status = str(score_stat)

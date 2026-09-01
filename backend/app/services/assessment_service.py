@@ -127,8 +127,7 @@ class AssessmentService:
         else:
             batch_category = "FRESHER"
 
-        extracted_candidates_data = []
-        for doc_id in candidate_ids:
+        async def _load_candidate(doc_id: UUID) -> dict[str, Any]:
             try:
                 document = await self.documents.get_document(doc_id)
             except SQLAlchemyError as exc:
@@ -147,13 +146,10 @@ class AssessmentService:
             email = (getattr(extracted, "email", None) if extracted else None) or f"candidate_{str(doc_id)[:8]}@example.com"
             phone = getattr(extracted, "phone", "") if extracted and getattr(extracted, "phone", None) else ""
 
-            # Calculate total experience months and individual experience tier
             exp_items = (getattr(extracted, "experience", None) if extracted else None) or []
             total_months = sum(item.get("duration_months") or 0 for item in exp_items if isinstance(item, dict))
 
             category, experience_tier = calibrate_experience(total_months)
-            if category == "EXPERIENCED":
-                batch_category = "EXPERIENCED"
 
             ai_score = 0.0
             if self.scores is not None:
@@ -166,7 +162,7 @@ class AssessmentService:
 
             exp_years = round(total_months / 12.0, 1)
 
-            extracted_candidates_data.append({
+            return {
                 "doc_id": doc_id,
                 "candidate_name": candidate_name,
                 "email": email,
@@ -177,7 +173,13 @@ class AssessmentService:
                 "total_months": total_months,
                 "exp_years": exp_years,
                 "category": category,
-            })
+            }
+
+        extracted_candidates_data = await asyncio.gather(*[_load_candidate(doc_id) for doc_id in candidate_ids])
+
+        for cdata in extracted_candidates_data:
+            if cdata["category"] == "EXPERIENCED":
+                batch_category = "EXPERIENCED"
 
         for cdata in extracted_candidates_data:
             doc_id = cdata["doc_id"]
@@ -263,6 +265,7 @@ class AssessmentService:
                         cd_map[c_email] = item
 
         items: list[CandidateAssessmentItem] = []
+        assessment_models_to_persist = []
         for i, doc_id in enumerate(candidate_ids):
             meta_item = candidate_meta_map.get(str(doc_id), {})
             cand_email = str(meta_item.get("email", "")).strip().lower()
@@ -305,8 +308,8 @@ class AssessmentService:
             )
 
             if self.assessments is not None and assessment_link:
-                try:
-                    assessment_model = CandidateAssessmentModel(
+                assessment_models_to_persist.append(
+                    CandidateAssessmentModel(
                         project_id=project_id,
                         document_id=doc_id,
                         requisition_ref=effective_req_ref,
@@ -319,9 +322,16 @@ class AssessmentService:
                         session_status="not_started",
                         score_status="not_graded",
                     )
-                    await self.assessments.create_or_update_assessment(assessment_model)
+                )
+
+        if assessment_models_to_persist and self.assessments is not None:
+            async def _persist_one(model: CandidateAssessmentModel) -> None:
+                try:
+                    await self.assessments.create_or_update_assessment(model)
                 except Exception as exc:
-                    logger.warning("[ASSESSMENT_HANDOFF] unable to persist assessment record", document_id=str(doc_id), error=str(exc))
+                    logger.warning("[ASSESSMENT_HANDOFF] unable to persist assessment record", document_id=str(model.document_id), error=str(exc))
+
+            await asyncio.gather(*[_persist_one(model) for model in assessment_models_to_persist])
 
         # Dispatch assessment invitation emails asynchronously in background task
         if getattr(self.cd_recruit.settings, "ENABLE_ASSESSMENT_EMAILS", True):

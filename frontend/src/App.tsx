@@ -19,30 +19,27 @@ import Assessment from '@/pages/Assessment'
 import ProjectRoute from '@/components/layout/ProjectRoute'
 
 function AppRoutes() {
-  const location = useLocation()
   return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/departments" element={<Departments />} />
-        <Route path="/departments/:deptId" element={<DepartmentDashboard />} />
-        <Route path="/departments/:deptId/requisitions/new" element={<CreateRequisition />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/projects/new" element={<CreateRequisition />} />
-        <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
-        <Route path="/projects/:projectId/overview" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
-        <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
-        <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
-        <Route path="/projects/:projectId/candidates" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
-        <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
-        <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
-        <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />
-        <Route path="/projects/:projectId/reports" element={<ProjectRoute><Reports /></ProjectRoute>} />
-        <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </AnimatePresence>
+    <Routes>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/departments" element={<Departments />} />
+      <Route path="/departments/:deptId" element={<DepartmentDashboard />} />
+      <Route path="/departments/:deptId/requisitions/new" element={<CreateRequisition />} />
+      <Route path="/projects" element={<Projects />} />
+      <Route path="/projects/new" element={<CreateRequisition />} />
+      <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
+      <Route path="/projects/:projectId/overview" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
+      <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
+      <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
+      <Route path="/projects/:projectId/candidates" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
+      <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
+      <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
+      <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />
+      <Route path="/projects/:projectId/reports" element={<ProjectRoute><Reports /></ProjectRoute>} />
+      <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
   )
 }
 

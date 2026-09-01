@@ -703,6 +703,12 @@ export default function ResumeUpload() {
         </div>
       </motion.div>
 
+      {uploadError && (
+        <motion.div variants={fadeUp} className="rounded-xl border border-red-200 bg-red-50 p-4 text-[13px] text-red-700 mb-4">
+          {uploadError}
+        </motion.div>
+      )}
+
       {/* Action Footer Bar */}
       <motion.div variants={fadeUp} className="card p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>

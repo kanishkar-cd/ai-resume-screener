@@ -170,6 +170,6 @@ async def get_assessment_status(
         "score_status": poll_result.get("score_status", "not_graded"),
         "composite_score_band": poll_result.get("composite_score_band"),
         "decision": poll_result.get("decision"),
-        "candidates": candidates_list if candidates_list else poll_result.get("candidates", []),
+        "candidates": candidates_list,
     }
 
