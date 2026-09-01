@@ -100,11 +100,7 @@ class BonusService:
                 )
             )
 
-        candidate_months = sum(item.get("duration_months") or 0 for item in (getattr(resume, "experience", None) or []))
-        min_exp_years = float(getattr(config, "min_experience_years", 0) or 0)
-        required_months = max([item.get("minimum_months") or 0 for item in (getattr(job, "experience_requirements", None) or [])] or [round(min_exp_years * 12)])
-        if candidate_months >= required_months + 36:
-            items.append(AdjustmentItem(rule_name="OVER_QUALIFICATION", delta_points=5.0, description="At least three additional years of experience."))
+        # Experience duration weight removed (0% direct weighted contribution)
 
         total = min(cls.CAP, sum(item.delta_points for item in items))
         if sum(item.delta_points for item in items) > cls.CAP:

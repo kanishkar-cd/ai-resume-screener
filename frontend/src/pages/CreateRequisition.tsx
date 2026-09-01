@@ -498,34 +498,6 @@ export default function CreateRequisition() {
         {currentStep === 3 && (
           <div className="space-y-6">
 
-            {/* ─ Recommendation Threshold (Always visible) ─ */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">Screening Threshold</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">Minimum score for a candidate to be recommended</p>
-                </div>
-                <span className="px-5 py-2 bg-blue-600 text-white rounded-xl font-extrabold text-base shadow-sm tabular-nums min-w-[70px] text-center">
-                  {passingScore.toFixed(0)}<span className="text-xs font-semibold opacity-70"> / 100</span>
-                </span>
-              </div>
-              <input
-                type="range"
-                min="10"
-                max="90"
-                step="5"
-                value={passingScore}
-                onChange={(e) => setPassingScore(parseFloat(e.target.value))}
-                className="w-full h-2 bg-slate-100 rounded-full appearance-none cursor-pointer accent-blue-600"
-              />
-              <div className="flex justify-between text-[10px] font-semibold text-slate-400">
-                <span>10 · Open</span>
-                <span>30 · Default</span>
-                <span>60 · Selective</span>
-                <span>90 · Strict</span>
-              </div>
-            </div>
-
             {/* ─ JD Requirements Section / Processing Status ─ */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -786,10 +758,6 @@ export default function CreateRequisition() {
                   <span className="text-slate-400 text-[11px]">Job Description File</span>
                   <p className="font-bold text-slate-900 truncate mt-0.5">{jdFile ? jdFile.name : 'Uploaded'}</p>
                 </div>
-                <div>
-                  <span className="text-slate-400 text-[11px]">Recommendation Threshold</span>
-                  <p className="font-bold text-blue-600 mt-0.5">{passingScore.toFixed(0)} / 100</p>
-                </div>
               </div>
 
               {/* 100% Component Scoring Model Box */}
@@ -801,7 +769,7 @@ export default function CreateRequisition() {
                       <Cpu size={14} className="text-blue-500" />
                       Core Component Evaluation
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-700 font-bold text-[11px]">7 Components</span>
+                    <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-700 font-bold text-[11px]">6 Active Components</span>
                   </div>
                   <div className="flex items-center justify-between font-semibold text-slate-800">
                     <span className="flex items-center gap-2">

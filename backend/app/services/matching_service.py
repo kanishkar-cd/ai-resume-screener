@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import re
 import time
@@ -41,6 +42,33 @@ _CONTEXTUAL = {
     RequirementKind.PROJECT_RELEVANCE,
     RequirementKind.CANDIDATE_ATTRIBUTE,
 }
+
+
+ALLOWED_EVIDENCE_MAP: dict[RequirementKind, set[str]] = {
+    RequirementKind.DEGREE: {"education"},
+    RequirementKind.EXPERIENCE: {"experience"},
+    RequirementKind.CONTEXTUAL_EXPERIENCE: {"experience"},
+    RequirementKind.SKILL: {"skills", "experience", "project", "summary"},
+    RequirementKind.REQUIRED_SKILL: {"skills", "experience", "project", "summary"},
+    RequirementKind.PREFERRED_SKILL: {"skills", "experience", "project", "summary"},
+    RequirementKind.RESPONSIBILITY: {"experience", "project", "summary"},
+    RequirementKind.PROJECT_RELEVANCE: {"project", "experience", "summary"},
+    RequirementKind.CERTIFICATION: {"certification"},
+    RequirementKind.LANGUAGE: {"languages"},
+    RequirementKind.CANDIDATE_ATTRIBUTE: {"skills", "experience", "project", "summary"},
+}
+
+
+def is_entity_compatible(req_kind: RequirementKind | str, evidence_kind: str) -> bool:
+    if isinstance(req_kind, str):
+        try:
+            req_kind = RequirementKind(req_kind)
+        except ValueError:
+            return True
+    allowed = ALLOWED_EVIDENCE_MAP.get(req_kind)
+    if allowed is None:
+        return True
+    return evidence_kind in allowed
 
 
 def _key(value: str) -> str:
@@ -182,7 +210,22 @@ class RequirementBuilder:
             seen_exp_bounds.add(exp_key)
             rows.append((RequirementKind.EXPERIENCE, val.strip(), True, False))
 
-        # 4. Certification, Language, Project requirements (Degree matching disabled)
+        # 4. Education, Certification, Language, Project requirements
+        req_degree = getattr(config, "required_degree", None) or getattr(job, "required_degree", None)
+        if req_degree:
+            if isinstance(req_degree, str) and req_degree.strip() and not RequirementBuilder._is_section_header(req_degree):
+                rows.append((RequirementKind.DEGREE, req_degree.strip(), True, False))
+            elif isinstance(req_degree, list):
+                for deg in req_degree:
+                    if deg and str(deg).strip() and not RequirementBuilder._is_section_header(str(deg)):
+                        rows.append((RequirementKind.DEGREE, str(deg).strip(), True, False))
+
+        for value in list(getattr(job, "degree_requirements", None) or getattr(job, "qualifications", None) or []):
+            if value and str(value).strip() and not RequirementBuilder._is_section_header(str(value)):
+                val_str = str(value).strip()
+                if not any(kind == RequirementKind.DEGREE and _key(val_str) == _key(t) for kind, t, _, _ in rows):
+                    rows.append((RequirementKind.DEGREE, val_str, True, False))
+
         for value in [
             *(getattr(job, "certifications", None) or []),
             *(getattr(config, "required_certifications", None) or []),
@@ -290,7 +333,21 @@ class EvidenceBuilder:
                 evidence_id="summary:1", kind="summary", text=str(summary).strip(),
                 canonical_terms=[],
             ))
-        # Education evidence disabled (0% weight)
+        raw_edu = getattr(extracted, "education", None) or []
+        for index, item in enumerate(raw_edu, start=1):
+            if isinstance(item, dict):
+                deg = item.get("degree") or item.get("title") or ""
+                major = item.get("field") or item.get("major") or ""
+                inst = item.get("institution") or item.get("school") or ""
+                edu_text = " ".join(part for part in [deg, major, inst] if part).strip()
+            else:
+                edu_text = str(item).strip()
+                deg, major = edu_text, ""
+            if edu_text:
+                result.append(Evidence(
+                    evidence_id=f"education:{index}", kind="education", text=edu_text,
+                    canonical_terms=[part for part in [deg, major] if part],
+                ))
         raw_certs = getattr(extracted, "certifications", None) or []
         for index, c in enumerate(raw_certs, start=1):
             cert_text = (c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip()
@@ -826,10 +883,97 @@ class DeterministicRequirementMatcher:
             )
 
         elif requirement.kind == RequirementKind.DEGREE:
-            return MatchVerdict(
-                requirement_id=requirement.requirement_id, status=MatchStatus.NO_MATCH,
-                confidence=1, reasoning="Education matching disabled.",
-            )
+            req_text = requirement.canonical_value or requirement.text
+            edu_evidence = [e for e in evidence if e.kind == "education"]
+            raw_edu = getattr(resume, "education", None) or []
+
+            if not edu_evidence and not raw_edu:
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.UNRESOLVED,
+                    confidence=0.0,
+                    evidence_ids=[],
+                    reasoning=f"No education background found in candidate education section ({req_text}).",
+                    method=None,
+                    coverage=0.0,
+                    matched_concepts=[],
+                    missing_concepts=[req_text],
+                )
+
+            edu_texts = [e.text for e in edu_evidence]
+            for item in raw_edu:
+                if isinstance(item, dict):
+                    t = f"{item.get('degree', '')} {item.get('title', '')} {item.get('field', '')} {item.get('major', '')} {item.get('institution', '')}".strip()
+                    if t and t not in edu_texts:
+                        edu_texts.append(t)
+                elif isinstance(item, str) and item.strip() and item.strip() not in edu_texts:
+                    edu_texts.append(item.strip())
+
+            full_edu_str = " ".join(edu_texts).casefold()
+            req_cf = req_text.casefold()
+
+            is_bachelor = any(b in req_cf for b in ("bachelor", "b.s", "bs", "b.a", "ba", "b.tech", "btech", "b.e", "be", "undergraduate"))
+            is_master = any(m in req_cf for m in ("master", "m.s", "ms", "m.a", "ma", "m.tech", "mtech", "m.e", "me", "postgraduate", "graduate degree"))
+            is_phd = any(p in req_cf for p in ("phd", "ph.d", "doctorate", "doctoral"))
+
+            cand_bachelor = any(b in full_edu_str for b in ("bachelor", "b.s", "bs", "b.a", "ba", "b.tech", "btech", "b.e", "be", "undergraduate"))
+            cand_master = any(m in full_edu_str for m in ("master", "m.s", "ms", "m.a", "ma", "m.tech", "mtech", "m.e", "me", "postgraduate"))
+            cand_phd = any(p in full_edu_str for p in ("phd", "ph.d", "doctorate", "doctoral"))
+
+            degree_level_matched = False
+            if is_bachelor and (cand_bachelor or cand_master or cand_phd):
+                degree_level_matched = True
+            elif is_master and (cand_master or cand_phd):
+                degree_level_matched = True
+            elif is_phd and cand_phd:
+                degree_level_matched = True
+            elif not is_bachelor and not is_master and not is_phd:
+                degree_level_matched = bool(full_edu_str.strip())
+
+            fields = ["computer science", "software engineering", "information technology", "data science", "electrical engineering", "mathematics", "computer engineering", "cybersecurity"]
+            req_field = next((f for f in fields if f in req_cf), None)
+            cand_field_matched = True
+            if req_field:
+                cand_field_matched = any(f in full_edu_str for f in (req_field, "computer", "software", "it", "engineering", "technology"))
+
+            if degree_level_matched and cand_field_matched:
+                ev_ids = [e.evidence_id for e in edu_evidence][:1]
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence=1.0,
+                    evidence_ids=ev_ids,
+                    reasoning=f"Candidate education degree satisfies requirement ({req_text}).",
+                    method=MatchMethod.EXACT,
+                    coverage=1.0,
+                    matched_concepts=[req_text],
+                    missing_concepts=[],
+                )
+            elif degree_level_matched:
+                ev_ids = [e.evidence_id for e in edu_evidence][:1]
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.MATCHED,
+                    confidence=0.85,
+                    evidence_ids=ev_ids,
+                    reasoning=f"Candidate degree level satisfies education requirement ({req_text}).",
+                    method=MatchMethod.ALIAS,
+                    coverage=0.85,
+                    matched_concepts=[req_text],
+                    missing_concepts=[],
+                )
+            else:
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.NO_MATCH,
+                    confidence=1.0,
+                    evidence_ids=[],
+                    reasoning=f"Candidate education degree does not meet requirement ({req_text}).",
+                    method=MatchMethod.EXACT,
+                    coverage=0.0,
+                    matched_concepts=[],
+                    missing_concepts=[req_text],
+                )
 
         elif requirement.kind in {RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE}:
             req_text = requirement.canonical_value or requirement.text
@@ -837,11 +981,14 @@ class DeterministicRequirementMatcher:
             total_months = sum(item.get("duration_months") or 0 for item in exp_items)
             
             m_range = re.search(r"(\d+)\s*[-–to]+\s*(\d+)\s+years?", req_text, re.I)
-            m_min = re.search(r"(?:minimum|at\s+least|min)\s+(\d+)\s+years?", req_text, re.I) or re.search(r"(\d+)\+\s*years?", req_text, re.I) or re.search(r"(\d+)\s+years?", req_text, re.I)
+            m_min_yr = re.search(r"(?:minimum|at\s+least|min)\s+(\d+)\s+years?", req_text, re.I) or re.search(r"(\d+)\+\s*years?", req_text, re.I) or re.search(r"(\d+)\s+years?", req_text, re.I)
+            m_min_mo = re.search(r"(\d+)\s*months?", req_text, re.I)
             if m_range:
                 job_min = int(m_range.group(1)) * 12
-            elif m_min:
-                job_min = int(m_min.group(1)) * 12
+            elif m_min_yr:
+                job_min = int(m_min_yr.group(1)) * 12
+            elif m_min_mo:
+                job_min = int(m_min_mo.group(1))
             else:
                 job_min = 0
 
@@ -1110,14 +1257,25 @@ class EvidencePrefilter:
             target_evidence = [e for e in evidence if e.kind in {"project", "experience", "summary"}]
             if not target_evidence:
                 return []
+        elif requirement.kind == RequirementKind.DEGREE:
+            target_evidence = [e for e in evidence if e.kind == "education"]
+            if not target_evidence:
+                return []
+        elif requirement.kind in {RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE}:
+            target_evidence = [e for e in evidence if e.kind in {"experience", "internship"}]
+            if not target_evidence:
+                return []
         elif requirement.kind == RequirementKind.CERTIFICATION:
-            kind_evidence = [e for e in evidence if e.kind == "certification"]
-            target_evidence = kind_evidence if kind_evidence else [e for e in evidence if e.kind in {"experience", "project", "summary"}]
+            target_evidence = [e for e in evidence if e.kind == "certification"]
+            if not target_evidence:
+                return []
         elif requirement.kind == RequirementKind.LANGUAGE:
-            kind_evidence = [e for e in evidence if e.kind == "languages"]
-            target_evidence = kind_evidence if kind_evidence else [e for e in evidence if e.kind in {"experience", "project", "summary"}]
+            target_evidence = [e for e in evidence if e.kind == "languages"]
+            if not target_evidence:
+                return []
         else:
-            target_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary", "skills"}]
+            allowed_kinds = ALLOWED_EVIDENCE_MAP.get(requirement.kind, {"experience", "project", "summary", "skills"})
+            target_evidence = [e for e in evidence if e.kind in allowed_kinds]
 
         # 2. Lexical & Synonym Overlap Scoring
         req_lower = requirement.text.casefold()
@@ -1216,8 +1374,19 @@ class GroqTokenBudgetGate:
     def usable_tpm(self) -> int:
         return int(self.tpm_limit * (1.0 - self.safety_margin))
 
+    def available_tokens(self) -> int:
+        now = time.monotonic()
+        history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+        local_used = sum(tok for _, tok in history)
+        if self.header_reset_timestamp is not None and now < self.header_reset_timestamp:
+            if self.header_remaining_tokens is not None:
+                avail_hdr = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+                avail_loc = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+                return min(avail_hdr, avail_loc)
+        return max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+
     def estimate_tokens(self, payload: dict[str, Any], output_estimate: int | None = None) -> int:
-        """Estimate total tokens required (prompt input + estimated output)."""
+        """Conservative token estimation (prompt input + estimated output + overhead buffer)."""
         prompt_text = ""
         user_content = ""
         for msg in payload.get("messages", []):
@@ -1226,15 +1395,51 @@ class GroqTokenBudgetGate:
             if msg.get("role") == "user":
                 user_content = content
 
-        input_tokens = int(len(prompt_text) / 2.8 * 1.05) + 10
+        input_tokens = int(len(prompt_text) / 2.8 * 1.15) + 20
         if output_estimate is None:
             try:
                 data = json.loads(user_content)
                 req_count = len(data.get("requirements", []))
-                output_estimate = min(350, max(120, req_count * 20))
+                output_estimate = max(150, req_count * 35)
             except Exception:
                 output_estimate = getattr(self.settings, "GROQ_ESTIMATED_OUTPUT_TOKENS", 350)
-        return input_tokens + output_estimate
+        return input_tokens + output_estimate + 200
+
+    async def try_reserve(self, estimated_tokens: int) -> bool:
+        """
+        Atomically check available tokens and reserve estimated_tokens if safe capacity exists.
+        Returns True if capacity exists and reservation succeeded, False otherwise.
+        Does NOT block or sleep.
+        """
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            now = time.monotonic()
+            self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+            local_window_used = sum(tok for _, tok in self.usage_history)
+
+            if self.header_reset_timestamp is not None:
+                if now >= self.header_reset_timestamp or self.reserved_in_flight == 0:
+                    self.header_remaining_tokens = None
+                    self.header_reset_timestamp = None
+
+            if self.header_remaining_tokens is not None:
+                avail_from_header = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+                avail_from_local = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
+                available_tokens = min(avail_from_header, avail_from_local)
+            else:
+                available_tokens = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
+
+            if available_tokens >= estimated_tokens:
+                self.reserved_in_flight += estimated_tokens
+                logger.info(
+                    "groq_token_reservation_secured",
+                    reserved_tokens=estimated_tokens,
+                    available_tokens_before=available_tokens,
+                    usable_limit=self.usable_tpm,
+                )
+                return True
+            return False
 
     async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> None:
         """
@@ -1398,12 +1603,14 @@ class GroqMatchEvaluator:
     def enabled(self) -> bool:
         return bool(self.settings.ENABLE_HYBRID_MATCHING and self.settings.GROQ_API_KEY)
 
-    async def evaluate(
+    async def evaluate_with_usage(
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
-    ) -> list[MatchVerdict]:
+        pre_reserved: bool = False,
+    ) -> tuple[list[MatchVerdict], dict[str, int]]:
+        usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         if not self.enabled or not requirements:
-            return []
+            return [], usage_stats
 
         # Safe batch chunking to avoid LLM token overflow on large inputs (> 15 requirements)
         if len(requirements) > 15:
@@ -1417,9 +1624,11 @@ class GroqMatchEvaluator:
                 } if allowed_evidence else None
                 chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
                 chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts = await self.evaluate(req_chunk, chunk_ev, chunk_allowed)
+                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(req_chunk, chunk_ev, chunk_allowed, pre_reserved=(pre_reserved if i == 0 else False))
                 all_verdicts.extend(chunk_verdicts)
-            return all_verdicts
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    usage_stats[k] += chunk_usage.get(k, 0)
+            return all_verdicts, usage_stats
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
             "evidence": [e.model_dump(mode="json") for e in evidence],
@@ -1429,7 +1638,7 @@ class GroqMatchEvaluator:
         }, sort_keys=True).encode()).hexdigest()
         if digest in self._cache:
             self._cache.move_to_end(digest)
-            return [verdict.model_copy(deep=True) for verdict in self._cache[digest]]
+            return [verdict.model_copy(deep=True) for verdict in self._cache[digest]], usage_stats
 
         payload = self._payload(requirements, evidence, allowed_evidence)
         gate = GroqTokenBudgetGate.get_gate(self.settings)
@@ -1441,7 +1650,8 @@ class GroqMatchEvaluator:
         total_attempts = max_retries + 1
 
         for attempt in range(total_attempts):
-            await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
+            if not (attempt == 0 and pre_reserved):
+                await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
             try:
                 response = await client.post(
                     f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
@@ -1454,6 +1664,10 @@ class GroqMatchEvaluator:
                 resp_json = response.json()
                 usage = resp_json.get("usage", {})
                 actual_tokens = usage.get("total_tokens")
+                prompt_toks = usage.get("prompt_tokens", 0)
+                comp_toks = usage.get("completion_tokens", 0)
+                tot_toks = actual_tokens if actual_tokens is not None else (prompt_toks + comp_toks)
+                usage_stats = {"prompt_tokens": prompt_toks, "completion_tokens": comp_toks, "total_tokens": tot_toks}
 
                 await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
 
@@ -1542,13 +1756,21 @@ class GroqMatchEvaluator:
                 await asyncio.sleep(delay)
 
         if parsed is None:
-            return []
+            return [], usage_stats
         validated = self._validate(parsed, requirements, evidence, allowed_evidence)
         self._cache[digest] = validated
         self._cache.move_to_end(digest)
         while len(self._cache) > self.settings.HYBRID_MATCHING_CACHE_SIZE:
             self._cache.popitem(last=False)
-        return [verdict.model_copy(deep=True) for verdict in validated]
+        return [verdict.model_copy(deep=True) for verdict in validated], usage_stats
+
+    async def evaluate(
+        self, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None,
+        pre_reserved: bool = False,
+    ) -> list[MatchVerdict]:
+        verdicts, _ = await self.evaluate_with_usage(requirements, evidence, allowed_evidence, pre_reserved=pre_reserved)
+        return verdicts
 
     @staticmethod
     def _normalize_evidence_id(raw_id: str, valid_supplied_ids: set[str]) -> str | None:
@@ -1583,7 +1805,9 @@ class GroqMatchEvaluator:
         allowed_evidence: dict[str, set[str]] | None = None,
     ) -> list[MatchVerdict]:
         requirement_ids = {item.requirement_id for item in requirements}
+        requirement_by_id = {item.requirement_id: item for item in requirements}
         all_evidence_ids = {item.evidence_id for item in evidence}
+        evidence_by_id = {item.evidence_id: item for item in evidence}
         threshold = self.settings.HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD
         result: list[MatchVerdict] = []
         seen: set[str] = set()
@@ -1593,6 +1817,7 @@ class GroqMatchEvaluator:
             if req_id not in requirement_ids or req_id in seen:
                 continue
             seen.add(req_id)
+            req_obj = requirement_by_id[req_id]
 
             # Determine valid supplied evidence IDs for this specific requirement
             if allowed_evidence and req_id in allowed_evidence:
@@ -1600,17 +1825,32 @@ class GroqMatchEvaluator:
             else:
                 req_supplied_ids = all_evidence_ids
 
-            # Normalize and validate all cited evidence IDs
+            # Normalize and validate all cited evidence IDs with strict entity-type compatibility
             raw_cited_ids = list(item.evidence_ids) if item.evidence_ids else []
             valid_cited_ids: list[str] = []
             for raw_id in raw_cited_ids:
                 norm_id = self._normalize_evidence_id(raw_id, req_supplied_ids)
                 if norm_id and norm_id not in valid_cited_ids:
+                    ev_item = evidence_by_id.get(norm_id)
+                    if ev_item and not is_entity_compatible(req_obj.kind, ev_item.kind):
+                        logger.warning(
+                            "cross_entity_evidence_rejected",
+                            requirement_id=req_id,
+                            requirement_entity_type=req_obj.kind.value,
+                            evidence_id=norm_id,
+                            evidence_entity_type=ev_item.kind,
+                            compatibility=False,
+                            reason="cross_entity_evidence_forbidden",
+                        )
+                        continue
                     valid_cited_ids.append(norm_id)
 
             # If no valid citations found from raw list, but only 1 evidence item was supplied for this requirement:
             if not valid_cited_ids and not raw_cited_ids and len(req_supplied_ids) == 1:
-                valid_cited_ids = list(req_supplied_ids)
+                single_id = list(req_supplied_ids)[0]
+                ev_item = evidence_by_id.get(single_id)
+                if ev_item and is_entity_compatible(req_obj.kind, ev_item.kind):
+                    valid_cited_ids = [single_id]
 
             has_valid_evidence = bool(valid_cited_ids)
 
@@ -1636,7 +1876,7 @@ class GroqMatchEvaluator:
                 status = MatchStatus.UNRESOLVED
                 method = MatchMethod.LLM_UNRESOLVED
                 if (is_matched_raw or is_partial_raw) and not has_valid_evidence:
-                    reasoning = (item.reasoning or "") + " (Rejected: No valid candidate evidence ID cited for match)."
+                    reasoning = (item.reasoning or "") + " (Rejected: Cited evidence type is incompatible with requirement entity type: cross_entity_evidence_forbidden)."
                 else:
                     reasoning = item.reasoning or "LLM verdict unresolved by evidence validation."
 
@@ -1665,6 +1905,8 @@ class GroqMatchEvaluator:
             {
                 "requirement_id": r.requirement_id,
                 "kind": r.kind.value,
+                "entity_type": r.kind.value,
+                "allowed_evidence_types": sorted(list(ALLOWED_EVIDENCE_MAP.get(r.kind, set()))),
                 "text": r.text,
                 "required": r.required,
                 "allowed_evidence_ids": sorted(list(allowed_evidence.get(r.requirement_id, set()))) if allowed_evidence and r.requirement_id in allowed_evidence else [],
@@ -1683,6 +1925,10 @@ class GroqMatchEvaluator:
         content = json.dumps({"requirements": req_list, "evidence": ev_list})
         system_prompt = (
             "You are an enterprise AI Resume Matching Evaluator. Evaluate whether supplied candidate evidence satisfies JD requirements.\n\n"
+            "STRICT ENTITY ISOLATION RULES:\n"
+            "- EDUCATION / DEGREE requirements MUST ONLY be matched against 'education' evidence. NEVER cite 'experience', 'project', or 'skills' evidence for an education requirement.\n"
+            "- EXPERIENCE requirements MUST ONLY be matched against 'experience' evidence. NEVER cite 'education' evidence for an experience requirement.\n"
+            "- You MUST NOT cite evidence_ids outside allowed_evidence_types or allowed_evidence_ids.\n\n"
             "STATUS DEFINITIONS:\n"
             "- MATCHED: Direct or equivalent proof satisfying requirement.\n"
             "- PARTIALLY_MATCHED: Satisfies part of compound/complex requirement, but key part unsupported.\n"
@@ -1710,10 +1956,345 @@ class GroqMatchEvaluator:
         }
 
 
-class HybridMatchingService:
-    def __init__(self, settings: Settings | None = None, evaluator: GroqMatchEvaluator | None = None) -> None:
+class CerebrasTokenBudgetGate:
+    _instance: CerebrasTokenBudgetGate | None = None
+
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.evaluator = evaluator or GroqMatchEvaluator(self.settings)
+        self.window_seconds = 60.0
+        self.usage_history: list[tuple[float, int]] = []
+        self.reserved_in_flight = 0
+        self._lock: asyncio.Lock | None = None
+        self.header_remaining_tokens: int | None = None
+        self.header_reset_timestamp: float | None = None
+
+    @classmethod
+    def get_gate(cls, settings: Settings | None = None) -> CerebrasTokenBudgetGate:
+        if cls._instance is None:
+            cls._instance = cls(settings)
+        elif settings is not None:
+            cls._instance.settings = settings
+        if cls._instance._lock is None:
+            cls._instance._lock = asyncio.Lock()
+        return cls._instance
+
+    @classmethod
+    def reset_gate(cls) -> None:
+        if cls._instance is not None:
+            cls._instance.usage_history.clear()
+            cls._instance.reserved_in_flight = 0
+            cls._instance.header_remaining_tokens = None
+            cls._instance.header_reset_timestamp = None
+
+    @property
+    def tpm_limit(self) -> int:
+        return getattr(self.settings, "CEREBRAS_TPM_LIMIT", 60000)
+
+    @property
+    def safety_margin(self) -> float:
+        return getattr(self.settings, "CEREBRAS_TPM_SAFETY_MARGIN", 0.10)
+
+    @property
+    def usable_tpm(self) -> int:
+        return int(self.tpm_limit * (1.0 - self.safety_margin))
+
+    def available_tokens(self) -> int:
+        now = time.monotonic()
+        history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+        local_used = sum(tok for _, tok in history)
+        if self.header_reset_timestamp is not None and now < self.header_reset_timestamp:
+            if self.header_remaining_tokens is not None:
+                avail_hdr = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+                avail_loc = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+                return min(avail_hdr, avail_loc)
+        return max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+
+    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> None:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight += estimated_tokens
+
+    async def release_reservation(self, estimated_tokens: int) -> None:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+
+    async def record_response(self, estimated_tokens: int, response: httpx.Response | None = None, actual_tokens: int | None = None) -> None:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+            now = time.monotonic()
+            used_tokens = actual_tokens if actual_tokens is not None else estimated_tokens
+            self.usage_history.append((now, used_tokens))
+
+
+class CerebrasMatchEvaluator:
+    _cache: OrderedDict[str, list[MatchVerdict]] = OrderedDict()
+    _client: httpx.AsyncClient | None = None
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    @classmethod
+    def _get_client(cls, timeout: float) -> httpx.AsyncClient:
+        if cls._client is None or cls._client.is_closed:
+            cls._client = httpx.AsyncClient(timeout=timeout)
+        return cls._client
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.settings.ENABLE_HYBRID_MATCHING and getattr(self.settings, "CEREBRAS_API_KEY", None))
+
+    async def evaluate_with_usage(
+        self, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None,
+    ) -> tuple[list[MatchVerdict], dict[str, int]]:
+        usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        if not self.enabled or not requirements:
+            return [], usage_stats
+
+        model_name = getattr(self.settings, "CEREBRAS_MODEL", "gpt-oss-120b")
+        digest = hashlib.sha256(json.dumps({
+            "requirements": [r.model_dump(mode="json") for r in requirements],
+            "evidence": [e.model_dump(mode="json") for e in evidence],
+            "model": model_name,
+            "threshold": self.settings.HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD,
+            "allowed_evidence": {key: sorted(value) for key, value in (allowed_evidence or {}).items()},
+        }, sort_keys=True).encode()).hexdigest()
+
+        if digest in self._cache:
+            self._cache.move_to_end(digest)
+            return [verdict.model_copy(deep=True) for verdict in self._cache[digest]], usage_stats
+
+        payload = GroqMatchEvaluator(self.settings)._payload(requirements, evidence, allowed_evidence)
+        payload["model"] = model_name
+
+        gate = CerebrasTokenBudgetGate.get_gate(self.settings)
+        groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
+        estimated_tokens = groq_gate.estimate_tokens(payload)
+
+        await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
+        parsed: LLMVerdictBatch | None = None
+        client = self._get_client(getattr(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
+
+        try:
+            url = f"{getattr(self.settings, 'CEREBRAS_BASE_URL', 'https://api.cerebras.ai/v1').rstrip('/')}/chat/completions"
+            headers = {"Authorization": f"Bearer {getattr(self.settings, 'CEREBRAS_API_KEY', '')}"}
+            response = await client.post(url, headers=headers, json=payload, timeout=getattr(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
+            response.raise_for_status()
+
+            resp_json = response.json()
+            usage = resp_json.get("usage", {})
+            actual_tokens = usage.get("total_tokens")
+            prompt_toks = usage.get("prompt_tokens", 0)
+            comp_toks = usage.get("completion_tokens", 0)
+            tot_toks = actual_tokens if actual_tokens is not None else (prompt_toks + comp_toks)
+            usage_stats = {"prompt_tokens": prompt_toks, "completion_tokens": comp_toks, "total_tokens": tot_toks}
+
+            await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
+
+            content = resp_json["choices"][0]["message"]["content"]
+            parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
+        except Exception as exc:
+            await gate.release_reservation(estimated_tokens)
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            resp_body = None
+            if hasattr(exc, "response") and exc.response is not None:
+                try:
+                    resp_body = exc.response.text
+                except Exception:
+                    pass
+
+            error_type = type(exc).__name__
+            if status_code == 401:
+                error_kind = "authentication_error"
+            elif status_code == 402:
+                error_kind = "payment_required_error"
+            elif status_code == 404:
+                error_kind = "model_not_found_error"
+            elif status_code == 429:
+                error_kind = "rate_limit_error"
+            elif status_code and status_code >= 500:
+                error_kind = "server_error"
+            else:
+                error_kind = "request_failed_error"
+
+            logger.error(
+                "cerebras_llm_request_failed",
+                provider="cerebras",
+                status_code=status_code,
+                error_type=error_type,
+                error_kind=error_kind,
+                model=model_name,
+                response_body=resp_body,
+                correlation_id=digest[:8],
+            )
+            return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+        validated = GroqMatchEvaluator(self.settings)._validate(parsed, requirements, evidence, allowed_evidence)
+        self._cache[digest] = validated
+        self._cache.move_to_end(digest)
+        while len(self._cache) > self.settings.HYBRID_MATCHING_CACHE_SIZE:
+            self._cache.popitem(last=False)
+        return [verdict.model_copy(deep=True) for verdict in validated], usage_stats
+
+    async def evaluate(
+        self, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None,
+    ) -> list[MatchVerdict]:
+        verdicts, _ = await self.evaluate_with_usage(requirements, evidence, allowed_evidence)
+        return verdicts
+
+
+class SmartMatchEvaluator:
+    """Smart Multi-Provider LLM Evaluator supporting Groq and Cerebras with pre-request token routing."""
+    def __init__(
+        self, settings: Settings | None = None,
+        groq_evaluator: GroqMatchEvaluator | None = None,
+        cerebras_evaluator: CerebrasMatchEvaluator | None = None,
+    ) -> None:
+        self.settings = settings or get_settings()
+        self.groq = groq_evaluator or GroqMatchEvaluator(self.settings)
+        self.cerebras = cerebras_evaluator or CerebrasMatchEvaluator(self.settings)
+
+    async def _invoke_evaluator(
+        self, evaluator: Any, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None, pre_reserved: bool = False,
+    ) -> tuple[list[MatchVerdict], dict[str, int]]:
+        method_names = ["evaluate_with_usage", "evaluate"]
+        for name in method_names:
+            fn = getattr(evaluator, name, None)
+            if fn is None or not callable(fn):
+                continue
+            if type(evaluator).__name__ == "MagicMock" and name == "evaluate_with_usage" and type(fn).__name__ != "AsyncMock":
+                continue
+            try:
+                sig = inspect.signature(fn)
+                kwargs = {}
+                if "pre_reserved" in sig.parameters:
+                    kwargs["pre_reserved"] = pre_reserved
+                raw = fn(requirements, evidence, allowed_evidence, **kwargs)
+                res = await raw if inspect.isawaitable(raw) else raw
+                if isinstance(res, tuple):
+                    return res[0], res[1]
+                return res, {}
+            except Exception as exc:
+                if name == method_names[-1]:
+                    raise exc
+        return [], {}
+
+    async def evaluate(
+        self, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None,
+        resume_id: str = "default_resume",
+    ) -> tuple[list[MatchVerdict], dict[str, Any]]:
+        if not requirements:
+            return [], {}
+
+        groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
+        cerebras_gate = CerebrasTokenBudgetGate.get_gate(self.settings)
+
+        if hasattr(self.groq, "_payload"):
+            payload_res = self.groq._payload(requirements, evidence, allowed_evidence)
+            if inspect.isawaitable(payload_res):
+                payload = await payload_res
+            else:
+                payload = payload_res
+        else:
+            payload = GroqMatchEvaluator(self.settings)._payload(requirements, evidence, allowed_evidence)
+
+        estimated_tokens = groq_gate.estimate_tokens(payload)
+        groq_available = groq_gate.available_tokens()
+
+        # Atomic pre-reservation attempt on Groq to prevent race conditions across parallel resumes
+        groq_reserved = False
+        if self.groq.enabled:
+            groq_reserved = await groq_gate.try_reserve(estimated_tokens)
+
+        provider_selected = "none"
+        fallback_reason = "none"
+        start_ts = time.monotonic()
+        wait_ms = 0.0
+        actual_input = 0
+        actual_output = 0
+        actual_total = 0
+        verdicts: list[MatchVerdict] = []
+        usage: dict[str, int] = {}
+
+        if groq_reserved:
+            provider_selected = "groq"
+            t0 = time.monotonic()
+            try:
+                verdicts, usage = await self._invoke_evaluator(self.groq, requirements, evidence, allowed_evidence, pre_reserved=True)
+                wait_ms = (time.monotonic() - t0) * 1000.0
+            except Exception as exc:
+                await groq_gate.release_reservation(estimated_tokens)
+                fallback_reason = f"groq_error_{type(exc).__name__}"
+                if self.cerebras.enabled:
+                    logger.warning("groq_failed_routing_to_cerebras", error=str(exc), resume_id=resume_id)
+                    provider_selected = "cerebras"
+                    t1 = time.monotonic()
+                    verdicts, usage = await self._invoke_evaluator(self.cerebras, requirements, evidence, allowed_evidence)
+                    wait_ms += (time.monotonic() - t1) * 1000.0
+        elif self.cerebras.enabled:
+            provider_selected = "cerebras"
+            fallback_reason = "groq_capacity_insufficient" if self.groq.enabled else "groq_disabled"
+            t0 = time.monotonic()
+            verdicts, usage = await self._invoke_evaluator(self.cerebras, requirements, evidence, allowed_evidence)
+            wait_ms = (time.monotonic() - t0) * 1000.0
+        elif self.groq.enabled:
+            provider_selected = "groq"
+            fallback_reason = "groq_capacity_wait"
+            t0 = time.monotonic()
+            verdicts, usage = await self._invoke_evaluator(self.groq, requirements, evidence, allowed_evidence, pre_reserved=False)
+            wait_ms = (time.monotonic() - t0) * 1000.0
+
+        actual_input = usage.get("prompt_tokens", 0)
+        actual_output = usage.get("completion_tokens", 0)
+        actual_total = usage.get("total_tokens", actual_input + actual_output)
+
+        llm_duration_ms = (time.monotonic() - start_ts) * 1000.0
+
+        telemetry = {
+            "resume_id": resume_id,
+            "estimated_tokens": estimated_tokens,
+            "provider_selected": provider_selected,
+            "groq_remaining_before": groq_available,
+            "groq_tokens_reserved": estimated_tokens if provider_selected == "groq" else 0,
+            "actual_input_tokens": actual_input,
+            "actual_output_tokens": actual_output,
+            "actual_total_tokens": actual_total,
+            "provider_wait_ms": round(wait_ms, 2),
+            "llm_duration_ms": round(llm_duration_ms, 2),
+            "total_resume_duration_ms": round(llm_duration_ms, 2),
+            "fallback_reason": fallback_reason,
+        }
+
+        logger.info("resume_llm_routing_telemetry", **telemetry)
+        return verdicts, telemetry
+
+
+class ResumeQueueScheduler:
+    """Concurrency manager limiting active resume evaluations to MAX_CONCURRENT_RESUMES (default 3)."""
+    def __init__(self, max_concurrent: int = 3) -> None:
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def run_resume_task(self, resume_id: str, task_coro: Any) -> Any:
+        async with self.semaphore:
+            logger.info("resume_scheduler_task_started", resume_id=resume_id, max_concurrent=self.max_concurrent)
+            res = await task_coro
+            logger.info("resume_scheduler_task_completed", resume_id=resume_id)
+            return res
+
+
+class HybridMatchingService:
+    def __init__(self, settings: Settings | None = None, evaluator: Any | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.evaluator = evaluator or SmartMatchEvaluator(self.settings)
         self.matcher = DeterministicRequirementMatcher()
 
     async def match(self, job: Any, resume: Any, extracted: Any, config: Any = None) -> tuple[Any, list[MatchVerdict]]:
@@ -1777,18 +2358,54 @@ class HybridMatchingService:
                     reason="No candidate evidence available for prefilter",
                 )
 
-        llm = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence) if unresolved else []
+        resume_id = str(getattr(resume, "id", getattr(resume, "candidate_name", "default_resume")))
+        if unresolved:
+            if hasattr(self.evaluator, "evaluate"):
+                import inspect
+                sig = inspect.signature(self.evaluator.evaluate)
+                if "resume_id" in sig.parameters:
+                    res_eval = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence, resume_id=resume_id)
+                    llm = res_eval[0] if isinstance(res_eval, tuple) else res_eval
+                else:
+                    res_eval = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence)
+                    llm = res_eval[0] if isinstance(res_eval, tuple) else res_eval
+            else:
+                llm = []
+        else:
+            llm = []
         llm_by_id = {item.requirement_id: item for item in llm}
         fused = [llm_by_id.get(item.requirement_id, item) for item in deterministic]
         projects = EvidenceBuilder._projects(extracted)
         for project in projects:
             project["technologies"] = list(project.get("technologies") or [])
         requirement_by_id = {item.requirement_id: item for item in requirements}
+        evidence_by_id = {item.evidence_id: item for item in evidence}
         for verdict in fused:
             requirement = requirement_by_id.get(verdict.requirement_id)
             if requirement:
                 verdict.requirement_text = requirement.text
                 verdict.kind = requirement.kind
+                # Defense-in-depth: Final entity compatibility re-validation
+                valid_ev_ids = []
+                for eid in verdict.evidence_ids:
+                    ev_item = evidence_by_id.get(eid)
+                    if ev_item and is_entity_compatible(requirement.kind, ev_item.kind):
+                        valid_ev_ids.append(eid)
+                    else:
+                        logger.warning(
+                            "final_verdict_cross_entity_evidence_removed",
+                            requirement_id=verdict.requirement_id,
+                            requirement_entity_type=requirement.kind.value,
+                            evidence_id=eid,
+                            evidence_entity_type=ev_item.kind if ev_item else "unknown",
+                            compatibility=False,
+                            reason="cross_entity_evidence_forbidden",
+                        )
+                verdict.evidence_ids = valid_ev_ids
+                if verdict.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and not verdict.evidence_ids and requirement.kind in {RequirementKind.DEGREE, RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE, RequirementKind.CERTIFICATION, RequirementKind.LANGUAGE}:
+                    verdict.status = MatchStatus.UNRESOLVED
+                    verdict.reasoning = "Evidence rejected due to entity type mismatch (cross_entity_evidence_forbidden)."
+
             logger.info(
                 "final_requirement_verdict",
                 requirement_id=verdict.requirement_id,

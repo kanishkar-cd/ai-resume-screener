@@ -96,8 +96,18 @@ class Settings(BaseSettings):
     GROQ_TIMEOUT_SECONDS: float = 30.0
     GROQ_MAX_RETRIES: int = 1
     GROQ_TPM_LIMIT: int = Field(default=8000, ge=100)
-    GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+    GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.125, ge=0.0, le=0.5)
     GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
+
+    CEREBRAS_API_KEY: str | None = None
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    CEREBRAS_MODEL: str = "gpt-oss-120b"
+    CEREBRAS_TIMEOUT_SECONDS: float = 30.0
+    CEREBRAS_MAX_RETRIES: int = 1
+    CEREBRAS_TPM_LIMIT: int = Field(default=60000, ge=100)
+    CEREBRAS_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+
+    MAX_CONCURRENT_RESUMES: int = Field(default=3, ge=1, le=10)
 
     ENABLE_OCR_FALLBACK: bool = False
     OCR_ENGINE: str = "easyocr"
