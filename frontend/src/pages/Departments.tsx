@@ -56,7 +56,9 @@ export default function Departments() {
       .finally(() => {
         if (active) setLoading(false)
       })
-    return () => { active = false }
+    return () => {
+      active = false
+    }
   }, [])
 
   const handleOpenDepartment = (dept: Department) => {
@@ -81,7 +83,9 @@ export default function Departments() {
       let latest: string | null = null
       if (deptProjects.length > 0) {
         const sorted = [...deptProjects].sort(
-          (a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
+          (a, b) =>
+            new Date(b.updated_at || b.created_at).getTime() -
+            new Date(a.updated_at || a.created_at).getTime()
         )
         latest = sorted[0].updated_at || sorted[0].created_at
       }
@@ -99,7 +103,7 @@ export default function Departments() {
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="hover:text-blue-600 transition-colors"
+              className="hover:text-blue-600 transition-colors cursor-pointer"
             >
               Overview
             </button>
@@ -166,7 +170,7 @@ export default function Departments() {
         </div>
       </div>
 
-      {/* Modern Department Cards Grid */}
+      {/* Modern Department Cards Grid (4-column x 2-row) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {filteredDepartments.map((dept) => {
           const Icon = ICON_MAP[dept.iconName] || Building2
@@ -218,7 +222,7 @@ export default function Departments() {
                     e.stopPropagation()
                     handleOpenDepartment(dept)
                   }}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-50 group-hover:bg-blue-600 text-slate-700 group-hover:text-white rounded-xl text-xs font-semibold transition-all border border-slate-200/70 group-hover:border-transparent"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-50 group-hover:bg-blue-600 text-slate-700 group-hover:text-white rounded-xl text-xs font-semibold transition-all border border-slate-200/70 group-hover:border-transparent cursor-pointer"
                 >
                   <span>Open Department</span>
                   <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />

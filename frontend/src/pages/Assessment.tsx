@@ -47,23 +47,37 @@ export default function Assessment() {
           type: 'UPDATE_ASSESSMENT_RESULTS',
           payload: {
             reqRef: res.requisition_ref || reqRef,
-            results: res.candidates.map((c: any) => ({
-              candidateId: c.candidate_id,
-              externalCandidateRef: c.external_candidate_ref || c.candidate_id,
-              candidateName: c.candidate_name || c.name || c.candidateName,
-              email: c.email || c.candidate_email,
-              sessionStatus: c.session_status || c.sessionstatus,
-              scoreStatus: c.score_status || c.scorestatus,
-              compositeScore: c.composite_score !== undefined ? c.composite_score : c.compositescore,
-              compositeScoreBand: c.composite_score_band || c.compositescoreband || c.score_band || c.scoreband,
-              identityStatus: c.identity_status || c.identitystatus,
-              isIdentityVerified: c.is_identity_verified !== undefined ? c.is_identity_verified : c.isidentityverified,
-              startedAt: c.started_at || c.startedat,
-              submittedAt: c.submitted_at || c.submittedat,
-              expiresAt: c.expires_at || c.expiresat,
-              decision: c.decision,
-              assessmentLink: c.assessment_link || c.assessment_url || c.assessmentUrl || c.invite_url || c.inviteUrl || c.link || c.url,
-            })),
+            results: res.candidates.map((c: any) => {
+              const rawScore = c.composite_score !== undefined && c.composite_score !== null
+                ? c.composite_score
+                : (c.compositescore !== undefined && c.compositescore !== null
+                  ? c.compositescore
+                  : (c.compositeScore !== undefined && c.compositeScore !== null
+                    ? c.compositeScore
+                    : c.score))
+              const parsedScore = rawScore !== undefined && rawScore !== null && rawScore !== '' ? Number(rawScore) : undefined
+              const compScore = parsedScore !== undefined && !isNaN(parsedScore)
+                ? (parsedScore > 0 && parsedScore <= 1 ? Math.round(parsedScore * 1000) / 10 : Math.round(parsedScore * 10) / 10)
+                : undefined
+
+              return {
+                candidateId: c.candidate_id || c.candidateId || c.id,
+                externalCandidateRef: c.external_candidate_ref || c.externalCandidateRef || c.candidate_id,
+                candidateName: c.candidate_name || c.name || c.candidateName,
+                email: c.email || c.candidate_email,
+                sessionStatus: c.session_status || c.sessionstatus || c.sessionStatus,
+                scoreStatus: c.score_status || c.scorestatus || c.scoreStatus,
+                compositeScore: compScore,
+                compositeScoreBand: c.composite_score_band || c.compositescoreband || c.compositeScoreBand || c.score_band || c.scoreband || c.scoreBand || null,
+                identityStatus: c.identity_status || c.identitystatus || c.identityStatus,
+                isIdentityVerified: c.is_identity_verified !== undefined ? c.is_identity_verified : (c.isidentityverified !== undefined ? c.isidentityverified : c.isIdentityVerified),
+                startedAt: c.started_at || c.startedat || c.startedAt,
+                submittedAt: c.submitted_at || c.submittedat || c.submittedAt,
+                expiresAt: c.expires_at || c.expiresat || c.expiresAt,
+                decision: c.decision,
+                assessmentLink: c.assessment_link || c.assessment_url || c.assessmentUrl || c.invite_url || c.inviteUrl || c.link || c.url,
+              }
+            }),
           },
         })
         setSyncStatusMsg('Assessment evaluation status updated successfully.')
@@ -100,20 +114,29 @@ export default function Assessment() {
     (a) =>
       a.scoreStatus?.toLowerCase() === 'graded' ||
       a.scoreStatus?.toLowerCase() === 'scored' ||
-      (a.compositeScore !== undefined && a.compositeScore !== null)
+      (a.compositeScore !== undefined && a.compositeScore !== null) ||
+      Boolean(a.compositeScoreBand) ||
+      (a.decision && a.decision.toUpperCase() !== 'PENDING')
   ).length
   const verifiedCount = assessmentList.filter(
     (a) => a.isIdentityVerified === true || a.identityStatus?.toUpperCase() === 'VERIFIED'
   ).length
 
+  const gradedScores = assessmentList
+    .map((a) => a.compositeScore ?? (a as any).composite_score ?? (a as any).compositescore)
+    .filter((s): s is number => typeof s === 'number' && !isNaN(s))
+  const avgCompositeScore = gradedScores.length > 0
+    ? Math.round(gradedScores.reduce((acc, v) => acc + v, 0) / gradedScores.length)
+    : null
+
   // Helper formatting routines
   const getBandBadgeClass = (band?: string | null) => {
     const b = (band || '').toUpperCase()
-    if (b.includes('BAND_A') || b === 'A' || b === 'PASS' || b === 'APPROVED') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
-    if (b.includes('BAND_B') || b === 'B' || b === 'MEDIUM') return 'bg-blue-50 text-blue-700 border-blue-200'
-    if (b.includes('BAND_C') || b === 'C' || b === 'LOW') return 'bg-amber-50 text-amber-700 border-amber-200'
-    if (b.includes('BAND_D') || b === 'D' || b === 'FAIL' || b === 'REJECT') return 'bg-rose-50 text-rose-700 border-rose-200'
-    return 'bg-slate-100 text-slate-600 border-slate-200'
+    if (b.includes('STRONG_PASS') || b.includes('EXCELLENT') || b.includes('BAND_A') || b === 'A') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    if (b.includes('PASS') || b.includes('GOOD') || b.includes('BAND_B') || b === 'B') return 'bg-blue-50 text-blue-700 border-blue-200'
+    if (b.includes('BORDERLINE') || b.includes('AVERAGE') || b.includes('BAND_C') || b === 'C') return 'bg-amber-50 text-amber-700 border-amber-200'
+    if (b.includes('FAIL') || b.includes('BELOW') || b.includes('BAND_D') || b === 'D') return 'bg-rose-50 text-rose-700 border-rose-200'
+    return 'bg-slate-100 text-slate-700 border-slate-200'
   }
 
   const formatTimestamp = (ts?: string | null) => {
@@ -192,8 +215,15 @@ export default function Assessment() {
             <CheckCircle2 size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Graded</p>
-            <p className="text-xl font-extrabold text-teal-700 mt-0.5">{gradedCount}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Graded & Evaluated</p>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <p className="text-xl font-extrabold text-teal-700">{gradedCount}</p>
+              {avgCompositeScore !== null && (
+                <span className="text-[11px] font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100">
+                  avg. {avgCompositeScore}%
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -233,7 +263,7 @@ export default function Assessment() {
                   <th className="py-3 px-4">Handoff Link</th>
                   <th className="py-3 px-4 text-center">Session Status</th>
                   <th className="py-3 px-4 text-center">Identity</th>
-                  <th className="py-3 px-4 text-center">Score & Band</th>
+                  <th className="py-3 px-4 text-center">Composite Score & Band</th>
                   <th className="py-3 px-4 text-center">Decision</th>
                   <th className="py-3 px-4 text-right">Timestamps</th>
                 </tr>
@@ -244,8 +274,13 @@ export default function Assessment() {
                   const idStat = item.identityStatus ? item.identityStatus.trim() : null
                   const isVerified = item.isIdentityVerified === true || idStat?.toUpperCase() === 'VERIFIED'
                   const isFailedOrMismatch = idStat?.toUpperCase() === 'FAILED' || idStat?.toUpperCase() === 'MISMATCH'
-                  const compScore = item.compositeScore
-                  const compBand = item.compositeScoreBand
+                  
+                  const rawCompScore = item.compositeScore ?? (item as any).composite_score ?? (item as any).compositescore ?? (item as any).score
+                  const compScore = rawCompScore !== undefined && rawCompScore !== null && rawCompScore !== '' && !isNaN(Number(rawCompScore))
+                    ? Number(rawCompScore)
+                    : null
+                  const compBand = item.compositeScoreBand || (item as any).composite_score_band || (item as any).compositescoreband || (item as any).score_band || (item as any).scoreband
+
                   const sessStat = (item.sessionStatus || item.status || 'not_started').toLowerCase()
                   const decision = item.decision ? item.decision.trim() : null
                   const decisionUpper = decision?.toUpperCase() || ''
@@ -342,24 +377,26 @@ export default function Assessment() {
 
                       {/* Score & Band Column */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="flex flex-col items-center gap-0.5">
-                          {compScore !== undefined && compScore !== null ? (
-                            <span className="font-extrabold text-slate-900 text-xs">
-                              {compScore.toFixed(1)}%
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-slate-400 font-normal">--</span>
-                          )}
-                          {compBand && (
-                            <span
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${getBandBadgeClass(
-                                compBand
-                              )}`}
-                            >
-                              {compBand}
-                            </span>
-                          )}
-                        </div>
+                        {compScore !== null && !isNaN(compScore) ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandBadgeClass(
+                              compBand
+                            )}`}
+                          >
+                            <span>{`${Math.round(compScore)}%`}</span>
+                            {compBand && <span className="opacity-80">· {compBand}</span>}
+                          </span>
+                        ) : compBand ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandBadgeClass(
+                              compBand
+                            )}`}
+                          >
+                            <span>{compBand}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs font-semibold">—</span>
+                        )}
                       </td>
 
                       {/* Decision Column */}

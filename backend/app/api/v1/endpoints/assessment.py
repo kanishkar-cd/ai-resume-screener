@@ -149,6 +149,21 @@ async def get_assessment_status(
             "decision": rec.decision,
         })
 
+    # Auto-transition project to COMPLETED if all candidate assessments have recorded results
+    if records:
+        all_completed = all(
+            (rec.score_status in ("graded", "scored") or rec.composite_score is not None or rec.decision is not None)
+            and rec.session_status in ("submitted", "completed")
+            for rec in records
+        )
+        if all_completed:
+            from app.models.project import ProjectModel, ProjectStatusEnum
+            p_stmt = select(ProjectModel).where(ProjectModel.id == project_id)
+            p_obj = await db.scalar(p_stmt)
+            if p_obj and p_obj.status != ProjectStatusEnum.COMPLETED:
+                p_obj.status = ProjectStatusEnum.COMPLETED
+                await db.commit()
+
     return {
         "requisition_ref": requisition_ref,
         "session_status": poll_result.get("session_status", "not_started"),

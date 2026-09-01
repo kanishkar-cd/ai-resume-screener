@@ -234,37 +234,72 @@ function reducer(state: PipelineState, action: Action): PipelineState {
       const merged = [...existing]
 
       for (const res of results) {
-        const targetId = res.candidateId || res.externalCandidateRef
+        const targetId = res.candidateId || res.externalCandidateRef || (res as any).id
         const targetEmail = (res.email || '').trim().toLowerCase()
+        const targetName = ((res as any).candidateName || (res as any).name || '').trim().toLowerCase()
 
         let idx = -1
         if (targetId) {
-          idx = merged.findIndex((m) => m.id === targetId)
+          idx = merged.findIndex((m) => m.id === targetId || (m as any).candidateId === targetId || (m as any).externalCandidateRef === targetId)
         }
         if (idx < 0 && targetEmail) {
           idx = merged.findIndex((m) => (m.email || '').trim().toLowerCase() === targetEmail)
         }
+        if (idx < 0 && targetName) {
+          idx = merged.findIndex((m) => (m.candidateName || '').trim().toLowerCase() === targetName)
+        }
+
+        // Parse score robustly
+        let scoreVal: number | null | undefined = undefined
+        const rawScore = res.compositeScore !== undefined && res.compositeScore !== null
+          ? res.compositeScore
+          : ((res as any).composite_score !== undefined && (res as any).composite_score !== null
+            ? (res as any).composite_score
+            : ((res as any).compositescore !== undefined && (res as any).compositescore !== null
+              ? (res as any).compositescore
+              : (res as any).score))
+
+        if (rawScore !== undefined && rawScore !== null && rawScore !== '') {
+          const num = Number(rawScore)
+          if (!isNaN(num)) {
+            scoreVal = num > 0 && num <= 1 ? Math.round(num * 1000) / 10 : Math.round(num * 10) / 10
+          }
+        }
+
+        // Parse band robustly
+        let bandVal = res.compositeScoreBand || (res as any).composite_score_band || (res as any).compositescoreband || (res as any).score_band || (res as any).scoreband || (res as any).scoreBand || null
+        if (!bandVal && scoreVal !== undefined && scoreVal !== null) {
+          if (scoreVal >= 85) bandVal = 'Excellent'
+          else if (scoreVal >= 70) bandVal = 'Good'
+          else if (scoreVal >= 55) bandVal = 'Average'
+          else bandVal = 'Below Bar'
+        }
 
         if (idx >= 0) {
+          const resolvedScore = scoreVal !== undefined ? scoreVal : merged[idx].compositeScore
+          const resolvedBand = bandVal || merged[idx].compositeScoreBand
+
           merged[idx] = {
             ...merged[idx],
-            sessionStatus: res.sessionStatus || merged[idx].sessionStatus,
-            scoreStatus: res.scoreStatus || merged[idx].scoreStatus,
-            compositeScore: res.compositeScore !== undefined ? res.compositeScore : merged[idx].compositeScore,
-            compositeScoreBand: res.compositeScoreBand || merged[idx].compositeScoreBand,
-            identityStatus: res.identityStatus || merged[idx].identityStatus,
-            isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : merged[idx].isIdentityVerified,
-            startedAt: res.startedAt || merged[idx].startedAt,
-            submittedAt: res.submittedAt || merged[idx].submittedAt,
-            expiresAt: res.expiresAt || merged[idx].expiresAt,
+            candidateName: (res as any).candidateName || (res as any).name || merged[idx].candidateName,
+            email: res.email || merged[idx].email,
+            sessionStatus: res.sessionStatus || (res as any).session_status || merged[idx].sessionStatus,
+            scoreStatus: res.scoreStatus || (res as any).score_status || (resolvedScore !== undefined && resolvedScore !== null ? 'graded' : merged[idx].scoreStatus),
+            compositeScore: resolvedScore,
+            compositeScoreBand: resolvedBand,
+            identityStatus: res.identityStatus || (res as any).identity_status || merged[idx].identityStatus,
+            isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : ((res as any).is_identity_verified !== undefined ? (res as any).is_identity_verified : merged[idx].isIdentityVerified),
+            startedAt: res.startedAt || (res as any).started_at || merged[idx].startedAt,
+            submittedAt: res.submittedAt || (res as any).submitted_at || merged[idx].submittedAt,
+            expiresAt: res.expiresAt || (res as any).expires_at || merged[idx].expiresAt,
             decision: res.decision || merged[idx].decision,
-            assessmentLink: res.assessmentLink || merged[idx].assessmentLink,
-            status: res.sessionStatus === 'submitted' ? 'Submitted' : (res.sessionStatus || merged[idx].status),
+            assessmentLink: res.assessmentLink || (res as any).assessment_link || merged[idx].assessmentLink,
+            status: (res.sessionStatus === 'submitted' || (res as any).session_status === 'submitted') ? 'Submitted' : (res.sessionStatus || (res as any).session_status || merged[idx].status),
           }
-        } else if (targetId) {
+        } else if (targetId || targetName) {
           merged.push({
-            id: targetId,
-            candidateName: (res as any).candidateName || 'Candidate',
+            id: targetId || `cand_${Date.now()}`,
+            candidateName: (res as any).candidateName || (res as any).name || 'Candidate',
             email: res.email || '',
             currentTitle: 'Applicant',
             reqRef: action.payload.reqRef || '',
@@ -275,16 +310,16 @@ function reducer(state: PipelineState, action: Action): PipelineState {
             techScore: 0,
             codingScore: 0,
             overallResult: 'PASSED',
-            assessmentLink: res.assessmentLink || null,
-            sessionStatus: res.sessionStatus || 'not_started',
-            scoreStatus: res.scoreStatus || 'not_graded',
-            compositeScore: res.compositeScore,
-            compositeScoreBand: res.compositeScoreBand,
-            identityStatus: res.identityStatus,
-            isIdentityVerified: res.isIdentityVerified,
-            startedAt: res.startedAt,
-            submittedAt: res.submittedAt,
-            expiresAt: res.expiresAt,
+            assessmentLink: res.assessmentLink || (res as any).assessment_link || null,
+            sessionStatus: res.sessionStatus || (res as any).session_status || 'not_started',
+            scoreStatus: res.scoreStatus || (res as any).score_status || (scoreVal !== undefined && scoreVal !== null ? 'graded' : 'not_graded'),
+            compositeScore: scoreVal ?? null,
+            compositeScoreBand: bandVal ?? null,
+            identityStatus: res.identityStatus || (res as any).identity_status,
+            isIdentityVerified: res.isIdentityVerified ?? (res as any).is_identity_verified ?? null,
+            startedAt: res.startedAt || (res as any).started_at,
+            submittedAt: res.submittedAt || (res as any).submitted_at,
+            expiresAt: res.expiresAt || (res as any).expires_at,
             decision: res.decision,
           })
         }

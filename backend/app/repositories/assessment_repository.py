@@ -100,12 +100,26 @@ class AssessmentRepository:
         polled_at: datetime | None = None,
         default_session_status: str = "not_started",
         default_score_status: str = "not_graded",
+        default_composite_score: float | None = None,
         default_composite_score_band: str | None = None,
         default_decision: str | None = None,
     ) -> None:
-        stmt = select(CandidateAssessmentModel).where(
-            CandidateAssessmentModel.requisition_ref == requisition_ref
-        )
+        clean_proj_id = requisition_ref.replace("REQ-", "").strip()
+        from sqlalchemy import or_
+        from uuid import UUID
+
+        conditions = [
+            CandidateAssessmentModel.requisition_ref == requisition_ref,
+            CandidateAssessmentModel.requisition_ref == f"REQ-{requisition_ref}",
+            CandidateAssessmentModel.requisition_ref == clean_proj_id,
+        ]
+        try:
+            proj_uuid = UUID(clean_proj_id)
+            conditions.append(CandidateAssessmentModel.project_id == proj_uuid)
+        except (ValueError, AttributeError):
+            pass
+
+        stmt = select(CandidateAssessmentModel).where(or_(*conditions))
         result = await self.db.execute(stmt)
         records = list(result.scalars().all())
 
@@ -119,6 +133,23 @@ class AssessmentRepository:
                 ref_map[str(rec.external_candidate_ref).strip()] = rec
             if rec.document_id:
                 ref_map[str(rec.document_id).strip()] = rec
+
+        # Also map by email and name from extracted resume details
+        try:
+            from app.models.extracted_info import ExtractedResumeModel
+            doc_ids = [rec.document_id for rec in records if rec.document_id]
+            if doc_ids:
+                ext_stmt = select(ExtractedResumeModel).where(ExtractedResumeModel.document_id.in_(doc_ids))
+                ext_res = await self.db.execute(ext_stmt)
+                for ext in ext_res.scalars().all():
+                    matching_rec = ref_map.get(str(ext.document_id))
+                    if matching_rec:
+                        if ext.email:
+                            ref_map[str(ext.email).strip().lower()] = matching_rec
+                        if ext.candidate_name:
+                            ref_map[str(ext.candidate_name).strip().lower()] = matching_rec
+        except Exception:
+            pass
 
         def _parse_dt(val: Any) -> datetime | None:
             if isinstance(val, datetime):
@@ -153,15 +184,14 @@ class AssessmentRepository:
                 or ""
             ).strip().lower()
 
-            target_rec = ref_map.get(c_ref)
+            c_name = str(
+                cdata.get("candidate_name")
+                or cdata.get("candidateName")
+                or cdata.get("name")
+                or ""
+            ).strip().lower()
 
-            if target_rec is None and c_email:
-                for rec in records:
-                    # Match against candidate_email if rec attributes or relationships match
-                    pass
-
-            if target_rec is None and idx < len(records):
-                target_rec = records[idx]
+            target_rec = ref_map.get(c_ref) or (ref_map.get(c_email) if c_email else None) or (ref_map.get(c_name) if c_name else None)
 
             if target_rec is not None:
                 matched_records.add(target_rec.id)
@@ -181,13 +211,31 @@ class AssessmentRepository:
                 comp_score = (
                     cdata.get("composite_score")
                     if cdata.get("composite_score") is not None
-                    else (cdata.get("compositescore") if cdata.get("compositescore") is not None else cdata.get("compositeScore"))
+                    else (
+                        cdata.get("compositescore")
+                        if cdata.get("compositescore") is not None
+                        else (
+                            cdata.get("compositeScore")
+                            if cdata.get("compositeScore") is not None
+                            else cdata.get("score")
+                        )
+                    )
                 )
                 if comp_score is not None:
                     try:
-                        target_rec.composite_score = float(comp_score)
+                        val = float(comp_score)
+                        if 0 < val <= 1.0:
+                            val *= 100
+                        target_rec.composite_score = round(val, 1)
                     except (ValueError, TypeError):
                         pass
+                elif default_composite_score is not None:
+                    try:
+                        target_rec.composite_score = float(default_composite_score)
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    target_rec.composite_score = None
 
                 comp_band = (
                     cdata.get("composite_score_band")
@@ -196,10 +244,20 @@ class AssessmentRepository:
                     or cdata.get("score_band")
                     or cdata.get("scoreband")
                     or cdata.get("scoreBand")
+                    or cdata.get("band")
                     or default_composite_score_band
                 )
-                if comp_band is not None:
+                if comp_band is not None and str(comp_band).upper() not in ("NONE", "NULL"):
                     target_rec.composite_score_band = str(comp_band)
+                elif target_rec.composite_score is not None and target_rec.composite_score_band is None:
+                    if target_rec.composite_score >= 85:
+                        target_rec.composite_score_band = "Excellent"
+                    elif target_rec.composite_score >= 70:
+                        target_rec.composite_score_band = "Good"
+                    elif target_rec.composite_score >= 55:
+                        target_rec.composite_score_band = "Average"
+                    else:
+                        target_rec.composite_score_band = "Below Bar"
 
                 id_stat = (
                     cdata.get("identity_status")

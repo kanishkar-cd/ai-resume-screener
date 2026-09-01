@@ -1,8 +1,11 @@
 import asyncio
 from datetime import datetime, timezone
 import structlog
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.assessment_invitation import CandidateAssessmentModel
+from app.models.project import ProjectModel, ProjectStatusEnum
 from app.repositories.assessment_repository import AssessmentRepository
 from app.services.cd_recruit_service import CDRecruitException, CDRecruitService
 
@@ -51,6 +54,27 @@ class CDRecruitStatusPoller:
                 polled_at=now,
                 candidates=candidates if isinstance(candidates, list) else None,
             )
+
+            # Automatically transition project status to COMPLETED if all candidates are finalized
+            try:
+                stmt = select(CandidateAssessmentModel).where(
+                    CandidateAssessmentModel.requisition_ref == requisition_ref
+                )
+                recs = list((await self.db.execute(stmt)).scalars().all())
+                if recs and all(
+                    (r.score_status in ("graded", "scored") or r.composite_score is not None or r.decision is not None)
+                    and r.session_status in ("submitted", "completed")
+                    for r in recs
+                ):
+                    project_ids = list({r.project_id for r in recs if r.project_id})
+                    for pid in project_ids:
+                        p_stmt = select(ProjectModel).where(ProjectModel.id == pid)
+                        p_obj = await self.db.scalar(p_stmt)
+                        if p_obj and p_obj.status != ProjectStatusEnum.COMPLETED:
+                            p_obj.status = ProjectStatusEnum.COMPLETED
+            except Exception as exc:
+                logger.warning("[CD-RECRUIT-POLLER] error checking project auto-completion", error=str(exc))
+
             await self.db.commit()
 
         logger.info(

@@ -20,6 +20,7 @@ import {
   HelpCircle,
   Download,
   ArrowRight,
+  Award,
 } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
@@ -158,10 +159,11 @@ interface ExplanationDrawerProps {
   candidate: Candidate | null
   projectId: string | null
   jdDocumentId: string | null
+  assessmentCandidates?: import('@/types').AssessmentCandidate[]
   onClose: () => void
 }
 
-function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: ExplanationDrawerProps) {
+function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandidates, onClose }: ExplanationDrawerProps) {
   const [insights, setInsights] = useState<CandidateInsights | null>(null)
   const [loadingInsights, setLoadingInsights] = useState(false)
   const [resumeProfile, setResumeProfile] = useState<{ normalized: NormalizedResume; extracted: ExtractedResume | null; document: ApiDocument } | null>(null)
@@ -223,6 +225,21 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
   const evidenceMap = buildEvidenceMap(resumeProfile)
 
   const recConfig = candidate ? getRecommendationConfig(candidate) : null
+
+  const assessmentInfo = assessmentCandidates?.find(
+    (a) =>
+      a.id === candidate?.id ||
+      (a as any).candidateId === candidate?.id ||
+      (a as any).external_candidate_ref === candidate?.id ||
+      (candidate?.email && a.email?.trim().toLowerCase() === candidate.email.trim().toLowerCase()) ||
+      (candidate?.name && a.candidateName?.trim().toLowerCase() === candidate.name.trim().toLowerCase())
+  )
+
+  const rawAssessComp = assessmentInfo?.compositeScore ?? (assessmentInfo as any)?.composite_score ?? (assessmentInfo as any)?.compositescore
+  const assessCompScore = rawAssessComp !== undefined && rawAssessComp !== null && rawAssessComp !== '' && !isNaN(Number(rawAssessComp))
+    ? Number(rawAssessComp)
+    : null
+  const assessCompBand = assessmentInfo?.compositeScoreBand || (assessmentInfo as any)?.composite_score_band || (assessmentInfo as any)?.compositescoreband || (assessmentInfo as any)?.score_band
 
   return (
     <AnimatePresence>
@@ -305,6 +322,39 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, onClose }: Expl
                   <p className="pt-1 text-[12px] text-slate-500 italic border-t border-blue-100/60">{insights.score_explanation}</p>
                 )}
               </div>
+
+              {/* Technical Assessment Composite Score if available */}
+              {assessmentInfo && (assessCompScore !== null || assessCompBand || assessmentInfo.sessionStatus) && (
+                <div className="rounded-xl bg-gradient-to-br from-teal-50/90 to-emerald-50/50 border border-teal-200 p-4 space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Award size={14} className="text-teal-600" />
+                      <p className="text-[11px] font-bold text-teal-800 uppercase tracking-widest">
+                        CD-Recruit Technical Assessment
+                      </p>
+                    </div>
+                    {assessCompScore !== null ? (
+                      <span className="text-[12px] font-extrabold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                        {Math.round(assessCompScore)}% {assessCompBand ? `· ${assessCompBand}` : ''}
+                      </span>
+                    ) : assessCompBand ? (
+                      <span className="text-[12px] font-extrabold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                        {assessCompBand}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+                    <div className="bg-white/80 rounded-lg p-2 border border-teal-100/70">
+                      <span className="text-slate-400 font-semibold block text-[9.5px] uppercase">Session Status</span>
+                      <span className="font-bold capitalize">{assessmentInfo.sessionStatus?.replace('_', ' ') || assessmentInfo.status || 'Not Started'}</span>
+                    </div>
+                    <div className="bg-white/80 rounded-lg p-2 border border-teal-100/70">
+                      <span className="text-slate-400 font-semibold block text-[9.5px] uppercase">Decision</span>
+                      <span className="font-bold uppercase text-emerald-700">{assessmentInfo.decision || 'Pending'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 50 + 50 Score Model Breakdown */}
               <div className="space-y-2.5">
@@ -603,6 +653,7 @@ export default function CandidateRanking() {
         candidate={selectedCandidate}
         projectId={state.projectId}
         jdDocumentId={state.jdDocumentId}
+        assessmentCandidates={state.assessmentCandidates}
         onClose={() => setSelectedCandidate(null)}
       />
 
