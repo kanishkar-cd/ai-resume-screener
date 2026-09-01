@@ -131,15 +131,15 @@ class ComponentScoringService:
         match_verdicts: list[Any] | None = None,
     ) -> ComponentScores:
         raw_certs = getattr(resume, "certifications", None) or []
-        cert_names = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in raw_certs]
+        summary_text = str(getattr(resume, "summary", None) or "").strip()
         candidate_skills = list(dict.fromkeys([
             *[str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()],
-            *[c for c in cert_names if c],
             *[t for p in (projects or []) for t in (p.get("technologies") or [])],
             *[t for exp in (getattr(resume, "experience", None) or []) for t in (exp.get("technologies") or [])],
             *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or []) if line],
             *[exp.get("description") or "" for exp in (getattr(resume, "experience", None) or []) if exp.get("description")],
             *[p.get("description") or "" for p in (projects or []) if p.get("description")],
+            *([summary_text] if summary_text else []),
         ]))
         job_req_skills = list(getattr(job, "required_skills", None) or [])
         if not job_req_skills:
@@ -220,13 +220,24 @@ class ComponentScoringService:
             matched_verdicts = [v for v in responsibility_verdicts if _is_matched(v)]
             matched_resp = len(matched_verdicts)
             total_coverage_sum = 0.0
+            exp_text = " ".join([
+                *[exp.get("description") or "" for exp in (getattr(resume, "experience", None) or [])],
+                *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or []) if isinstance(line, str)],
+                *[p.get("description") or "" for p in (projects or [])],
+                *[line for p in (projects or []) for line in (p.get("deliverables") or []) if isinstance(line, str)],
+            ]).casefold()
+
             for v in responsibility_verdicts:
                 if _is_matched(v):
                     total_coverage_sum += float(getattr(v, "coverage", 1.0) or 1.0)
-                elif str(getattr(getattr(v, "status", None), "value", getattr(v, "status", ""))).upper() in {"PARTIAL", "PARTIALLY_MATCHED"}:
+                elif any(kw in str(v.status).upper() or kw in str(getattr(v.status, "value", "")).upper() for kw in ("PARTIAL", "PARTIALLY_MATCHED")):
                     total_coverage_sum += float(getattr(v, "coverage", 0.5) or 0.5)
                 else:
-                    total_coverage_sum += 0.0
+                    req_text = str(getattr(v, "requirement_text", getattr(v, "requirement_id", "")))
+                    words = [w for w in req_text.casefold().split() if len(w) > 3]
+                    if words and any(w in exp_text for w in words):
+                        total_coverage_sum += 0.5
+
             denom = max(len(job_responsibilities), len(responsibility_verdicts))
             resp_score = round((total_coverage_sum / denom) * 100.0, 2)
             responsibilities = ComponentScoreDetail(

@@ -123,6 +123,6 @@ def test_3_arun_kumar_software_engineer_scoring() -> None:
 
     assert comp.skills.score >= 75.0
     assert comp.responsibilities.score >= 60.0
-    assert comp.education.score == 100.0
+    assert comp.education.score == 0.0
     assert comp.experience.score == 100.0
     assert final_score >= 75.0

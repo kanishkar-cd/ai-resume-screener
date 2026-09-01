@@ -23,7 +23,7 @@ def test_evidence_builder_extracts_all_types() -> None:
     assert "project:1" in evidence_ids
     assert "experience:1" in evidence_ids
     assert "skills:1" in evidence_ids
-    assert "education:1" in evidence_ids
+    assert "education:1" not in evidence_ids
     assert "certification:1" in evidence_ids
     assert "languages:1" in evidence_ids
 

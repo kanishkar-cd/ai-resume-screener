@@ -88,7 +88,7 @@ SKILL_ALIASES = {
     "schema design": "Schema Design", "indexing": "Indexing", "aggregation": "Aggregation",
     "query optimization": "Query Optimization", "clean code": "Clean Code",
     "api documentation": "API Documentation", "authentication": "Authentication",
-    "authorization": "Authorization", "testing": "Testing", "api testing": "Testing", "api tests": "Testing",
+    "authorization": "Authorization", "rbac": "Role-Based Access Control", "role-based access control": "Role-Based Access Control", "testing": "Testing", "api testing": "Testing", "api tests": "Testing",
     "database": "Relational Databases", "databases": "Relational Databases",
     "database management": "Database Management", "database concepts": "Relational Databases",
     "basic sql and database concepts": "Relational Databases", "sql and database concepts": "Relational Databases",

@@ -397,7 +397,7 @@ class DeterministicRequirementMatcher:
             req_text = requirement.canonical_value or requirement.text
             required_key = _key(req_text)
             for item in evidence:
-                if item.kind not in {"experience", "project"}:
+                if item.kind not in {"experience", "project", "summary"}:
                     continue
                 canonical = {_key(value) for value in item.canonical_terms}
                 if required_key in canonical or required_key == _key(item.text):
@@ -412,7 +412,7 @@ class DeterministicRequirementMatcher:
                         missing_concepts=[],
                     )
 
-            exp_and_proj_evidence = [e for e in evidence if e.kind in {"experience", "project"}]
+            exp_and_proj_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary"}]
             if not exp_and_proj_evidence:
                 return MatchVerdict(
                     requirement_id=requirement.requirement_id,
@@ -726,11 +726,10 @@ class DeterministicRequirementMatcher:
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             aliases = SKILL_ALIASES
             candidates = [str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()]
-            certs = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in (getattr(resume, "certifications", None) or [])]
-            certs = [c for c in certs if c]
-            evidence_terms = [term for e in evidence for term in e.canonical_terms if term]
-            evidence_text = " ".join(e.text for e in evidence).casefold()
-            candidate_pool = list(dict.fromkeys([*candidates, *certs, *evidence_terms]))
+            skill_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary"}]
+            evidence_terms = [term for e in skill_evidence for term in e.canonical_terms if term]
+            evidence_text = " ".join(e.text for e in skill_evidence).casefold()
+            candidate_pool = list(dict.fromkeys([*candidates, *evidence_terms]))
 
             candidate_keys_map: dict[str, tuple[str, MatchMethod]] = {}
             for c in candidate_pool:
@@ -987,38 +986,144 @@ SEMANTIC_SYNONYMS: dict[str, set[str]] = {
 }
 
 
+class SemanticEvidenceRetriever:
+    """
+    Lightweight character 3-gram and token n-gram similarity retriever.
+    Fast sub-millisecond retrieval for fallback candidate evidence discovery.
+    """
+
+    @staticmethod
+    def _char_ngrams(text: str, n: int = 3) -> set[str]:
+        cleaned = re.sub(r"\s+", " ", text.casefold()).strip()
+        if len(cleaned) < n:
+            return {cleaned} if cleaned else set()
+        return {cleaned[i : i + n] for i in range(len(cleaned) - n + 1)}
+
+    @classmethod
+    def similarity(cls, query: str, text: str) -> float:
+        q_stems = _stem_tokens(query)
+        t_stems = _stem_tokens(text)
+        if not q_stems or not t_stems:
+            return 0.0
+
+        # Direct stem overlap ratio
+        stem_overlap = len(q_stems & t_stems) / len(q_stems)
+        if stem_overlap > 0:
+            return round(stem_overlap, 3)
+
+        # Check semantic synonym mapping (e.g. Kafka -> message queues / event streaming)
+        q_lower = query.casefold().strip()
+        text_lower = text.casefold()
+        for term, syns in SEMANTIC_SYNONYMS.items():
+            concept_stems = _stem_tokens(term)
+            for s in syns:
+                concept_stems.update(_stem_tokens(s))
+            if q_stems & concept_stems:
+                for s in syns:
+                    if len(s) > 2 and re.search(rf"\b{re.escape(s)}\b", text_lower):
+                        return 0.65
+
+        # Sub-word token similarity for long technical words (len >= 5) to catch variants
+        q_tokens = [t for t in _TOKEN.findall(q_lower) if len(t) >= 5]
+        t_tokens = [t for t in _TOKEN.findall(text_lower) if len(t) >= 5]
+        if q_tokens and t_tokens:
+            for qt in q_tokens:
+                qt_ngrams = {qt[i : i + 3] for i in range(len(qt) - 2)}
+                for tt in t_tokens:
+                    tt_ngrams = {tt[i : i + 3] for i in range(len(tt) - 2)}
+                    if qt_ngrams and tt_ngrams:
+                        jaccard = len(qt_ngrams & tt_ngrams) / len(qt_ngrams | tt_ngrams)
+                        if jaccard >= 0.35:
+                            return round(jaccard, 3)
+
+        return 0.0
+
+    @classmethod
+    def retrieve(cls, query: str, evidence: list[Evidence], top_k: int = 5) -> list[Evidence]:
+        if not evidence or not query:
+            return []
+        scored = []
+        for e in evidence:
+            sim = cls.similarity(query, e.text)
+            scored.append((sim, e.evidence_id, e))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        passing = [row[2] for row in scored if row[0] > 0.05]
+        return passing[:top_k]
+
+
 class EvidencePrefilter:
     def __init__(self, threshold: float, limit: int) -> None:
         self.threshold, self.limit = threshold, limit
+
+    @staticmethod
+    def _select_diverse_evidence(scored_items: list[tuple[float, str, Evidence]], target_limit: int) -> list[Evidence]:
+        if not scored_items:
+            return []
+
+        by_kind: dict[str, list[tuple[float, str, Evidence]]] = {}
+        for row in scored_items:
+            by_kind.setdefault(row[2].kind, []).append(row)
+
+        selected: list[Evidence] = []
+        selected_ids: set[str] = set()
+
+        selected.append(scored_items[0][2])
+        selected_ids.add(scored_items[0][1])
+
+        kinds_order = list(by_kind.keys())
+        while len(selected) < target_limit:
+            added_any = False
+            for k in kinds_order:
+                candidates = [row for row in by_kind[k] if row[1] not in selected_ids]
+                if candidates:
+                    best = candidates[0]
+                    if len(selected) < target_limit:
+                        selected.append(best[2])
+                        selected_ids.add(best[1])
+                        added_any = True
+            if not added_any:
+                break
+
+        for row in scored_items:
+            if len(selected) >= target_limit:
+                break
+            if row[1] not in selected_ids:
+                selected.append(row[2])
+                selected_ids.add(row[1])
+
+        return selected
 
     def select(self, requirement: Requirement, evidence: list[Evidence]) -> list[Evidence]:
         if not evidence:
             return []
 
-        # Filter candidate evidence by requirement kind priority
-        if requirement.kind == RequirementKind.RESPONSIBILITY:
-            kind_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary"}]
-            if not kind_evidence:
+        # 1. Mandatory Evidence Boundaries
+        if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
+            target_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary"}]
+            if not target_evidence:
                 return []
-            target_evidence = kind_evidence
+        elif requirement.kind == RequirementKind.RESPONSIBILITY:
+            target_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary"}]
+            if not target_evidence:
+                return []
         elif requirement.kind == RequirementKind.PROJECT_RELEVANCE:
-            kind_evidence = [e for e in evidence if e.kind in {"project", "experience", "summary"}]
-            if not kind_evidence:
+            target_evidence = [e for e in evidence if e.kind in {"project", "experience", "summary"}]
+            if not target_evidence:
                 return []
-            target_evidence = kind_evidence
-        elif requirement.kind == RequirementKind.DEGREE:
-            kind_evidence = [e for e in evidence if e.kind == "education"]
-            target_evidence = kind_evidence if kind_evidence else evidence
         elif requirement.kind == RequirementKind.CERTIFICATION:
             kind_evidence = [e for e in evidence if e.kind == "certification"]
-            target_evidence = kind_evidence if kind_evidence else evidence
+            target_evidence = kind_evidence if kind_evidence else [e for e in evidence if e.kind in {"experience", "project", "summary"}]
+        elif requirement.kind == RequirementKind.LANGUAGE:
+            kind_evidence = [e for e in evidence if e.kind == "languages"]
+            target_evidence = kind_evidence if kind_evidence else [e for e in evidence if e.kind in {"experience", "project", "summary"}]
         else:
-            target_evidence = evidence
+            target_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary", "skills"}]
 
+        # 2. Lexical & Synonym Overlap Scoring
         req_lower = requirement.text.casefold()
         synonym_phrases: set[str] = set()
         for term, syns in SEMANTIC_SYNONYMS.items():
-            if term in req_lower or any(t in req_lower for t in term.split()):
+            if term in req_lower or any(re.search(rf"\b{re.escape(t)}\b", req_lower) for t in term.split() if len(t) > 2):
                 synonym_phrases.update(syns)
                 synonym_phrases.add(term)
 
@@ -1038,16 +1143,31 @@ class EvidencePrefilter:
 
         if scored:
             scored.sort(key=lambda row: (-row[0], row[1]))
-            passing = [row[2] for row in scored if row[0] >= self.threshold]
-            return passing[: self.limit] if passing else [row[2] for row in scored[: self.limit]]
+            passing = [row for row in scored if row[0] >= self.threshold]
 
-        # Fallback profile evidence when no specific token overlap exists (for responsibilities, degrees, certifications)
+            top_score = scored[0][0]
+            if top_score >= 0.60:
+                adaptive_limit = min(3, self.limit)
+            elif top_score >= 0.15:
+                adaptive_limit = min(5, self.limit)
+            else:
+                adaptive_limit = min(8, max(5, self.limit))
+
+            candidates_to_filter = passing if passing else scored
+            return self._select_diverse_evidence(candidates_to_filter, adaptive_limit)
+
+        # 3. Fallback & Zero-Overlap Behavior
+        # For SKILLS: Trigger Semantic Retrieval. Return [] if no semantic evidence exists.
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
-            return []
+            semantic_selected = SemanticEvidenceRetriever.retrieve(
+                requirement.text, target_evidence, top_k=min(5, self.limit)
+            )
+            return semantic_selected if semantic_selected else []
 
+        # For NON-SKILLS: Profile fallback
         allowed_kinds = {"experience", "project", "summary"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "summary", "certification"}
         fallback_evidence = [e for e in target_evidence if e.kind in allowed_kinds]
-        return (fallback_evidence if fallback_evidence else target_evidence)[: self.limit]
+        return (fallback_evidence if fallback_evidence else target_evidence)[: min(5, self.limit)]
 
 
 class GroqTokenBudgetGate:
@@ -1068,6 +1188,8 @@ class GroqTokenBudgetGate:
     def get_gate(cls, settings: Settings | None = None) -> GroqTokenBudgetGate:
         if cls._instance is None:
             cls._instance = cls(settings)
+        elif settings is not None:
+            cls._instance.settings = settings
         if cls._instance._lock is None:
             cls._instance._lock = asyncio.Lock()
         return cls._instance
@@ -1309,7 +1431,7 @@ class GroqMatchEvaluator:
             self._cache.move_to_end(digest)
             return [verdict.model_copy(deep=True) for verdict in self._cache[digest]]
 
-        payload = self._payload(requirements, evidence)
+        payload = self._payload(requirements, evidence, allowed_evidence)
         gate = GroqTokenBudgetGate.get_gate(self.settings)
         estimated_tokens = gate.estimate_tokens(payload)
 
@@ -1535,13 +1657,17 @@ class GroqMatchEvaluator:
             ))
         return result
 
-    def _payload(self, requirements: list[Requirement], evidence: list[Evidence]) -> dict[str, Any]:
+    def _payload(
+        self, requirements: list[Requirement], evidence: list[Evidence],
+        allowed_evidence: dict[str, set[str]] | None = None,
+    ) -> dict[str, Any]:
         req_list = [
             {
                 "requirement_id": r.requirement_id,
                 "kind": r.kind.value,
                 "text": r.text,
                 "required": r.required,
+                "allowed_evidence_ids": sorted(list(allowed_evidence.get(r.requirement_id, set()))) if allowed_evidence and r.requirement_id in allowed_evidence else [],
             }
             for r in requirements
         ]
