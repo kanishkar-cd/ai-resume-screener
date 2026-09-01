@@ -220,11 +220,16 @@ async def test_affinda_resume_failure_uses_existing_extractor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_affinda_jd_failure_uses_existing_jd_extractor() -> None:
+async def test_affinda_jd_failure_uses_existing_jd_extractor(monkeypatch) -> None:
     doc = document(DocumentTypeEnum.JOB_DESCRIPTION)
+    doc.metadata_json = {"affinda_payload": {"data": {"jobTitle": "Engineer"}}}
     docs = Documents(doc)
     repo = SimpleNamespace(upsert=AsyncMock())
     provider = FakeAffinda(fail=True)
+    def bad_map(*args):
+        provider.jd_calls += 1
+        raise RuntimeError("failed mapping")
+    monkeypatch.setattr("app.services.jd_extraction_service.map_affinda_jd", bad_map)
     result = await JDExtractionService(docs, Parsed(), repo, affinda_service=provider, storage=FakeStorage()).extract_document(doc.id)
     assert result.processing_stage == ProcessingStage.EXTRACTION
     assert provider.jd_calls == 1

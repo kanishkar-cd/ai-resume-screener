@@ -17,11 +17,15 @@ class CanonicalEducationItem(BaseModel):
 class CanonicalExperienceItem(BaseModel):
     company: str | None = None
     job_title: str | None = None
+    employment_type: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     is_current: bool = False
     duration_months: int | None = Field(default=None, ge=0)
     duration_display: str | None = None
+    description: str | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+    location: str | None = None
 
 
 class CanonicalLocation(BaseModel):
@@ -60,6 +64,18 @@ class NormalizationMetadata(BaseModel):
         return value
 
 
+class CanonicalProjectItem(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    technologies: list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    responsibilities: list[str] = Field(default_factory=list)
+    outcomes: list[str] = Field(default_factory=list)
+    details: str | None = None
+
+
 class NormalizedResumeCreate(BaseModel):
     document_id: UUID
     extracted_resume_id: UUID
@@ -68,6 +84,7 @@ class NormalizedResumeCreate(BaseModel):
     companies: list[str] = Field(default_factory=list)
     job_titles: list[str] = Field(default_factory=list)
     experience: list[CanonicalExperienceItem] = Field(default_factory=list)
+    projects: list[CanonicalProjectItem] = Field(default_factory=list)
     phone: str | None = Field(default=None, max_length=32)
     email: str | None = Field(default=None, max_length=255)
     locations: list[CanonicalLocation] = Field(default_factory=list)

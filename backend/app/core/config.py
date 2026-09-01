@@ -1,3 +1,4 @@
+import socket
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -94,6 +95,9 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "openai/gpt-oss-20b"
     GROQ_TIMEOUT_SECONDS: float = 30.0
     GROQ_MAX_RETRIES: int = 1
+    GROQ_TPM_LIMIT: int = Field(default=8000, ge=100)
+    GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+    GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
 
     ENABLE_OCR_FALLBACK: bool = False
     OCR_ENGINE: str = "easyocr"
@@ -128,6 +132,9 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_FROM_EMAIL: str = "kanishkar@clouddestinations.com"
     ENABLE_ASSESSMENT_EMAILS: bool = True
+    MAX_CONCURRENT_EMAILS: int = Field(default=5, ge=1, le=50)
+    MAX_EMAIL_RETRIES: int = Field(default=3, ge=0, le=10)
+    EMAIL_RETRY_BASE_DELAY: float = Field(default=2.0, ge=0.1, le=60.0)
 
     # Microsoft Outlook / Microsoft Graph OAuth Configuration
     OUTLOOK_CLIENT_ID: str | None = None
@@ -182,6 +189,13 @@ class Settings(BaseSettings):
                 ssl_val = query_dict.pop("sslmode")
                 if ssl_val and "ssl" not in query_dict:
                     query_dict["ssl"] = ssl_val
+
+            if parsed_url.host and ("neon.tech" in parsed_url.host or "aws" in parsed_url.host):
+                try:
+                    ip = socket.gethostbyname(parsed_url.host)
+                    parsed_url = parsed_url._replace(host=ip)
+                except Exception:
+                    pass
 
             if parsed_url.password:
                 encoded_password = quote_plus(parsed_url.password)

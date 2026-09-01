@@ -3,7 +3,15 @@ from collections.abc import AsyncGenerator
 import httpx
 import pytest_asyncio
 
+import pytest
+
 from app.main import app
+from app.services.matching_service import GroqTokenBudgetGate
+
+
+@pytest.fixture(autouse=True)
+def reset_groq_token_gate():
+    GroqTokenBudgetGate.reset_gate()
 
 
 @pytest_asyncio.fixture

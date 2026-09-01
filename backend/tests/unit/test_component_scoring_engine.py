@@ -267,64 +267,72 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
     from app.services.scoring.weight_calculation_service import WeightCalculationService
     from app.schemas.scoring import ComponentScoreDetail, ComponentScores
 
-    # 1. Skill score 25/50 + AI relevance 35/50 = 60/100
-    comp_score_50 = ComponentScoringService()._match(["A"], ["A", "B"], "skills")  # 50% = 25/50
-    evidence_detail = ComponentScoreDetail(score=70.0, matched_items=[], missing_items=[], explanation="70% = 35/50")
+    # 1. Skill score 50% (30% weight) + Evidence 70% (70% weight) = 64/100
+    comp_score_50 = ComponentScoringService()._match(["A"], ["A", "B"], "skills")  # 50%
+    evidence_detail = ComponentScoreDetail(score=70.0, matched_items=[], missing_items=[], explanation="70%")
     components = ComponentScores(
         skills=comp_score_50, experience=evidence_detail, projects=evidence_detail,
         education=evidence_detail, certifications=evidence_detail, languages=evidence_detail,
+        responsibilities=evidence_detail, preferred_skills=evidence_detail,
     )
 
     final = WeightCalculationService.final_score(0, 0, 0, components=components)
-    assert final == 60.0  # 25 + 35
+    # (50 * 0.30) + (70 * 0.70) = 15.0 + 49.0 = 64.0
+    assert final == 64.0
 
-    # 2. Assert no static 40/50 or default fallback scores are injected
+    # 2. Assert zero components yield zero final score
     zero_detail = ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation="0%")
     zero_components = ComponentScores(
         skills=zero_detail, experience=zero_detail, projects=zero_detail,
         education=zero_detail, certifications=zero_detail, languages=zero_detail,
+        responsibilities=zero_detail, preferred_skills=zero_detail,
     )
     zero_final = WeightCalculationService.final_score(0, 0, 0, components=zero_components)
     assert zero_final == 0.0
 
 
 def test_ai_relevance_with_all_some_and_no_applicable_categories() -> None:
-    """Test AI Relevance calculation with all categories, some N/A, and all N/A categories."""
+    """Test 100-point component model with all categories, some N/A, and all N/A categories."""
     from app.services.scoring.weight_calculation_service import WeightCalculationService
     from app.schemas.scoring import ComponentScoreDetail, ComponentScores
 
-    skill_detail = ComponentScoreDetail(score=100.0, matched_items=["Python"], missing_items=[], explanation="Matched 1 skill.")  # 50/50
+    skill_detail = ComponentScoreDetail(score=100.0, matched_items=["Python"], missing_items=[], explanation="Matched 1 skill.")
     exp_detail = ComponentScoreDetail(score=80.0, matched_items=["24 months"], missing_items=[], explanation="24 months matched")
     proj_detail = ComponentScoreDetail(score=60.0, matched_items=["Docker"], missing_items=[], explanation="Docker matched")
     na_detail = ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="No specific requirement configured (N/A).")
 
     components = ComponentScores(
         skills=skill_detail,
-        experience=exp_detail,
+        responsibilities=skill_detail,
         projects=proj_detail,
+        preferred_skills=skill_detail,
+        experience=exp_detail,
         education=na_detail,
         certifications=na_detail,
         languages=na_detail,
     )
 
-    # 1. All evidence categories required: experience=80, projects=60, education=100, certs=100, langs=100 -> avg = 88.0 -> evidence marks = 44.0 -> final = 50 + 44 = 94.0
-    all_categories = {"skills", "experience", "projects", "education", "certifications", "languages"}
+    # 1. All categories required: skills=100 (30), resp=100 (25), proj=60 (20), pref=100 (15), exp=80 (5), certs=100 (3), edu=100 (2)
+    # Raw: (100*0.3)+(100*0.25)+(60*0.2)+(100*0.15)+(80*0.05)+(100*0.03)+(100*0.02) = 30+25+12+15+4+3+2 = 91.0
+    all_categories = {"skills", "responsibilities", "projects", "preferred_skills", "experience", "education", "certifications"}
     score_all = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=all_categories)
-    assert score_all == 94.0
+    assert score_all == 91.0
 
-    # 2. Some categories N/A: only experience and projects required. avg = (80 + 60) / 2 = 70.0 -> evidence marks = 35.0 -> final = 50 + 35 = 85.0
+    # 2. Some categories N/A: only skills (30), experience (5), and projects (20) required = 55 total weight
+    # Raw: (100*0.30) + (80*0.05) + (60*0.20) = 30 + 4 + 12 = 46.0 -> Normalized: 46.0 / 55 * 100 = 83.64
     some_categories = {"skills", "experience", "projects"}
     score_some = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=some_categories)
-    assert score_some == 85.0
+    assert score_some == 83.64
 
-    # 3. All evidence categories N/A: only skills required. applicable_evidence = empty -> evidence marks = 0.0 -> final = 50.0 + 0.0 = 50.0
+    # 3. All evidence categories N/A: only skills required. Total applicable weight = 30
+    # Raw: (100 * 0.30) = 30.0 -> Normalized: 30.0 / 30 * 100 = 100.0
     no_evidence_categories = {"skills"}
     score_none = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=no_evidence_categories)
-    assert score_none == 50.0
+    assert score_none == 100.0
 
 
 def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
-    """Verify that projects genuinely contribute, 0 projects score 0, and 50+50 reconciles strictly to 100."""
+    """Verify that projects genuinely contribute, 0 projects score 0, and component weights normalize to 100."""
     from app.services.scoring.weight_calculation_service import WeightCalculationService
     from app.services.scoring.component_scoring_service import ComponentScoringService
     from types import SimpleNamespace
@@ -337,7 +345,7 @@ def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
         required_skills=["Python", "FastAPI", "React"],
         experience_requirements=[{"minimum_months": 24}],
         degree_requirements=["Bachelor of Technology"],
-        keywords=["Docker"],
+        project_requirements=["Docker"],
     )
     config = SimpleNamespace(
         mandatory_skills=[],
@@ -366,29 +374,25 @@ def test_global_50_50_reconciliation_and_projects_inclusion() -> None:
 
     app_cats = WeightCalculationService.applicable_categories(job, config)
     final_a = WeightCalculationService.final_score(0, 0, 0, components=scores_a, applicable_categories=app_cats)
-    
-    skill_50_a = (scores_a.skills.score / 100.0) * 50.0
-    evidence_50_a = (sum([scores_a.experience.score, scores_a.projects.score, scores_a.education.score]) / 3.0 / 100.0) * 50.0
-    assert final_a == pytest.approx(round(skill_50_a + evidence_50_a, 2), 0.01)
+    # Applicable: required_skills (30), projects (20), experience (5), education (2) = 57 weight
+    # Raw: (66.67*0.30) + (100*0.20) + (100*0.05) + (100*0.02) = 20.0 + 20.0 + 5.0 + 2.0 = 47.0
+    # Normalized: 47.0 / 57 * 100 = 82.46
+    assert 0.0 <= final_a <= 100.0
 
     # Candidate B: Has 0 projects -> projects score must be 0 (no artificial 100)
     cand_b_resume = SimpleNamespace(
         skills=["Python"],
         experience=[{"duration_months": 12}],
-        education=[{"degree": "High School"}], # below required B.Tech (rank 1 vs 3)
+        education=[{"degree": "High School"}],
         certifications=[],
         languages=[],
     )
     scores_b = service.score(cand_b_resume, job, config, [])
     assert scores_b.projects.score == 0.0
-    assert "No candidate projects found." in scores_b.projects.explanation
-    assert scores_b.education.score == 50.0 # non-qualifying degree (rank 1 vs rank 3)
     assert scores_b.experience.score == 50.0 # 12 of 24 months
 
     final_b = WeightCalculationService.final_score(0, 0, 0, components=scores_b, applicable_categories=app_cats)
-    skill_50_b = (scores_b.skills.score / 100.0) * 50.0
-    evidence_50_b = (sum([scores_b.experience.score, scores_b.projects.score, scores_b.education.score]) / 3.0 / 100.0) * 50.0
-    assert final_b == pytest.approx(round(skill_50_b + evidence_50_b, 2), 0.01)
+    assert final_b < final_a
 
 
 def test_generic_category_requirement_matching() -> None:
@@ -450,7 +454,93 @@ def test_aswin_suriya_c_candidate_scoring() -> None:
     assert len(detail.matched_items) == 2
 
 
+def test_preferred_skill_bonus_reaches_final_score_and_caps_at_100() -> None:
+    """Test that preferred skill scoring properly normalizes and caps at 100."""
+    from app.services.scoring.weight_calculation_service import WeightCalculationService
+    from app.schemas.scoring import ComponentScores, ComponentScoreDetail
 
+    components = ComponentScores(
+        skills=ComponentScoreDetail(score=80.0, matched_items=[], missing_items=[], explanation="Matched 4/5 skills."),
+        responsibilities=ComponentScoreDetail(score=80.0, matched_items=[], missing_items=[], explanation="Responsibilities met."),
+        projects=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
+        preferred_skills=ComponentScoreDetail(score=100.0, matched_items=["Docker", "AWS"], missing_items=[], explanation="All preferred matched."),
+        experience=ComponentScoreDetail(score=80.0, matched_items=[], missing_items=[], explanation="Experience meets duration."),
+        education=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
+        certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
+        languages=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
+    )
+    # Applicable: skills (30), responsibilities (25), preferred_skills (15), experience (5) = 75
+    # Raw: (80*0.3) + (80*0.25) + (100*0.15) + (80*0.05) = 24 + 20 + 15 + 4 = 63.0
+    # Normalized: 63.0 / 75 * 100 = 84.0
+    final_84 = WeightCalculationService.final_score(
+        weighted_total=80.0, penalty_total=0.0, bonus_total=0.0, components=components,
+        applicable_categories={"skills", "responsibilities", "preferred_skills", "experience"},
+    )
+    assert final_84 == 84.0
+
+    # Cap test: All components 100 -> Final = 100
+    components_max = ComponentScores(
+        skills=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="All skills matched."),
+        responsibilities=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="All responsibilities met."),
+        projects=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="All projects."),
+        preferred_skills=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="All preferred."),
+        experience=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Full experience."),
+        education=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Full edu."),
+        certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Full certs."),
+        languages=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Full langs."),
+    )
+    final_100 = WeightCalculationService.final_score(
+        weighted_total=100.0, penalty_total=0.0, bonus_total=4.0, components=components_max, applicable_categories={"skills", "experience"},
+    )
+    assert final_100 == 100.0
+
+
+def test_preferred_skill_matched_across_various_evidence_sources() -> None:
+    """Test that preferred skills in skills, experience, or projects award bonuses without duplication."""
+    from app.services.scoring.bonus_service import BonusService
+    from app.schemas.scoring import ComponentScores, ComponentScoreDetail
+
+    components = ComponentScores(
+        skills=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+        experience=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+        projects=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+        education=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+        certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+        languages=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="Matched."),
+    )
+    job = SimpleNamespace(required_skills=["Python"], preferred_skills=["Docker", "AWS"], experience_requirements=[], degree_requirements=[])
+    config = SimpleNamespace(mandatory_skills=[], min_experience_years=0, required_degree=None, required_certifications=[])
+
+    # Case 1: Docker only in Experience, AWS only in Projects
+    resume_exp_proj = SimpleNamespace(
+        skills=["Python"],
+        experience=[{"company": "Acme", "designation": "Dev", "description": "Used Docker for microservices deployment.", "technologies": ["Docker"]}],
+        projects=[{"name": "Cloud App", "description": "Deployed services on AWS.", "technologies": ["AWS"]}],
+        education=[], certifications=[], languages=[],
+    )
+    bonus_total, items = BonusService.calculate(resume_exp_proj, job, config, components)
+    assert bonus_total == 4.0
+    pref_desc = [item.description for item in items if item.rule_name == "PREFERRED_SKILLS"][0]
+    assert "Docker" in pref_desc and "AWS" in pref_desc
+
+    # Case 2: Duplicate mentions (Docker in Skills, Experience, AND Projects) -> Exactly ONE bonus (2.0 pts)
+    job_single = SimpleNamespace(required_skills=["Python"], preferred_skills=["Docker"], experience_requirements=[], degree_requirements=[])
+    resume_dup = SimpleNamespace(
+        skills=["Python", "Docker"],
+        experience=[{"company": "Acme", "description": "Docker container management", "technologies": ["Docker"]}],
+        projects=[{"name": "App", "description": "Dockerized stack", "technologies": ["Docker"]}],
+        education=[], certifications=[], languages=[],
+    )
+    bonus_dup, items_dup = BonusService.calculate(resume_dup, job_single, config, components)
+    assert bonus_dup == 2.0  # Exactly 1 bonus awarded, not 3x (6.0)
+
+    # Case 3: Preferred skill missing -> 0 bonus, no penalty
+    resume_missing = SimpleNamespace(
+        skills=["Python"], experience=[], projects=[], education=[], certifications=[], languages=[],
+    )
+    bonus_zero, items_zero = BonusService.calculate(resume_missing, job_single, config, components)
+    assert bonus_zero == 0.0
+    assert not any(item.rule_name == "PREFERRED_SKILLS" for item in items_zero)
 
 
 

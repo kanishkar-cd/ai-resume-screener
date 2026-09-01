@@ -29,6 +29,8 @@ class ComponentScores(BaseModel):
     education: ComponentScoreDetail
     certifications: ComponentScoreDetail
     languages: ComponentScoreDetail
+    responsibilities: ComponentScoreDetail | None = None
+    preferred_skills: ComponentScoreDetail | None = None
 
 
 class WeightedScores(BaseModel):
@@ -37,7 +39,9 @@ class WeightedScores(BaseModel):
     projects: float
     education: float
     certifications: float
-    languages: float
+    languages: float = 0.0
+    responsibilities: float = 0.0
+    preferred_skills: float = 0.0
 
 
 class AdjustmentItem(BaseModel):

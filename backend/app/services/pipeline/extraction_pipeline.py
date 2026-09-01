@@ -11,12 +11,13 @@ SKILLS = (
     "Python", "FastAPI", "SQLAlchemy", "PostgreSQL", "React", "Docker",
     "Pytest", "Java", "JavaScript", "TypeScript", "Django", "Flask",
     "Kubernetes", "Git", "AWS", "Azure", "Node.js", "Node", "C++", "SQL",
-    "HTML", "CSS", "MongoDB", "Jenkins", "Terraform", "DynamoDB", "Redis",
-    "Lambda", "API Gateway", "S3", "EC2", "GraphQL", "REST API", "Linux",
-    "GitLab", "CI/CD", "GCP", "Go", "Spring Boot", "Express", "Vue",
-    "Angular", "Next.js", "Tailwind", "Kafka", "Elasticsearch", "RabbitMQ",
-    "Rust", "C#", ".NET", "Redux", "Pandas", "NumPy", "Scikit-learn",
-    "TensorFlow", "PyTorch", "Bash", "Shell", "MySQL", "SQLite", "Oracle",
+    "HTML", "HTML5", "CSS", "CSS3", "MongoDB", "Jenkins", "Terraform", "DynamoDB", "Redis",
+    "Lambda", "API Gateway", "S3", "EC2", "GraphQL", "REST API", "REST APIs", "Linux",
+    "GitLab", "GitHub", "CI/CD", "GCP", "Go", "Spring Boot", "Express", "Express.js", "Vue",
+    "Angular", "Next.js", "Tailwind", "Tailwind CSS", "Bootstrap", "Jest", "JWT", "Postman",
+    "Kafka", "Elasticsearch", "RabbitMQ", "Rust", "C#", ".NET", "Redux", "Redux Toolkit",
+    "React Testing Library", "WebSockets", "Microservices", "Responsive Design", "State Management",
+    "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "Bash", "Shell", "MySQL", "SQLite", "Oracle",
     "Embedded Systems", "PLC Programming", "PLC", "IoT",
 )
 
@@ -37,6 +38,7 @@ DESIGNATIONS = tuple(
             "Frontend Developer", "Backend Developer", "Product Manager", "Project Manager",
             "Business Analyst", "QA Engineer", "System Administrator", "Solutions Architect",
             "Intern", "Engineering Manager", "Technical Lead",
+            "Data Engineering", "Data Science", "Software Engineering", "Cloud Engineering", "DevOps Engineering",
         ),
         key=len,
         reverse=True,
@@ -73,7 +75,13 @@ SECTION_ALIASES = {
         "intership", "interships",
     },
     "education": {"education", "academic background", "academic qualifications", "education & qualifications"},
-    "projects": {"projects", "project experience", "project details", "personal projects", "key projects", "academic projects", "selected projects", "technical projects"},
+    "projects": {
+        "projects", "project experience", "project details", "personal projects", "key projects",
+        "academic projects", "selected projects", "technical projects", "projects worked on",
+        "projects & certifications", "internship & projects", "recent projects", "major projects",
+        "practical projects", "software projects", "development projects", "projects / experience",
+        "academic & personal projects", "independent projects",
+    },
 
     "certifications": {
         "certifications", "certificates", "licenses", "certifications & licenses",
@@ -168,7 +176,34 @@ def segment_sections(text: str) -> dict[str, str]:
         else:
             sections.setdefault(current, []).append(line)
 
-    return {name: "\n".join(lines) for name, lines in sections.items()}
+    res = {name: "\n".join(lines) for name, lines in sections.items()}
+    if len(res) <= 1 or (len(res) == 2 and "header" in res and len(res.get("header", "")) > 1000):
+        # Continuous inline text without linebreaks — perform regex boundary segmentation
+        pattern = r"\b(EDUCATION|TECHNICAL\s+SKILLS|SKILLS|WORK\s+EXPERIENCE|EXPERIENCE|INTERNSHIP|INTERNSHIPS|PROJECTS|PERSONAL\s+PROJECTS|ACADEMIC\s+PROJECTS|TECHNICAL\s+PROJECTS|CERTIFICATIONS|CERTIFICATE|ACHIEVEMENT|ACHIEVEMENTS|CODING\s+PROFILE|LANGUAGES)\b"
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
+        if matches:
+            fallback_sections: dict[str, str] = {}
+            first_start = matches[0].start()
+            fallback_sections["header"] = text[:first_start].strip()
+            section_map = {
+                "EDUCATION": "education", "TECHNICAL SKILLS": "skills", "SKILLS": "skills",
+                "WORK EXPERIENCE": "experience", "EXPERIENCE": "experience", "INTERNSHIP": "experience", "INTERNSHIPS": "experience",
+                "PROJECTS": "projects", "PERSONAL PROJECTS": "projects", "ACADEMIC PROJECTS": "projects", "TECHNICAL PROJECTS": "projects",
+                "CERTIFICATIONS": "certifications", "CERTIFICATE": "certifications",
+                "ACHIEVEMENT": "awards", "ACHIEVEMENTS": "awards", "CODING PROFILE": "skills", "LANGUAGES": "languages",
+            }
+            for idx, match in enumerate(matches):
+                sec_name = match.group(1).upper()
+                canonical = section_map.get(sec_name, "header")
+                start_idx = match.end()
+                end_idx = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+                block = text[start_idx:end_idx].strip()
+                if canonical in fallback_sections:
+                    fallback_sections[canonical] += "\n" + block
+                else:
+                    fallback_sections[canonical] = block
+            return fallback_sections
+    return res
 
 
 def match_terms(text: str, terms: Iterable[str]) -> list[str]:

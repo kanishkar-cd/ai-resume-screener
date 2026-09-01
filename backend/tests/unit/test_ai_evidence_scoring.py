@@ -23,7 +23,7 @@ def test_evidence_builder_extracts_all_types() -> None:
     assert "project:1" in evidence_ids
     assert "experience:1" in evidence_ids
     assert "skills:1" in evidence_ids
-    assert "education:1" in evidence_ids
+    assert "education:1" not in evidence_ids
     assert "certification:1" in evidence_ids
     assert "languages:1" in evidence_ids
 
@@ -76,5 +76,5 @@ def test_scoring_formula_na_and_partial_evidence() -> None:
     applicable = WeightCalculationService.applicable_categories(job)
     final_score = WeightCalculationService.final_score(75.0, 0.0, 0.0, components, applicable)
     
-    # Skill Match (100% of 50 = 50) + AI Evidence (50% of 50 = 25) = 75.0
-    assert final_score == 75.0
+    # Skills (100% of 30 = 30) + Experience (50% of 5 = 2.5) = 32.5 / 35 -> Normalized: 92.86
+    assert final_score == 92.86

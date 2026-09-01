@@ -33,7 +33,16 @@ class AIJDExtractor:
             "model": self.settings.GROQ_MODEL,
             "temperature": 0,
             "messages": [
-                {"role": "system", "content": "Recover only facts explicitly present in this job description. Preserve required versus preferred skills and separate list items. Return JSON only; never invent requirements."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Recover only facts explicitly present in this job description. "
+                        "Preserve required versus preferred skills and separate list items. "
+                        "Never extract stop words, conjunctions, auxiliary verbs, or single generic words "
+                        "such as 'are', 'and', 'basis', 'requirements', 'skills', 'log', 'analysis' as standalone skills. "
+                        "Return JSON only; never invent requirements."
+                    ),
+                },
                 {"role": "user", "content": text},
             ],
             "response_format": {"type": "json_schema", "json_schema": {"name": "jd_extraction", "strict": True, "schema": AIJDExtraction.model_json_schema()}},
@@ -46,4 +55,17 @@ class AIJDExtractor:
             )
             response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
-        return AIJDExtraction.model_validate(json.loads(content) if isinstance(content, str) else content).model_dump()
+        raw_dict = AIJDExtraction.model_validate(json.loads(content) if isinstance(content, str) else content).model_dump()
+        from app.services.jd_extraction_service import _canonicalize_skill_name, _clean_skill_term, _is_valid_skill
+        raw_dict["required_skills"] = [
+            _canonicalize_skill_name(c)
+            for s in raw_dict.get("required_skills", [])
+            if _is_valid_skill(s) and (c := _clean_skill_term(s))
+        ]
+        raw_dict["preferred_skills"] = [
+            _canonicalize_skill_name(c)
+            for s in raw_dict.get("preferred_skills", [])
+            if _is_valid_skill(s) and (c := _clean_skill_term(s))
+        ]
+        return raw_dict
+

@@ -580,6 +580,15 @@ def test_candidate_name_variations() -> None:
         ("Shri Harini Karthika\nshri@gmail.com\n9876543210", "Shri Harini Karthika"),
         ("Dr. Shri Harini Karthika\ndr@gmail.com\n9876543210", "Dr. Shri Harini Karthika"),
         ("John Michael Doe\njohn@gmail.com\n9876543210", "John Michael Doe"),
+        ("RESUME\nHarshini Shanmugam\nharshini.Shanmugam013@gmail.com", "Harshini Shanmugam"),
+        ("Resume\nJohn Smith\njohn@example.com", "John Smith"),
+        ("CV\nRahul Sharma\nrahul@example.com", "Rahul Sharma"),
+        ("Curriculum Vitae\nPriya Kumar\npriya@example.com", "Priya Kumar"),
+        ("CURRICULUM-VITAE\nJane Doe\njane@example.com", "Jane Doe"),
+        ("BIODATA\nAlex Johnson\nalex@example.com", "Alex Johnson"),
+        ("Bio-Data\nDavid Miller\ndavid@example.com", "David Miller"),
+        ("Profile\nSara Connor\nsara@example.com", "Sara Connor"),
+        ("Applicant\nMichael Brown\nmichael@example.com", "Michael Brown"),
     ]
 
     for text, expected in names_to_test:

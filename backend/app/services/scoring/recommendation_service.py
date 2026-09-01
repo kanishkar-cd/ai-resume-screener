@@ -23,10 +23,15 @@ class RecommendationService:
 
         if final_score < passing_score:
             return RecommendationLevel.REJECT
-        if final_score >= passing_score + 15:
+
+        shortlist_threshold = max(75.0, passing_score + 15.0)
+        if final_score >= shortlist_threshold:
             return RecommendationLevel.SHORTLIST
-        if final_score >= passing_score + 5:
+
+        review_threshold = max(60.0, passing_score + 5.0)
+        if final_score >= review_threshold:
             return RecommendationLevel.REVIEW
+
         return RecommendationLevel.CONSIDER
 
 

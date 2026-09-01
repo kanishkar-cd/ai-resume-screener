@@ -6,6 +6,7 @@ import {
   AlertCircle,
   ChevronRight,
   Search,
+  Briefcase,
   Trash2,
   Loader2,
   X,
@@ -282,10 +283,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 3 Prominent KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Total Requisitions */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
+      {/* Modern KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {/* Active Requisitions */}
+        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Requisitions</p>
             <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
@@ -318,24 +319,6 @@ export default function Dashboard() {
           </div>
           <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
             <Layers size={20} />
-          </div>
-        </div>
-
-        {/* Hiring Departments */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hiring Departments</p>
-            <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
-              {analytics.activeDepts} of {DEPARTMENTS.length}
-            </p>
-            <div className="mt-2.5">
-              <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-semibold">
-                {DEPARTMENTS.length - analytics.activeDepts === 0 ? 'All units active' : `${analytics.activeDepts} active units`}
-              </span>
-            </div>
-          </div>
-          <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-            <Building2 size={20} />
           </div>
         </div>
       </div>

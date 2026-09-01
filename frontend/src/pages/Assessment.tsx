@@ -155,8 +155,8 @@ export default function Assessment() {
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold mb-2 border border-teal-100">
-            <Award size={13} />
-            Technical Assessment & Evaluation Dashboard
+            <CheckCircle2 size={13} />
+            Technical Assessment Handoff
           </div>
           <h1 className="text-xl font-extrabold text-slate-900">
             CD-Recruit Candidate Results
@@ -259,6 +259,7 @@ export default function Assessment() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-[11px] font-bold text-slate-400 uppercase border-b border-slate-100">
+                  <th className="py-3 px-3 text-center w-10">#</th>
                   <th className="py-3 px-4">Candidate</th>
                   <th className="py-3 px-4">Handoff Link</th>
                   <th className="py-3 px-4 text-center">Session Status</th>
@@ -269,178 +270,28 @@ export default function Assessment() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                {assessmentList.map((item) => {
-                  const link = item.assessmentLink
-                  const idStat = item.identityStatus ? item.identityStatus.trim() : null
-                  const isVerified = item.isIdentityVerified === true || idStat?.toUpperCase() === 'VERIFIED'
-                  const isFailedOrMismatch = idStat?.toUpperCase() === 'FAILED' || idStat?.toUpperCase() === 'MISMATCH'
-                  
-                  const rawCompScore = item.compositeScore ?? (item as any).composite_score ?? (item as any).compositescore ?? (item as any).score
-                  const compScore = rawCompScore !== undefined && rawCompScore !== null && rawCompScore !== '' && !isNaN(Number(rawCompScore))
-                    ? Number(rawCompScore)
-                    : null
-                  const compBand = item.compositeScoreBand || (item as any).composite_score_band || (item as any).compositescoreband || (item as any).score_band || (item as any).scoreband
-
-                  const sessStat = (item.sessionStatus || item.status || 'not_started').toLowerCase()
-                  const decision = item.decision ? item.decision.trim() : null
-                  const decisionUpper = decision?.toUpperCase() || ''
-
-                  return (
-                    <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Candidate Column */}
-                      <td className="py-3.5 px-4">
-                        <p className="font-bold text-slate-900">{item.candidateName}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{item.email}</p>
-                      </td>
-
-                      {/* Handoff Link Column */}
-                      <td className="py-3.5 px-4">
-                        {link ? (
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={link}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-700 underline font-mono text-[11px] max-w-[140px] truncate inline-flex items-center gap-1"
-                              title={link}
-                            >
-                              <span>Link</span>
-                              <ExternalLink size={11} />
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyLink(item.id, link)}
-                              className="p-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
-                              title="Copy link to clipboard"
-                            >
-                              {copiedId === item.id ? (
-                                <Check size={12} className="text-emerald-600" />
-                              ) : (
-                                <Copy size={12} />
-                              )}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-[11px] italic">No link</span>
-                        )}
-                      </td>
-
-                      {/* Session Status Column */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border capitalize ${
-                            sessStat === 'submitted'
-                              ? 'bg-purple-50 text-purple-700 border-purple-200'
-                              : sessStat === 'in_progress'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          {sessStat === 'submitted' ? (
-                            <CheckCircle2 size={12} />
-                          ) : sessStat === 'in_progress' ? (
-                            <Clock size={12} />
-                          ) : null}
-                          {sessStat.replace('_', ' ')}
-                        </span>
-                      </td>
-
-                      {/* Identity Verification Column */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border capitalize ${
-                            isVerified
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : isFailedOrMismatch
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
-                          }`}
-                        >
-                          {isVerified ? (
-                            <>
-                              <ShieldCheck size={12} />
-                              {idStat ? idStat.toLowerCase() : 'Verified'}
-                            </>
-                          ) : isFailedOrMismatch ? (
-                            <>
-                              <ShieldAlert size={12} />
-                              {idStat ? idStat.toLowerCase() : 'Mismatch'}
-                            </>
-                          ) : (
-                            <>
-                              <ShieldAlert size={12} />
-                              {idStat ? idStat.toLowerCase() : 'Unverified'}
-                            </>
-                          )}
-                        </span>
-                      </td>
-
-                      {/* Score & Band Column */}
-                      <td className="py-3.5 px-4 text-center">
-                        {compScore !== null && !isNaN(compScore) ? (
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandBadgeClass(
-                              compBand
-                            )}`}
-                          >
-                            <span>{`${Math.round(compScore)}%`}</span>
-                            {compBand && <span className="opacity-80">· {compBand}</span>}
-                          </span>
-                        ) : compBand ? (
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getBandBadgeClass(
-                              compBand
-                            )}`}
-                          >
-                            <span>{compBand}</span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-xs font-semibold">—</span>
-                        )}
-                      </td>
-
-                      {/* Decision Column */}
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase border ${
-                            decisionUpper.includes('ADVANCE') ||
-                            decisionUpper.includes('APPROV') ||
-                            decisionUpper.includes('PASS')
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : decisionUpper.includes('REJECT') ||
-                                decisionUpper.includes('FAIL')
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          {decisionUpper.includes('ADVANCE') ||
-                          decisionUpper.includes('APPROV') ||
-                          decisionUpper.includes('PASS') ? (
-                            <CheckCircle2 size={11} />
-                          ) : null}
-                          {decision || 'PENDING'}
-                        </span>
-                      </td>
-
-                      {/* Timestamps Column */}
-                      <td className="py-3.5 px-4 text-right font-mono text-[10px] text-slate-500 space-y-0.5">
-                        {item.submittedAt ? (
-                          <p>
-                            <span className="font-semibold text-slate-700">Sub:</span>{' '}
-                            {formatTimestamp(item.submittedAt)}
-                          </p>
-                        ) : item.startedAt ? (
-                          <p>
-                            <span className="font-semibold text-slate-700">Start:</span>{' '}
-                            {formatTimestamp(item.startedAt)}
-                          </p>
-                        ) : (
-                          <p className="text-slate-400">Not started</p>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
+                {assessmentList.map((item, idx) => (
+                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-3 text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-[11px] font-bold">
+                        {idx + 1}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <p className="font-bold text-slate-900">{item.candidateName}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{item.email}</p>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-[11px] font-semibold text-slate-600">
+                      {item.reqRef}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-50 text-teal-700 border border-teal-100">
+                        <CheckCircle2 size={12} />
+                        {item.status || 'Sent'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
