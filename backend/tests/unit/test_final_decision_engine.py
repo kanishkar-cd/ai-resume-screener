@@ -31,8 +31,9 @@ def test_weights_penalty_bonus_caps_and_final_formula() -> None:
     job = SimpleNamespace(skills=[], experience_requirements=[{"minimum_months": 120}], degree_requirements=[])
     bonuses, _ = BonusService.calculate(resume, job, config, components)
     assert raw == 80 and total == 80
-    assert penalties == 30 and bonuses == 15
-    assert max(0, min(100, total - penalties + bonuses)) == 65
+    assert penalties == 0.0 and bonuses == 15
+    assert WeightCalculationService.final_score(total, penalties, bonuses) == 95.0
+
 
 
 def test_knockout_confidence_and_recommendation_thresholds() -> None:

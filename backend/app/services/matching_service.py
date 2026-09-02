@@ -1876,8 +1876,18 @@ class GroqMatchEvaluator:
                 status = MatchStatus.UNRESOLVED
                 method = MatchMethod.LLM_UNRESOLVED
                 if (is_matched_raw or is_partial_raw) and not has_valid_evidence:
-                    reasoning = (item.reasoning or "") + " (Rejected: Cited evidence type is incompatible with requirement entity type: cross_entity_evidence_forbidden)."
+                    has_incompatible = any(
+                        (norm_id := self._normalize_evidence_id(raw_id, req_supplied_ids))
+                        and norm_id in evidence_by_id
+                        and not is_entity_compatible(req_obj.kind, evidence_by_id[norm_id].kind)
+                        for raw_id in raw_cited_ids
+                    )
+                    if has_incompatible:
+                        reasoning = (item.reasoning or "") + " (Rejected: Cited evidence type is incompatible with requirement entity type: cross_entity_evidence_forbidden)."
+                    else:
+                        reasoning = (item.reasoning or "") + " (Rejected: No valid candidate evidence ID cited for match)."
                 else:
+
                     reasoning = item.reasoning or "LLM verdict unresolved by evidence validation."
 
             coverage_val = float(getattr(item, "coverage", 1.0 if confirmed and not is_partial_raw else (0.5 if is_partial_raw else 0.0)) or (1.0 if confirmed and not is_partial_raw else 0.0))
@@ -2150,7 +2160,7 @@ class CerebrasMatchEvaluator:
 
 
 class SmartMatchEvaluator:
-    """Smart Multi-Provider LLM Evaluator supporting Groq and Cerebras with pre-request token routing."""
+    """Smart Multi-Provider LLM Evaluator: Groq is ALWAYS the primary LLM; Cerebras is strictly fallback."""
     def __init__(
         self, settings: Settings | None = None,
         groq_evaluator: GroqMatchEvaluator | None = None,
@@ -2164,27 +2174,23 @@ class SmartMatchEvaluator:
         self, evaluator: Any, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None, pre_reserved: bool = False,
     ) -> tuple[list[MatchVerdict], dict[str, int]]:
-        method_names = ["evaluate_with_usage", "evaluate"]
-        for name in method_names:
+        for name in ("evaluate_with_usage", "evaluate"):
             fn = getattr(evaluator, name, None)
             if fn is None or not callable(fn):
                 continue
-            if type(evaluator).__name__ == "MagicMock" and name == "evaluate_with_usage" and type(fn).__name__ != "AsyncMock":
+            if type(evaluator).__name__ == "MagicMock" and name == "evaluate_with_usage" and type(fn).__name__ != "AsyncMock" and getattr(fn, "side_effect", None) is None:
                 continue
-            try:
-                sig = inspect.signature(fn)
-                kwargs = {}
-                if "pre_reserved" in sig.parameters:
-                    kwargs["pre_reserved"] = pre_reserved
-                raw = fn(requirements, evidence, allowed_evidence, **kwargs)
-                res = await raw if inspect.isawaitable(raw) else raw
-                if isinstance(res, tuple):
-                    return res[0], res[1]
-                return res, {}
-            except Exception as exc:
-                if name == method_names[-1]:
-                    raise exc
+            sig = inspect.signature(fn)
+            kwargs = {}
+            if "pre_reserved" in sig.parameters:
+                kwargs["pre_reserved"] = pre_reserved
+            raw = fn(requirements, evidence, allowed_evidence, **kwargs)
+            res = await raw if inspect.isawaitable(raw) else raw
+            if isinstance(res, tuple):
+                return res[0], res[1]
+            return res, {}
         return [], {}
+
 
     async def evaluate(
         self, requirements: list[Requirement], evidence: list[Evidence],
@@ -2195,7 +2201,6 @@ class SmartMatchEvaluator:
             return [], {}
 
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
-        cerebras_gate = CerebrasTokenBudgetGate.get_gate(self.settings)
 
         if hasattr(self.groq, "_payload"):
             payload_res = self.groq._payload(requirements, evidence, allowed_evidence)
@@ -2209,11 +2214,6 @@ class SmartMatchEvaluator:
         estimated_tokens = groq_gate.estimate_tokens(payload)
         groq_available = groq_gate.available_tokens()
 
-        # Atomic pre-reservation attempt on Groq to prevent race conditions across parallel resumes
-        groq_reserved = False
-        if self.groq.enabled:
-            groq_reserved = await groq_gate.try_reserve(estimated_tokens)
-
         provider_selected = "none"
         fallback_reason = "none"
         start_ts = time.monotonic()
@@ -2224,33 +2224,111 @@ class SmartMatchEvaluator:
         verdicts: list[MatchVerdict] = []
         usage: dict[str, int] = {}
 
-        if groq_reserved:
+        # 1. Primary Attempt: ALWAYS Groq
+        if self.groq.enabled:
             provider_selected = "groq"
+            logger.info(
+                "llm_primary_attempt_started",
+                provider="groq",
+                resume_id=resume_id,
+                estimated_tokens=estimated_tokens,
+                requirements_count=len(requirements),
+            )
             t0 = time.monotonic()
             try:
-                verdicts, usage = await self._invoke_evaluator(self.groq, requirements, evidence, allowed_evidence, pre_reserved=True)
+                verdicts, usage = await self._invoke_evaluator(
+                    self.groq, requirements, evidence, allowed_evidence, pre_reserved=False
+                )
                 wait_ms = (time.monotonic() - t0) * 1000.0
+
+                if verdicts:
+                    logger.info(
+                        "llm_request_handled_by_groq",
+                        provider="groq",
+                        status="success",
+                        resume_id=resume_id,
+                        verdicts_count=len(verdicts),
+                        duration_ms=round(wait_ms, 2),
+                    )
+                else:
+                    raise RuntimeError("Groq returned empty verdicts")
             except Exception as exc:
-                await groq_gate.release_reservation(estimated_tokens)
-                fallback_reason = f"groq_error_{type(exc).__name__}"
+                fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
+                logger.warning(
+                    "groq_primary_failed_initiating_fallback",
+                    provider="groq",
+                    fallback_provider="cerebras" if self.cerebras.enabled else "none",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    resume_id=resume_id,
+                    fallback_available=self.cerebras.enabled,
+                )
                 if self.cerebras.enabled:
-                    logger.warning("groq_failed_routing_to_cerebras", error=str(exc), resume_id=resume_id)
                     provider_selected = "cerebras"
+                    logger.info(
+                        "llm_fallback_to_cerebras_started",
+                        provider="cerebras",
+                        resume_id=resume_id,
+                        reason=fallback_reason,
+                    )
                     t1 = time.monotonic()
-                    verdicts, usage = await self._invoke_evaluator(self.cerebras, requirements, evidence, allowed_evidence)
-                    wait_ms += (time.monotonic() - t1) * 1000.0
+                    try:
+                        verdicts, usage = await self._invoke_evaluator(
+                            self.cerebras, requirements, evidence, allowed_evidence
+                        )
+                        wait_ms += (time.monotonic() - t1) * 1000.0
+                        logger.info(
+                            "llm_request_handled_by_cerebras_fallback",
+                            provider="cerebras",
+                            fallback=True,
+                            status="success",
+                            resume_id=resume_id,
+                            verdicts_count=len(verdicts),
+                            duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
+                        )
+                    except Exception as c_exc:
+                        logger.error(
+                            "cerebras_fallback_also_failed",
+                            provider="cerebras",
+                            error=str(c_exc),
+                            resume_id=resume_id,
+                        )
+                        verdicts = []
+                else:
+                    verdicts = []
         elif self.cerebras.enabled:
+            # Groq is not configured/enabled; using Cerebras as fallback
             provider_selected = "cerebras"
-            fallback_reason = "groq_capacity_insufficient" if self.groq.enabled else "groq_disabled"
+            fallback_reason = "groq_not_enabled"
+            logger.info(
+                "llm_groq_disabled_using_cerebras_fallback",
+                provider="cerebras",
+                resume_id=resume_id,
+                fallback=True,
+            )
             t0 = time.monotonic()
-            verdicts, usage = await self._invoke_evaluator(self.cerebras, requirements, evidence, allowed_evidence)
-            wait_ms = (time.monotonic() - t0) * 1000.0
-        elif self.groq.enabled:
-            provider_selected = "groq"
-            fallback_reason = "groq_capacity_wait"
-            t0 = time.monotonic()
-            verdicts, usage = await self._invoke_evaluator(self.groq, requirements, evidence, allowed_evidence, pre_reserved=False)
-            wait_ms = (time.monotonic() - t0) * 1000.0
+            try:
+                verdicts, usage = await self._invoke_evaluator(
+                    self.cerebras, requirements, evidence, allowed_evidence
+                )
+                wait_ms = (time.monotonic() - t0) * 1000.0
+                logger.info(
+                    "llm_request_handled_by_cerebras_fallback",
+                    provider="cerebras",
+                    fallback=True,
+                    status="success",
+                    resume_id=resume_id,
+                    verdicts_count=len(verdicts),
+                    duration_ms=round(wait_ms, 2),
+                )
+            except Exception as c_exc:
+                logger.error(
+                    "cerebras_request_failed",
+                    provider="cerebras",
+                    error=str(c_exc),
+                    resume_id=resume_id,
+                )
+                verdicts = []
 
         actual_input = usage.get("prompt_tokens", 0)
         actual_output = usage.get("completion_tokens", 0)

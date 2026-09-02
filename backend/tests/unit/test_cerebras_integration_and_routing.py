@@ -78,15 +78,11 @@ async def test_2_groq_capacity_insufficient_routes_immediately_to_cerebras():
         HYBRID_MATCHING_CACHE_SIZE=100,
     )
 
-    groq_gate = GroqTokenBudgetGate.get_gate(settings)
-    # Drain Groq gate capacity
-    await groq_gate.acquire_reservation(7000, correlation_id="drain")
-
     groq_eval = GroqMatchEvaluator(settings)
     cerebras_eval = CerebrasMatchEvaluator(settings)
     smart_eval = SmartMatchEvaluator(settings, groq_evaluator=groq_eval, cerebras_evaluator=cerebras_eval)
 
-    groq_eval.evaluate_with_usage = AsyncMock()
+    groq_eval.evaluate_with_usage = AsyncMock(side_effect=RuntimeError("Groq timeout or unavailable"))
     cerebras_eval.evaluate_with_usage = AsyncMock(return_value=([
         MagicMock(requirement_id="req1", status=MatchStatus.MATCHED)
     ], {"prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180}))
@@ -98,11 +94,11 @@ async def test_2_groq_capacity_insufficient_routes_immediately_to_cerebras():
 
     assert len(verdicts) == 1
     assert tele["provider_selected"] == "cerebras"
-    assert tele["fallback_reason"] == "groq_capacity_insufficient"
-    assert tele["provider_wait_ms"] == 0.0
+    assert "groq_error" in tele["fallback_reason"]
     assert tele["actual_total_tokens"] == 180
-    groq_eval.evaluate_with_usage.assert_not_called()
+    groq_eval.evaluate_with_usage.assert_called_once()
     cerebras_eval.evaluate_with_usage.assert_called_once()
+
 
 
 @pytest.mark.asyncio
@@ -326,10 +322,6 @@ async def test_8_provider_fallback_end_to_end():
         HYBRID_MATCHING_CACHE_SIZE=100,
     )
 
-    # Drain Groq token capacity
-    groq_gate = GroqTokenBudgetGate.get_gate(settings)
-    await groq_gate.acquire_reservation(7000, correlation_id="drain")
-
     smart_eval = SmartMatchEvaluator(settings)
 
     mock_cerebras_json = {
@@ -357,10 +349,20 @@ async def test_8_provider_fallback_end_to_end():
     mock_http_response.status_code = 200
     mock_http_response.json.return_value = mock_cerebras_json
 
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.return_value = mock_http_response
+    mock_cerebras_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_cerebras_client.post.return_value = mock_http_response
 
-    with patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_client):
+    # Mock Groq client to fail with 500 error
+    mock_groq_response = MagicMock(spec=httpx.Response)
+    mock_groq_response.status_code = 500
+    mock_groq_response.text = '{"error": "Internal server error"}'
+    mock_groq_response.raise_for_status.side_effect = httpx.HTTPStatusError("500 Server Error", request=MagicMock(), response=mock_groq_response)
+
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.return_value = mock_groq_response
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -370,7 +372,7 @@ async def test_8_provider_fallback_end_to_end():
         assert verdicts[0].requirement_id == "req1"
         assert verdicts[0].status == MatchStatus.MATCHED
         assert tele["provider_selected"] == "cerebras"
-        assert tele["fallback_reason"] == "groq_capacity_insufficient"
+        assert "groq_error" in tele["fallback_reason"]
         assert tele["actual_total_tokens"] == 215
 
 
@@ -391,9 +393,6 @@ async def test_9_no_false_success_when_cerebras_fails():
         HYBRID_MATCHING_CACHE_SIZE=100,
     )
 
-    groq_gate = GroqTokenBudgetGate.get_gate(settings)
-    await groq_gate.acquire_reservation(7000, correlation_id="drain")
-
     smart_eval = SmartMatchEvaluator(settings)
 
     mock_http_response = MagicMock(spec=httpx.Response)
@@ -406,7 +405,14 @@ async def test_9_no_false_success_when_cerebras_fails():
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_client.post.return_value = mock_http_response
 
-    with patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_client):
+    mock_groq_response = MagicMock(spec=httpx.Response)
+    mock_groq_response.status_code = 500
+    mock_groq_response.raise_for_status.side_effect = httpx.HTTPStatusError("500 Server Error", request=MagicMock(), response=mock_groq_response)
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.return_value = mock_groq_response
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_client):
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -415,4 +421,5 @@ async def test_9_no_false_success_when_cerebras_fails():
         assert verdicts == []
         assert tele["provider_selected"] == "cerebras"
         assert tele["actual_total_tokens"] == 0
-        assert tele["fallback_reason"] == "groq_capacity_insufficient"
+        assert "groq_error" in tele["fallback_reason"]
+

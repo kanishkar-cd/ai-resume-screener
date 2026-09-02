@@ -119,10 +119,20 @@ class WeightCalculationService:
         applicable_categories: set[str] | None = None,
     ) -> float:
         """
-        Overall score aggregation removed per system specification.
-        Returns 0.0 while preserving component weights and component scoring.
+        Calculates final score from weighted component total and bonuses.
+        Penalties are completely excluded (no penalty deductions).
         """
-        return 0.0
+        if components is not None:
+            _, _, calc_weighted, _ = WeightCalculationService.calculate(
+                components, applicable_categories=applicable_categories
+            )
+            base_score = calc_weighted
+        else:
+            base_score = weighted_total
+
+        return round(min(100.0, max(0.0, base_score + bonus_total)), 2)
+
+
 
     @staticmethod
     def knockout(components: ComponentScores, config: Any) -> tuple[bool, str | None]:
