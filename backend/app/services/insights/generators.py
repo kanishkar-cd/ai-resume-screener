@@ -31,7 +31,7 @@ class SummaryGenerator:
         months = sum(item.get("duration_months") or 0 for item in normalized.experience)
         experience = f"{months / 12:.1f} years of recorded experience" if months else "no quantified experience"
         rank_text = f" and is ranked #{rank.rank_position}" if rank else ""
-        return f"{name} is a {title} with {experience}, a final score of {float(score.final_score):.2f}{rank_text}."
+        return f"{name} is a {title} with {experience}{rank_text}."
 
 
 class StrengthGenerator:
@@ -64,21 +64,25 @@ class SkillGapGenerator:
 class RecommendationGenerator:
     @staticmethod
     def generate(score: Any) -> str:
-        if score.is_knocked_out:
-            reason = score.knockout_reason or "unspecified mandatory requirement"
-            return f"REJECT because a mandatory requirement was not satisfied: {reason}."
-        final_score = float(score.final_score)
-        threshold = float(getattr(score, "passing_score", None) or 50.0)
-        recommendation = score.recommendation.value
-        if recommendation == "SHORTLIST":
-            rule = f"exceeds recommendation threshold ({threshold:.2f}) by 15+ points"
-        elif recommendation == "REVIEW":
-            rule = f"exceeds recommendation threshold ({threshold:.2f}) by 5+ points"
-        elif recommendation == "CONSIDER":
-            rule = f"meets the current recommendation threshold of {threshold:.2f}"
-        else:
-            rule = f"falls below the current recommendation threshold of {threshold:.2f}"
-        return f"{recommendation} because the final score of {final_score:.2f} {rule}."
+        from app.services.scoring.recommendation_service import RecommendationService
+        components = getattr(score, "component_scores", None)
+        if isinstance(components, dict):
+            # Convert dict structure to object attribute structure if needed
+            class DictObj:
+                def __init__(self, d):
+                    for k, v in d.items():
+                        if isinstance(v, dict):
+                            setattr(self, k, DictObj(v))
+                        else:
+                            setattr(self, k, v)
+            components = DictObj(components)
+
+        _, reason = RecommendationService.evaluate(
+            components=components,
+            is_knocked_out=getattr(score, "is_knocked_out", False),
+            knockout_reason=getattr(score, "knockout_reason", None),
+        )
+        return reason
 
 
 class ImprovementGenerator:
@@ -97,12 +101,8 @@ class InsightBuilder:
             f"{COMPONENT_LABELS[name]}: No JD requirement"
             for name, detail in components.items() if _is_not_applicable(name, detail)
         ]
-        na_text = f" Not applicable: {'; '.join(not_applicable)}." if not_applicable else ""
-        final_val = float(score.final_score or 0)
-        explanation = (
-            f"Overall Match: {final_val:.2f}/100."
-            f"{na_text}"
-        )
+        na_text = f"Not applicable: {'; '.join(not_applicable)}." if not_applicable else "Evaluated against active component requirements."
+        explanation = na_text
         return CandidateInsightCreate(
             document_id=document_id, project_id=project_id,
             summary=SummaryGenerator.generate(extracted, normalized, score, rank),

@@ -419,12 +419,140 @@ class ComponentScoringService:
             languages=languages,
         )
 
+    FIELD_ALIASES: dict[str, str] = {
+        "cs": "computer science",
+        "cse": "computer science",
+        "computer science and engineering": "computer science",
+        "information technology": "computer science",
+        "it": "computer science",
+        "software engineering": "computer science",
+        "data science": "computer science",
+    }
+
+    @classmethod
+    def _extract_field(cls, text: str) -> str | None:
+        if not text:
+            return None
+        t_cf = text.casefold()
+        for kw in ("computer science", "information technology", "software engineering", "data science", "mechanical", "electrical", "civil", "business", "finance"):
+            if kw in t_cf:
+                return cls.FIELD_ALIASES.get(kw, kw)
+        for alias, canonical in cls.FIELD_ALIASES.items():
+            if re.search(rf"\b{re.escape(alias)}\b", t_cf):
+                return canonical
+        return None
+
+    @classmethod
+    def _is_field_compatible(cls, req_field: str | None, cand_field: str | None, cand_full_text: str) -> bool:
+        if not req_field:
+            return True
+        if cand_field and (cand_field.casefold() == req_field.casefold() or cls.FIELD_ALIASES.get(cand_field.casefold()) == req_field.casefold()):
+            return True
+        cand_cf = cand_full_text.casefold()
+        if req_field.casefold() in cand_cf or any(alias in cand_cf for alias, can in cls.FIELD_ALIASES.items() if can.casefold() == req_field.casefold()):
+            return True
+        return False
+
     def _education_component(self, resume: Any, job: Any, config: Any, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
+        req_degree = getattr(config, "required_degree", None) or getattr(job, "required_degree", None)
+        job_degrees = list(getattr(job, "degree_requirements", None) or getattr(job, "qualifications", None) or [])
+        if req_degree:
+            if isinstance(req_degree, str) and req_degree.strip() and req_degree.strip() not in job_degrees:
+                job_degrees.insert(0, req_degree.strip())
+            elif isinstance(req_degree, list):
+                for d in req_degree:
+                    if d and str(d).strip() and str(d).strip() not in job_degrees:
+                        job_degrees.insert(0, str(d).strip())
+
+        if not job_degrees:
+            return ComponentScoreDetail(
+                score=100.0,
+                matched_items=[],
+                missing_items=[],
+                explanation="No specific education requirements configured (N/A).",
+            )
+
+        raw_edu = getattr(resume, "education", None) or []
+        cand_edu_items: list[dict[str, str]] = []
+        for item in raw_edu:
+            if isinstance(item, dict):
+                deg = item.get("degree") or item.get("title") or ""
+                major = item.get("field") or item.get("major") or ""
+                inst = item.get("institution") or item.get("school") or ""
+                full_text = " ".join(part for part in [deg, major, inst] if part).strip()
+            else:
+                full_text = str(item).strip()
+                deg = full_text
+                major = ""
+            if full_text:
+                cand_edu_items.append({"degree": deg, "field": major, "full_text": full_text})
+
+        if not cand_edu_items:
+            return ComponentScoreDetail(
+                score=0.0,
+                matched_items=[],
+                missing_items=job_degrees,
+                explanation="No candidate education evidence found.",
+            )
+
+        matched_items: list[str] = []
+        missing_items: list[str] = []
+        graded_scores: list[float] = []
+
+        for req in job_degrees:
+            req_rank = self.degree_rank(req)
+            req_field = self._extract_field(req)
+
+            best_item_score = 0.0
+            best_matched_text: str | None = None
+
+            for cand in cand_edu_items:
+                cand_rank = self.degree_rank(cand["full_text"])
+                cand_field = self._extract_field(cand["full_text"])
+
+                level_ok = (cand_rank >= req_rank) if req_rank > 0 else True
+                field_ok = self._is_field_compatible(req_field, cand_field, cand["full_text"]) if req_field else True
+
+                if level_ok and field_ok:
+                    best_item_score = 100.0
+                    best_matched_text = cand["full_text"]
+                    break
+                elif level_ok and not field_ok:
+                    if best_item_score < 50.0:
+                        best_item_score = 50.0
+                        best_matched_text = f"{cand['full_text']} (Partial field match)"
+                elif not level_ok and field_ok and cand_rank > 0:
+                    if best_item_score < 50.0:
+                        best_item_score = 50.0
+                        best_matched_text = f"{cand['full_text']} (Lower degree level)"
+
+            if best_item_score < 100.0 and match_verdicts:
+                req_cf = req.casefold()
+                for v in match_verdicts:
+                    st = str(getattr(getattr(v, "status", None), "value", getattr(v, "status", ""))).upper()
+                    req_id = str(getattr(v, "requirement_id", "")).casefold()
+                    req_text = str(getattr(v, "requirement_text", getattr(v, "requirement_id", ""))).casefold()
+                    reasoning = str(getattr(v, "reasoning", "")).casefold()
+                    if st in {"MATCHED", "CONFIRMED", "AI_CONFIRMED"} and (req_id.startswith("degree:") or req_id.startswith("education:") or req_cf in req_text or req_cf in reasoning):
+                        best_item_score = 100.0
+                        best_matched_text = f"{req} (LLM Confirmed)"
+                        break
+
+            if best_item_score > 0.0:
+                matched_items.append(best_matched_text or req)
+                graded_scores.append(best_item_score)
+            else:
+                missing_items.append(req)
+                graded_scores.append(0.0)
+
+        overall_score = round(sum(graded_scores) / len(job_degrees), 2) if job_degrees else 100.0
+        explanation = f"Matched {len(matched_items)} of {len(job_degrees)} required education qualifications (graded score: {overall_score:.2f}%)."
+
         return ComponentScoreDetail(
-            score=0.0,
-            matched_items=[],
-            missing_items=[],
-            explanation="Education matching disabled (0% weight).",
+            score=overall_score,
+            matched_items=matched_items,
+            missing_items=missing_items,
+            explanation=explanation,
         )
 
     def _projects_score(self, projects: list[dict[str, Any]], job: Any, resume: Any = None, match_verdicts: list[Any] | None = None) -> ComponentScoreDetail:
@@ -825,12 +953,20 @@ class ComponentScoringService:
 
     @classmethod
     def degree_rank(cls, degree: str | None) -> int:
-        if not degree: return 0
+        if not degree:
+            return 0
         key = re.sub(r"[^a-z0-9]+", " ", degree.casefold()).strip()
-        if key in {"be", "b e", "btech", "b tech", "b sc", "b s", "b com", "bca"}:
-            return 3
-        if key in {"m sc", "m s", "mca", "mba"}:
+        tokens = set(key.split())
+        if any(w in tokens or w in key for w in ("doctorate", "phd", "doctor")):
+            return 5
+        if any(w in tokens or w in key for w in ("master", "masters", "mtech", "m tech", "me", "m e", "msc", "m sc", "ms", "m s", "mca", "mba")):
             return 4
+        if any(w in tokens or w in key for w in ("bachelor", "bachelors", "btech", "b tech", "be", "b e", "bsc", "b sc", "bs", "b s", "bca", "bcom", "b com")):
+            return 3
+        if any(w in tokens or w in key for w in ("associate", "diploma")):
+            return 2
+        if "high school" in key or "secondary" in key:
+            return 1
         return max((rank for name, rank in cls.DEGREE_RANKS.items() if name in key), default=0)
 
     @classmethod

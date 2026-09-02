@@ -8,11 +8,7 @@ class PenaltyService:
     @classmethod
     def calculate(cls, components: ComponentScores, config: Any) -> tuple[float, list[AdjustmentItem]]:
         items: list[AdjustmentItem] = []
-        if components.experience.missing_items:
-            try: deficit_years = float(components.experience.missing_items[0].split()[0]) / 12
-            except (ValueError, IndexError): deficit_years = 0
-            points = min(cls.CAP, deficit_years * 5)
-            if points: items.append(AdjustmentItem(rule_name="EXPERIENCE_DEFICIT", delta_points=-round(points, 2), description="5 points per year below required experience."))
+        # Experience duration weight removed (0% direct weighted contribution)
         knockout_rules = getattr(config, "knockout_rules", None) or []
         hard_skill = any(rule.get("rule_type") == "MISSING_MANDATORY_SKILL" and rule.get("enabled", True) for rule in knockout_rules)
         if not hard_skill:

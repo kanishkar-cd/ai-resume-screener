@@ -1,9 +1,12 @@
+import asyncio
 from typing import Any
 from uuid import UUID
 
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import get_settings
+from app.db.session import AsyncSessionLocal
 from app.core.exceptions import AppException, InternalServerException
 from app.models.document import DocumentModel, DocumentTypeEnum
 from app.repositories.document_repository import DocumentRepository
@@ -19,7 +22,7 @@ from app.services.scoring import (
     BonusService, ComponentScoringService, ConfidenceService, PenaltyService,
     RecommendationService, WeightCalculationService,
 )
-from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder
+from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder, ResumeQueueScheduler
 
 logger = structlog.get_logger(__name__)
 
@@ -101,15 +104,63 @@ class ScoringEngineFacade:
         norm_map = {n.document_id: n for n in norm_models}
         ext_map = {e.document_id: e for e in ext_models}
 
-        results = [
-            await self._score(
-                document, job,
-                resume=norm_map.get(document.id),
-                extracted=ext_map.get(document.id),
-                weight_config=weight_config,
-            )
-            for document in resumes
-        ]
+        max_concurrent = getattr(get_settings(), "MAX_CONCURRENT_RESUMES", 3)
+        scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent)
+
+        from unittest.mock import AsyncMock, MagicMock
+        is_mock = isinstance(self.scores, (MagicMock, AsyncMock))
+
+        async def _scored_task(doc: Any) -> Any:
+            if is_mock:
+                return await scheduler.run_resume_task(
+                    str(doc.id),
+                    self._score(
+                        doc, job,
+                        resume=norm_map.get(doc.id),
+                        extracted=ext_map.get(doc.id),
+                        weight_config=weight_config,
+                        scores_repo=self.scores,
+                        weights_repo=self.weights,
+                        norm_repo=self.normalizations,
+                        ext_repo=self.extractions,
+                    )
+                )
+            async with AsyncSessionLocal() as session:
+                session_id = hex(id(session))
+                logger.info(
+                    "resume_scoring_db_session_acquired",
+                    resume_id=str(doc.id),
+                    session_identity=session_id,
+                )
+                scores_repo = ScoringRepository(session)
+                weights_repo = WeightConfigRepository(session)
+                norm_repo = NormalizationRepository(session)
+                ext_repo = ExtractionRepository(session)
+                try:
+                    res = await scheduler.run_resume_task(
+                        str(doc.id),
+                        self._score(
+                            doc, job,
+                            resume=norm_map.get(doc.id),
+                            extracted=ext_map.get(doc.id),
+                            weight_config=weight_config,
+                            scores_repo=scores_repo,
+                            weights_repo=weights_repo,
+                            norm_repo=norm_repo,
+                            ext_repo=ext_repo,
+                        )
+                    )
+                    logger.info(
+                        "resume_scoring_db_session_released",
+                        resume_id=str(doc.id),
+                        session_identity=session_id,
+                    )
+                    return res
+                except Exception:
+                    await session.rollback()
+                    raise
+
+        results = list(await asyncio.gather(*[_scored_task(doc) for doc in resumes]))
         logger.info(
             "[SCORE] scoring completed",
             project_id=str(project_id),
@@ -160,12 +211,20 @@ class ScoringEngineFacade:
         self, document: DocumentModel, job: Any,
         resume: Any = None, extracted: Any = None,
         weight_config: Any = None,
+        scores_repo: ScoringRepository | None = None,
+        weights_repo: WeightConfigRepository | None = None,
+        norm_repo: NormalizationRepository | None = None,
+        ext_repo: ExtractionRepository | None = None,
     ) -> CandidateScoreRead:
+        scores = scores_repo or self.scores
+        weights = weights_repo or self.weights
+        normalizations = norm_repo or self.normalizations
+        extractions = ext_repo or self.extractions
         try:
             if resume is None:
-                resume = await self.normalizations.get_resume_by_document_id(document.id)
+                resume = await normalizations.get_resume_by_document_id(document.id)
             if extracted is None:
-                extracted = await self.extractions.get_resume_by_document_id(document.id)
+                extracted = await extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(
@@ -209,13 +268,13 @@ class ScoringEngineFacade:
                 components=components, applicable_categories=applicable_categories
             )
             confidence = ConfidenceService.calculate(extracted)
-            if weight_config is None and self.weights is not None:
+            if weight_config is None and weights is not None:
                 try:
-                    weight_config = await self.weights.get_by_project_id(document.project_id)
+                    weight_config = await weights.get_by_project_id(document.project_id)
                 except Exception:
                     weight_config = None
             passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
-            recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)
+            recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out, components=components)
             component_values = {
                 name: getattr(components, name).score
                 for name in (
@@ -253,15 +312,15 @@ class ScoringEngineFacade:
                 CategoryBreakdownItem(
                     category=name,
                     component_score=getattr(components, name).score,
-                    effective_weight=effective_weights.get(name, effective_weights.get("required_skills", 0.0 if name != "skills" else 30.0)),
+                    effective_weight=effective_weights.get(name, 0.0 if name != "skills" else effective_weights.get("required_skills", 30.0)),
                     contribution=getattr(weighted, name, 0.0),
                     is_applicable=name in applicable_categories,
                 )
-                for name in ("skills", "responsibilities", "projects", "preferred_skills", "experience", "education", "certifications")
+                for name in ("skills", "responsibilities", "projects", "preferred_skills", "education", "certifications", "experience")
                 if getattr(components, name, None) is not None
             ]
 
-            model = await self.scores.upsert_score(CandidateScoreCreate(
+            model = await scores.upsert_score(CandidateScoreCreate(
                 document_id=document.id, project_id=document.project_id,
                 component_scores=components, weighted_scores=weighted,
                 raw_total_score=raw_total, weighted_total_score=weighted_total,

@@ -272,9 +272,6 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                 </div>
               </div>
               <div className="flex items-center gap-2.5">
-                <div className={`px-3 py-1.5 rounded-xl text-[13px] font-extrabold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
-                  {candidate.overallScore} / 100
-                </div>
                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
                   <X size={16} />
                 </button>
@@ -301,27 +298,12 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
               {/* Below threshold notice */}
               {!candidate.isKnockedOut && candidate.recommendation === 'REJECT' && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-1">
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Below Screening Threshold</p>
-                  <p className="text-[12px] text-amber-800 mt-1">{insights?.recommendation_reason || 'The candidate\'s match score did not meet the minimum threshold for this requisition.'}</p>
-                  <p className="border-t border-amber-200 pt-2 mt-2 text-[12px] text-slate-600">
-                    Match Score <span className="font-bold text-slate-800">{candidate.overallScore} / 100</span>
-                  </p>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-amber-700">Not Shortlisted</p>
+                  <p className="text-[12px] text-amber-800 mt-1">{insights?.recommendation_reason || 'The candidate does not meet the criteria for this requisition.'}</p>
                 </div>
               )}
 
-              {/* AI Evaluation Answer */}
-              <div className="rounded-xl bg-gradient-to-br from-blue-50/80 to-indigo-50/40 border border-blue-100/80 p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={14} className="text-blue-600" />
-                  <p className="text-[11px] font-bold text-blue-700 uppercase tracking-widest">
-                    AI Screening Assessment {loadingInsights ? '(Analyzing...)' : ''}
-                  </p>
-                </div>
-                <p className="text-[13px] text-slate-800 leading-relaxed font-normal">{aiSummaryText}</p>
-                {insights?.score_explanation && (
-                  <p className="pt-1 text-[12px] text-slate-500 italic border-t border-blue-100/60">{insights.score_explanation}</p>
-                )}
-              </div>
+
 
               {/* Backend Component Scoring Breakdown (100% Model) */}
               <div className="space-y-2.5">
@@ -329,9 +311,6 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                   <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
                     Component Scoring Breakdown
                   </p>
-                  <span className="text-[11.5px] font-extrabold text-blue-700">
-                    Overall Match: {Math.round(candidate.overallScore)}%
-                  </span>
                 </div>
                 
                 {(() => {
@@ -347,11 +326,9 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                   const componentsList = [
                     { key: 'skills', label: 'Required Skills', defaultWeight: 30 },
                     { key: 'responsibilities', label: 'Responsibilities', defaultWeight: 25 },
-                    { key: 'projects', label: 'Projects', defaultWeight: 20 },
+                    { key: 'projects', label: 'Projects', defaultWeight: 25 },
                     { key: 'preferred_skills', label: 'Preferred Skills', defaultWeight: 15 },
-                    { key: 'experience', label: 'Experience', defaultWeight: 5 },
-                    { key: 'certifications', label: 'Certifications', defaultWeight: 3 },
-                    { key: 'education', label: 'Education', defaultWeight: 2 },
+                    { key: 'certifications', label: 'Certifications', defaultWeight: 5 },
                   ]
 
                   return (
@@ -378,7 +355,7 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                               <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
                                 <motion.div
                                   className={`h-full rounded-full ${
-                                    roundedScore >= 70 ? 'bg-blue-600' : roundedScore >= 40 ? 'bg-amber-500' : 'bg-slate-400'
+                                    roundedScore >= 50 ? 'bg-emerald-500' : 'bg-amber-500'
                                   }`}
                                   initial={{ width: 0 }}
                                   animate={{ width: `${Math.min(100, Math.max(0, roundedScore))}%` }}
@@ -392,20 +369,6 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                             </div>
                           )
                         })}
-                      </div>
-
-                      {/* Overall Match Summary */}
-                      <div className="bg-gradient-to-r from-blue-50/90 to-indigo-50/60 border border-blue-100 rounded-xl p-3 flex items-center justify-between">
-                        <div>
-                          <p className="text-[12px] font-bold text-slate-800">Overall Weighted Match</p>
-                          <p className="text-[10px] text-slate-500">Combined score across all 7 backend criteria (100% max)</p>
-                        </div>
-                        <div className="text-right">
-                          <span className={`text-[17px] font-extrabold ${getScoreColor(candidate.overallScore)}`}>
-                            {Math.round(candidate.overallScore)}%
-                          </span>
-                          <span className="text-[11px] text-slate-400 font-medium"> / 100</span>
-                        </div>
                       </div>
                     </div>
                   )
@@ -648,7 +611,7 @@ export default function CandidateRanking() {
       const matchStatus = filterStatus === 'all' || c.status === filterStatus
       return matchSearch && matchStatus
     })
-    .sort((a, b) => sortBy === 'rank' ? a.rank - b.rank : b.overallScore - a.overallScore)
+    .sort((a, b) => a.rank - b.rank)
 
   const shortlisted = candidates.filter((c) => c.status === 'screened').length
   const needsReview = candidates.filter((c) => c.status === 'pending').length
@@ -746,17 +709,10 @@ export default function CandidateRanking() {
             >
               <option value="all">All Candidates</option>
               <option value="screened">Shortlisted</option>
-              <option value="pending">Needs Review</option>
               <option value="rejected">Not Relevant</option>
             </select>
 
-            <button
-              onClick={() => setSortBy((s) => (s === 'rank' ? 'score' : 'rank'))}
-              className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-blue-600 px-3 py-2 rounded-xl hover:bg-blue-50 border border-slate-200 transition-colors font-medium"
-            >
-              <Filter size={12} />
-              Sort: {sortBy === 'rank' ? 'By Rank' : 'By Score'}
-            </button>
+
 
             <div className="text-[11px] text-slate-400 font-medium px-2">
               {filtered.length} of {candidates.length} candidates
@@ -793,9 +749,6 @@ export default function CandidateRanking() {
                   <tr className="border-b border-slate-100 text-left">
                     <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">S.No</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-28">Overall Match</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Required Skills</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Responsibilities</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-24">Action</th>
                     <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-20">Explain</th>
                   </tr>
@@ -803,11 +756,6 @@ export default function CandidateRanking() {
                 <tbody className="divide-y divide-slate-50">
                   <AnimatePresence>
                     {filtered.map((candidate, idx) => {
-                      const reqSkillsObj = candidate.scores.find((s) => s.criterionId === 'skills')
-                      const reqSkillsScore = reqSkillsObj?.score ?? 0
-                      const respObj = candidate.scores.find((s) => s.criterionId === 'responsibilities')
-                      const respScore = respObj?.score ?? 0
-
                       return (
                         <motion.tr
                           key={candidate.id}
@@ -836,52 +784,24 @@ export default function CandidateRanking() {
                             </div>
                           </td>
 
-                          {/* Final Score */}
-                          <td className="px-4 py-3.5 text-center">
-                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-[13px] font-bold border ${getScoreBg(candidate.overallScore)} ${getScoreColor(candidate.overallScore)}`}>
-                              {Math.round(candidate.overallScore)}%
-                            </span>
-                          </td>
-
-                          {/* Required Skills Score */}
-                          <td className="px-4 py-3.5 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-extrabold border ${
-                              reqSkillsScore >= 70
-                                ? 'bg-blue-50 text-blue-700 border-blue-100'
-                                : reqSkillsScore >= 40
-                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                : 'bg-slate-50 text-slate-600 border-slate-200'
-                            }`}>
-                              {Math.round(reqSkillsScore)}%
-                            </span>
-                          </td>
-
-                          {/* Responsibilities Score */}
-                          <td className="px-4 py-3.5 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-extrabold border ${
-                              respScore >= 70
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : respScore >= 40
-                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                : 'bg-slate-50 text-slate-600 border-slate-200'
-                            }`}>
-                              {Math.round(respScore)}%
-                            </span>
-                          </td>
-
                           {/* Action (status change) */}
                           <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                             <select
-                              className="text-[11px] border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 outline-none bg-white hover:border-blue-300 transition-colors font-medium"
+                              className={`text-[11px] font-bold border rounded-xl px-2.5 py-1.5 outline-none transition-colors cursor-pointer ${
+                                candidate.status === 'screened'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100/70'
+                                  : candidate.status === 'pending'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100/70'
+                                  : 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100/70'
+                              }`}
                               value={candidate.status}
                               onChange={(e) => {
                                 e.stopPropagation()
                                 updateStatus(candidate.id, e.target.value as ScreeningStatus)
                               }}
                             >
-                              <option value="screened">Screened</option>
-                              <option value="pending">Review</option>
-                              <option value="rejected">Reject</option>
+                              <option value="screened" className="bg-white text-slate-800 font-medium">Screened</option>
+                              <option value="rejected" className="bg-white text-slate-800 font-medium">Reject</option>
                             </select>
                           </td>
 
@@ -923,7 +843,7 @@ export default function CandidateRanking() {
           {candidates.length > 0 && (
             <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-[11px] text-slate-500">
               <span>
-                {shortlisted} shortlisted · {needsReview} pending review · {rejected} not relevant
+                {shortlisted} shortlisted · {rejected} not relevant
               </span>
               <span>
                 {candidates.length} total candidates evaluated
