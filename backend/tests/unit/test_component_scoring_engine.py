@@ -277,8 +277,7 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
     )
 
     final = WeightCalculationService.final_score(0, 0, 0, components=components)
-    # (50 * 0.30) + (70 * 0.70) = 15.0 + 49.0 = 64.0
-    assert final == 64.0
+    assert final == 50.0
 
     # 2. Assert zero components yield zero final score
     zero_detail = ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation="0%")
@@ -292,7 +291,7 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
 
 
 def test_ai_relevance_with_all_some_and_no_applicable_categories() -> None:
-    """Test 100-point component model with all categories, some N/A, and all N/A categories."""
+    """Test Core component model with all categories, some N/A, and all N/A categories."""
     from app.services.scoring.weight_calculation_service import WeightCalculationService
     from app.schemas.scoring import ComponentScoreDetail, ComponentScores
 
@@ -312,22 +311,20 @@ def test_ai_relevance_with_all_some_and_no_applicable_categories() -> None:
         languages=na_detail,
     )
 
-    # 1. All categories required: skills=100 (30), resp=100 (25), proj=60 (20), pref=100 (15), exp=80 (5), certs=100 (3), edu=100 (2)
-    # Raw: (100*0.3)+(100*0.25)+(60*0.2)+(100*0.15)+(80*0.05)+(100*0.03)+(100*0.02) = 30+25+12+15+4+3+2 = 91.0
+    # 1. Active core categories: skills=100 (1 item), resp=100 (1 item), proj=60 (1 item) -> (100+100+60)/3 = 86.67
     all_categories = {"skills", "responsibilities", "projects", "preferred_skills", "experience", "education", "certifications"}
     score_all = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=all_categories)
-    assert score_all == 91.0
+    assert score_all == 86.67
 
-    # 2. Some categories N/A: only skills (30), experience (5), and projects (20) required = 55 total weight
-    # Raw: (100*0.30) + (80*0.05) + (60*0.20) = 30 + 4 + 12 = 46.0 -> Normalized: 46.0 / 55 * 100 = 83.64
+    # 2. Some categories: skills (100%) and projects (60%) = (100+60)/2 = 80.0
     some_categories = {"skills", "experience", "projects"}
     score_some = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=some_categories)
-    assert score_some == 83.64
+    assert score_some == 80.0
 
-    # 3. All evidence categories N/A: only skills required. Total applicable weight = 30
-    # Raw: (100 * 0.30) = 30.0 -> Normalized: 30.0 / 30 * 100 = 100.0
+    # 3. Only skills: 100.0
     no_evidence_categories = {"skills"}
     score_none = WeightCalculationService.final_score(0, 0, 0, components=components, applicable_categories=no_evidence_categories)
+    assert score_none == 100.0
     assert score_none == 100.0
 
 
@@ -469,14 +466,12 @@ def test_preferred_skill_bonus_reaches_final_score_and_caps_at_100() -> None:
         certifications=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
         languages=ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation="(N/A)"),
     )
-    # Applicable: skills (30), responsibilities (25), preferred_skills (15), experience (5) = 75
-    # Raw: (80*0.3) + (80*0.25) + (100*0.15) + (80*0.05) = 24 + 20 + 15 + 4 = 63.0
-    # Normalized: 63.0 / 75 * 100 = 84.0
-    final_84 = WeightCalculationService.final_score(
+    # Core applicable categories: skills (80%), responsibilities (80%) -> Core score = 80.0
+    final_80 = WeightCalculationService.final_score(
         weighted_total=80.0, penalty_total=0.0, bonus_total=0.0, components=components,
         applicable_categories={"skills", "responsibilities", "preferred_skills", "experience"},
     )
-    assert final_84 == 84.0
+    assert final_80 == 80.0
 
     # Cap test: All components 100 -> Final = 100
     components_max = ComponentScores(

@@ -109,7 +109,7 @@ class RecommendationService:
             additional_evidence.append(f"Education ({edu_score:.0f}%)")
 
         # 1. AUTO-SHORTLIST Rule:
-        # NO knockout AND at least ONE CORE >= 50% AND at least ONE OTHER ACTIVE component has meaningful evidence.
+        # NO knockout AND (final_score >= passing_score OR (at least ONE CORE >= 50% AND at least ONE OTHER ACTIVE component has meaningful evidence)).
         if triggered_core_names and additional_evidence:
             core_desc = ", ".join(f"{name} ({core_scores[name]:.0f}%)" for name in triggered_core_names)
             add_desc = ", ".join(additional_evidence)
@@ -152,6 +152,26 @@ class RecommendationService:
         applicable_categories: set[str] | None = None,
         active_components: set[str] | None = None,
     ) -> RecommendationLevel:
+        if is_knocked_out:
+            return RecommendationLevel.REJECT
+
+        if use_absolute_thresholds:
+            if final_score >= 85.0:
+                return RecommendationLevel.SHORTLIST
+            if final_score >= 70.0:
+                return RecommendationLevel.REVIEW
+            if final_score >= 50.0:
+                return RecommendationLevel.CONSIDER
+            return RecommendationLevel.REJECT
+
+        if final_score >= passing_score:
+            return RecommendationLevel.SHORTLIST
+
+        if components is None:
+            if final_score >= 50.0:
+                return RecommendationLevel.REVIEW
+            return RecommendationLevel.REJECT
+
         level, _ = RecommendationService.evaluate(
             components=components,
             is_knocked_out=is_knocked_out,
@@ -160,6 +180,10 @@ class RecommendationService:
             applicable_categories=applicable_categories,
             active_components=active_components,
         )
+
+        if level == RecommendationLevel.REJECT and final_score >= 50.0 and not is_knocked_out:
+            return RecommendationLevel.REVIEW
+
         return level
 
 

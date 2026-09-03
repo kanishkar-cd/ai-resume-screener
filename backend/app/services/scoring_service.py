@@ -273,8 +273,15 @@ class ScoringEngineFacade:
                     weight_config = await weights.get_by_project_id(document.project_id)
                 except Exception:
                     weight_config = None
-            passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
-            recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out, components=components)
+            recommendation = RecommendationService.recommend(
+                final_score=final_score,
+                passing_score=passing_score,
+                is_knocked_out=knocked_out,
+                components=components,
+                knockout_reason=knockout_reason,
+                effective_weights=effective_weights,
+                applicable_categories=applicable_categories,
+            )
             component_values = {
                 name: getattr(components, name).score
                 for name in (
@@ -312,7 +319,7 @@ class ScoringEngineFacade:
                 CategoryBreakdownItem(
                     category=name,
                     component_score=getattr(components, name).score,
-                    effective_weight=effective_weights.get(name, 0.0 if name != "skills" else effective_weights.get("required_skills", 30.0)),
+                    effective_weight=effective_weights.get(name, 0.0 if name != "skills" else effective_weights.get("required_skills", 0.0)),
                     contribution=getattr(weighted, name, 0.0),
                     is_applicable=name in applicable_categories,
                 )
