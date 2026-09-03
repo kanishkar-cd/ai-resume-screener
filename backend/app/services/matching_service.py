@@ -1244,9 +1244,9 @@ class EvidencePrefilter:
         if not evidence:
             return []
 
-        # 1. Mandatory Evidence Boundaries
+        # 1. Full Resume Evidence Boundaries with Entity-Type Integrity
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
-            target_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary"}]
+            target_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary", "certification", "education"}]
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.RESPONSIBILITY:
@@ -1258,7 +1258,7 @@ class EvidencePrefilter:
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.DEGREE:
-            target_evidence = [e for e in evidence if e.kind == "education"]
+            target_evidence = [e for e in evidence if e.kind in {"education"}]
             if not target_evidence:
                 return []
         elif requirement.kind in {RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE}:
@@ -1266,16 +1266,18 @@ class EvidencePrefilter:
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.CERTIFICATION:
-            target_evidence = [e for e in evidence if e.kind == "certification"]
+            target_evidence = [e for e in evidence if e.kind in {"certification"}]
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.LANGUAGE:
-            target_evidence = [e for e in evidence if e.kind == "languages"]
+            target_evidence = [e for e in evidence if e.kind in {"languages"}]
             if not target_evidence:
                 return []
         else:
             allowed_kinds = ALLOWED_EVIDENCE_MAP.get(requirement.kind, {"experience", "project", "summary", "skills"})
             target_evidence = [e for e in evidence if e.kind in allowed_kinds]
+            if not target_evidence:
+                return []
 
         # 2. Lexical & Synonym Overlap Scoring
         req_lower = requirement.text.casefold()
@@ -1314,13 +1316,17 @@ class EvidencePrefilter:
             candidates_to_filter = passing if passing else scored
             return self._select_diverse_evidence(candidates_to_filter, adaptive_limit)
 
-        # 3. Fallback & Zero-Overlap Behavior
-        # For SKILLS: Trigger Semantic Retrieval. Return [] if no semantic evidence exists.
+        # 3. Fallback & Ambiguous Evidence Behavior:
+        # Lexical prefilter miss should NOT immediately become NO_MATCH if candidate has evidence.
+        # Check semantic retrieval first, then provide candidate profile evidence for LLM verification.
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             semantic_selected = SemanticEvidenceRetriever.retrieve(
                 requirement.text, target_evidence, top_k=min(5, self.limit)
             )
-            return semantic_selected if semantic_selected else []
+            if semantic_selected:
+                return semantic_selected
+            fallback_evidence = [e for e in target_evidence if e.kind in {"skills", "project", "experience", "summary"}]
+            return (fallback_evidence if fallback_evidence else target_evidence)[: min(3, self.limit)]
 
         # For NON-SKILLS: Profile fallback
         allowed_kinds = {"experience", "project", "summary"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "summary", "certification"}
