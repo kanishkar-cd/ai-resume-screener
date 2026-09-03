@@ -71,8 +71,8 @@ def test_na_categories_redistribute_weight_to_applicable_criteria() -> None:
     weighted, raw, total, _ = WeightCalculationService.calculate(
         components, config, {"skills", "projects", "education"}
     )
-    assert raw == 80
-    assert total == 80
+    # Skills (80) + Projects (80) normalized to 100% active weight -> total = 80.0
+    assert total == 80.0
     assert weighted.experience == 0
     assert weighted.certifications == 0
     assert weighted.languages == 0

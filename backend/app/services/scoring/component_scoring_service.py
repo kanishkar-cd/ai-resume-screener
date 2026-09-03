@@ -262,7 +262,7 @@ class ComponentScoringService:
             )
         else:
             responsibilities = ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[],
                 missing_items=[],
                 explanation="No specific role responsibilities configured (N/A).",
@@ -318,7 +318,7 @@ class ComponentScoringService:
                         )
         else:
             preferred_skills = ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[],
                 missing_items=[],
                 explanation="No preferred skills configured (N/A).",
@@ -385,7 +385,7 @@ class ComponentScoringService:
             )
         else:
             experience = ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[f"{candidate_months} months"],
                 missing_items=[],
                 explanation=f"Candidate experience is {candidate_months} months against 0 required months (N/A).",
@@ -466,7 +466,7 @@ class ComponentScoringService:
 
         if not job_degrees:
             return ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[],
                 missing_items=[],
                 explanation="No specific education requirements configured (N/A).",
@@ -545,7 +545,7 @@ class ComponentScoringService:
                 missing_items.append(req)
                 graded_scores.append(0.0)
 
-        overall_score = round(sum(graded_scores) / len(job_degrees), 2) if job_degrees else 100.0
+        overall_score = round(sum(graded_scores) / len(job_degrees), 2) if job_degrees else 0.0
         explanation = f"Matched {len(matched_items)} of {len(job_degrees)} required education qualifications (graded score: {overall_score:.2f}%)."
 
         return ComponentScoreDetail(
@@ -577,10 +577,10 @@ class ComponentScoringService:
         keywords_reqs = [k for k in list(getattr(job, "keywords", None) or []) if k and _is_project_demonstrable(k)]
         resps = list(getattr(job, "responsibilities", None) or [])
 
-        # If job has no explicit project_requirements, no keywords, and no responsibilities, project score is N/A (100.0)
+        # If job has no explicit project_requirements, no keywords, and no responsibilities, project score is N/A (0.0)
         if not project_reqs and not keywords_reqs and not resps:
             return ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[],
                 missing_items=[],
                 explanation="No specific project requirements configured (N/A).",
@@ -593,7 +593,7 @@ class ComponentScoringService:
 
         if not project_keywords:
             return ComponentScoreDetail(
-                score=100.0,
+                score=0.0,
                 matched_items=[],
                 missing_items=[],
                 explanation="No specific project requirements configured (N/A).",
@@ -788,7 +788,7 @@ class ComponentScoringService:
                         )
             return cert_detail
         return ComponentScoreDetail(
-            score=100.0,
+            score=0.0,
             matched_items=[],
             missing_items=[],
             explanation="No specific certification requirements configured (N/A).",
@@ -799,7 +799,7 @@ class ComponentScoringService:
         if req_langs:
             return self._match(list(resume.languages or []), req_langs, "required languages")
         return ComponentScoreDetail(
-            score=100.0,
+            score=0.0,
             matched_items=[],
             missing_items=[],
             explanation="No specific language requirements configured (N/A).",
@@ -897,7 +897,7 @@ class ComponentScoringService:
         # Clean and deduplicate requirement items while preserving group structure
         raw_items = self._deduplicate(required_items)
         if not raw_items:
-            return ComponentScoreDetail(score=100.0, matched_items=[], missing_items=[], explanation=f"No {label} required.")
+            return ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=f"No {label} required (N/A).")
 
         for item in raw_items:
             # Check if item is a conjunction (AND compound requirement)

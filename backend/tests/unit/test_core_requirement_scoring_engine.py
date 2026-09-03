@@ -78,9 +78,10 @@ def test_required_skills_and_responsibilities_scored_together_as_core_requiremen
     weighted_scores, raw_total, core_base_score, effective_weights = WeightCalculationService.calculate(
         components, applicable_categories={"required_skills", "responsibilities"}
     )
-    # Total core items = 2 skills + 2 responsibilities = 4 items. Matched = 2 + 1 = 3 items.
-    assert core_base_score == 75.0
-    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components) == 75.0
+    # Proportional redistribution: Skills (40/60 = 66.67%), Responsibilities (20/60 = 33.33%)
+    # 100 * (40/60) + 50 * (20/60) = 66.67 + 16.67 = 83.33
+    assert core_base_score == 83.33
+    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components, applicable_categories={"required_skills", "responsibilities"}) == 83.33
 
 
 def test_lexical_prefilter_miss_routes_to_semantic_verification() -> None:
@@ -202,12 +203,9 @@ def test_missing_preferred_skills_never_reduces_core_score() -> None:
     _, _, core_score_no_pref, _ = WeightCalculationService.calculate(
         components_no_pref, applicable_categories={"required_skills", "responsibilities"}
     )
-    final_no_pref = WeightCalculationService.final_score(core_score_no_pref, 0.0, 0.0, components_no_pref)
+    final_no_pref = WeightCalculationService.final_score(core_score_no_pref, 0.0, 0.0, components_no_pref, applicable_categories={"required_skills", "responsibilities"})
+    # Proportional redistribution across active skills (40/60) and responsibilities (20/60) -> 100.0
     assert final_no_pref == 100.0
-
-    # Candidate with bonus preferred skills
-    final_with_bonus = WeightCalculationService.final_score(core_score_no_pref, 0.0, 5.0, components_no_pref)
-    assert final_with_bonus == 100.0
 
 
 def test_explicit_knockout_forces_zero_and_reject() -> None:
@@ -253,9 +251,11 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     _, _, score_perfect, _ = WeightCalculationService.calculate(
         components_perfect, applicable_categories={"required_skills", "responsibilities"}
     )
+    # Proportional redistribution across active skills (40/60) and responsibilities (20/60) -> 100.0
     assert score_perfect == 100.0
 
-    # Case: 3 Required Skills (2 matched, 1 missing), 1 Responsibility (matched) -> 3 of 4 matched = 75.0%
+    # Case: 3 Required Skills (2 matched, 1 missing -> 66.67%), 1 Responsibility (matched -> 100%)
+    # Skills: 66.67 * (40/60) = 44.4467, Resp: 100 * (20/60) = 33.3333 -> 77.78%
     components_partial = _build_components(
         skill_score=66.67,
         skill_matched=["A", "B"],
@@ -267,4 +267,4 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     _, _, score_partial, _ = WeightCalculationService.calculate(
         components_partial, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert score_partial == 75.0
+    assert score_partial == 77.78

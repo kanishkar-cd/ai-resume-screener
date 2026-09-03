@@ -3,15 +3,29 @@ from typing import Any
 from app.schemas.scoring import ComponentScores, WeightedScores
 
 
-COMPONENT_WEIGHTS: dict[str, float] = {
-    "required_skills": 30.0,
-    "responsibilities": 25.0,
-    "projects": 25.0,
+# Authoritative default business weights summing to exactly 100.0%
+DEFAULT_WEIGHTS: dict[str, float] = {
+    "required_skills": 40.0,
     "preferred_skills": 15.0,
-    "experience": 0.0,
-    "certifications": 5.0,
-    "education": 0.0,
+    "responsibilities": 20.0,
+    "projects": 25.0,
 }
+
+COMPONENT_WEIGHTS: dict[str, float] = DEFAULT_WEIGHTS
+
+
+def validate_weights(weights: dict[str, float]) -> None:
+    """Validate that the configured four core categories sum to exactly 100.0%."""
+    required_keys = ("required_skills", "preferred_skills", "responsibilities", "projects")
+    total = sum(float(weights.get(k, 0.0)) for k in required_keys)
+    if abs(total - 100.0) > 1e-4:
+        raise ValueError(
+            f"Configured weights must sum to 100.0%, got {total:.2f}% (weights={weights})"
+        )
+
+
+# Validate default weights at module import time
+validate_weights(DEFAULT_WEIGHTS)
 
 
 class WeightCalculationService:
@@ -60,94 +74,151 @@ class WeightCalculationService:
         applicable_categories: set[str] | None = None,
     ) -> tuple[WeightedScores, float, float, dict[str, float]]:
         """
-        Calculate Core Requirements Score.
-        All required items (skills, responsibilities, projects, required qualifications)
-        are treated as Core requirements.
-        Preferred requirements are supporting/bonus only (0% direct core weight; non-deductible).
+        Calculate weighted score using authoritative business weights:
+        - Required Skills: 40%
+        - Preferred Skills: 15%
+        - Responsibilities: 20%
+        - Projects: 25%
+        Total: 100%
+
+        When a category is genuinely absent from the JD, its configured weight is
+        proportionally redistributed across the remaining active categories according
+        to their original configured weights.
+
+        If a category exists in the JD but candidate scores zero, that category remains
+        active at its configured weight (never redistributed).
         """
-        comp_scores = {
-            "required_skills": components.skills.score,
-            "responsibilities": (components.responsibilities.score if getattr(components, "responsibilities", None) is not None else components.experience.score),
-            "projects": components.projects.score,
-            "preferred_skills": (components.preferred_skills.score if getattr(components, "preferred_skills", None) is not None else 100.0),
-            "experience": components.experience.score,
-            "certifications": components.certifications.score,
-            "education": components.education.score,
-        }
+        weights = dict(DEFAULT_WEIGHTS)
+        cfg_weights = getattr(config, "weights", None)
+        if cfg_weights is not None:
+            if hasattr(cfg_weights, "model_dump"):
+                cfg_weights = cfg_weights.model_dump()
+            if isinstance(cfg_weights, dict):
+                mapped = {}
+                for k in ("required_skills", "preferred_skills", "responsibilities", "projects"):
+                    alt_k = "skills" if k == "required_skills" else k
+                    if k in cfg_weights:
+                        mapped[k] = float(cfg_weights[k])
+                    elif alt_k in cfg_weights:
+                        mapped[k] = float(cfg_weights[alt_k])
+                    else:
+                        mapped[k] = weights[k]
+                validate_weights(mapped)
+                weights = mapped
+        elif any(hasattr(config, attr) for attr in ("skills_weight", "required_skills_weight", "responsibilities_weight", "projects_weight", "preferred_skills_weight")):
+            mapped = dict(DEFAULT_WEIGHTS)
+            if hasattr(config, "required_skills_weight"):
+                mapped["required_skills"] = float(config.required_skills_weight)
+            elif hasattr(config, "skills_weight"):
+                mapped["required_skills"] = float(config.skills_weight)
+            if hasattr(config, "preferred_skills_weight"):
+                mapped["preferred_skills"] = float(config.preferred_skills_weight)
+            if hasattr(config, "responsibilities_weight"):
+                mapped["responsibilities"] = float(config.responsibilities_weight)
+            if hasattr(config, "projects_weight"):
+                mapped["projects"] = float(config.projects_weight)
+            total_cfg = sum(mapped.values())
+            if abs(total_cfg - 100.0) <= 1e-4:
+                weights = mapped
 
-        def _get_item_count(comp_detail: Any) -> int:
+        core_categories = ("required_skills", "preferred_skills", "responsibilities", "projects")
+
+        def _is_active_in_jd(comp_detail: Any, cat_name: str) -> bool:
+            if applicable_categories is not None:
+                if cat_name == "required_skills":
+                    return "required_skills" in applicable_categories or "skills" in applicable_categories
+                return cat_name in applicable_categories
             if comp_detail is None:
-                return 0
-            matched = len(getattr(comp_detail, "matched_items", []) or [])
-            missing = len(getattr(comp_detail, "missing_items", []) or [])
-            return matched + missing
+                return False
+            explanation = str(getattr(comp_detail, "explanation", "") or "").casefold()
+            is_na = "(n/a)" in explanation or ("no " in explanation and "configured" in explanation)
+            has_items = bool(getattr(comp_detail, "matched_items", None) or getattr(comp_detail, "missing_items", None))
+            if is_na and not has_items:
+                return False
+            return True
 
-        core_categories = ["required_skills", "responsibilities", "projects", "certifications", "education"]
-        if applicable_categories is not None:
-            active_core = [
-                c for c in core_categories
-                if c in applicable_categories or (c == "required_skills" and "skills" in applicable_categories)
-            ]
-        else:
-            active_core = ["required_skills", "responsibilities", "projects"]
-
-        if not active_core:
-            active_core = ["required_skills", "responsibilities"]
-
-        counts = {
-            "required_skills": _get_item_count(components.skills),
-            "responsibilities": _get_item_count(getattr(components, "responsibilities", None)),
-            "projects": _get_item_count(components.projects),
-            "certifications": _get_item_count(components.certifications),
-            "education": _get_item_count(components.education),
+        active_categories = {
+            c for c in core_categories
+            if _is_active_in_jd(
+                components.skills if c == "required_skills" else getattr(components, c, None),
+                c
+            )
         }
 
-        total_core_items = sum(counts[c] for c in active_core)
+        active_weight_total = sum(weights[c] for c in active_categories)
 
         effective_weights: dict[str, float] = {}
-        if total_core_items > 0:
+        if active_weight_total > 0:
             for c in core_categories:
-                if c in active_core and counts[c] > 0:
-                    effective_weights[c] = round(counts[c] / total_core_items * 100.0, 2)
+                if c in active_categories:
+                    effective_weights[c] = round((weights[c] / active_weight_total) * 100.0, 4)
                 else:
                     effective_weights[c] = 0.0
+
+            # Ensure the active effective weights sum to exactly 100.0%
+            active_sum = sum(effective_weights[c] for c in active_categories)
+            diff = 100.0 - active_sum
+            if abs(diff) > 1e-5:
+                last_cat = [c for c in core_categories if c in active_categories][-1]
+                effective_weights[last_cat] = round(effective_weights[last_cat] + diff, 4)
         else:
-            eq_w = round(100.0 / len(active_core), 2) if active_core else 0.0
             for c in core_categories:
-                effective_weights[c] = eq_w if c in active_core else 0.0
+                effective_weights[c] = 0.0
 
-        effective_weights["preferred_skills"] = 0.0
-        effective_weights["experience"] = 0.0
+        for other in ("experience", "certifications", "education", "languages"):
+            effective_weights[other] = 0.0
 
-        # Adjust any rounding discrepancy so active core sum is exactly 100.0
-        active_sum = sum(effective_weights.get(c, 0.0) for c in active_core)
-        if active_sum > 0 and abs(active_sum - 100.0) > 0.001:
-            first_active = [c for c in active_core if effective_weights.get(c, 0.0) > 0]
-            if first_active:
-                lead = first_active[0]
-                effective_weights[lead] = round(effective_weights[lead] + (100.0 - active_sum), 2)
+        def _get_comp_score(comp_detail: Any, cat_name: str) -> float:
+            if cat_name not in active_categories or comp_detail is None:
+                return 0.0
+            raw_score = getattr(comp_detail, "score", 0.0)
+            return float(raw_score) if raw_score is not None else 0.0
 
-        weighted_values = {
-            c: round(comp_scores[c] * effective_weights.get(c, 0.0) / 100.0, 2)
-            for c in ["required_skills", "responsibilities", "projects", "preferred_skills", "experience", "certifications", "education"]
+        comp_scores = {
+            "required_skills": _get_comp_score(components.skills, "required_skills"),
+            "preferred_skills": _get_comp_score(getattr(components, "preferred_skills", None), "preferred_skills"),
+            "responsibilities": _get_comp_score(getattr(components, "responsibilities", None), "responsibilities"),
+            "projects": _get_comp_score(getattr(components, "projects", None), "projects"),
         }
 
-        # Calculate unrounded sum to avoid intermediate rounding drift
-        core_base_score = round(min(100.0, max(0.0, sum(comp_scores[c] * effective_weights.get(c, 0.0) / 100.0 for c in active_core))), 2) if active_core else 0.0
-        raw_total = round(min(100.0, max(0.0, sum(comp_scores[c] for c in active_core) / len(active_core))), 2) if active_core else 0.0
+        weighted_values = {
+            "required_skills": round(comp_scores["required_skills"] * (effective_weights["required_skills"] / 100.0), 2),
+            "preferred_skills": round(comp_scores["preferred_skills"] * (effective_weights["preferred_skills"] / 100.0), 2),
+            "responsibilities": round(comp_scores["responsibilities"] * (effective_weights["responsibilities"] / 100.0), 2),
+            "projects": round(comp_scores["projects"] * (effective_weights["projects"] / 100.0), 2),
+            "experience": 0.0,
+            "certifications": 0.0,
+            "education": 0.0,
+            "languages": 0.0,
+        }
+
+        # Calculate final weighted total using unrounded values to prevent rounding drift
+        weighted_total = round(
+            min(100.0, max(0.0,
+                sum(comp_scores[c] * (effective_weights[c] / 100.0) for c in active_categories)
+            )),
+            2
+        )
+
+        raw_total = round(
+            min(100.0, max(0.0,
+                (sum(comp_scores[c] for c in active_categories) / len(active_categories)) if active_categories else 0.0
+            )),
+            2
+        )
 
         weighted_schema = WeightedScores(
             skills=weighted_values["required_skills"],
+            preferred_skills=weighted_values["preferred_skills"],
             responsibilities=weighted_values["responsibilities"],
             projects=weighted_values["projects"],
-            preferred_skills=0.0,
             experience=0.0,
-            certifications=weighted_values["certifications"],
-            education=weighted_values["education"],
+            certifications=0.0,
+            education=0.0,
             languages=0.0,
         )
 
-        return weighted_schema, raw_total, core_base_score, {name: round(val, 2) for name, val in effective_weights.items()}
+        return weighted_schema, raw_total, weighted_total, effective_weights
 
     @staticmethod
     def final_score(
@@ -156,22 +227,22 @@ class WeightCalculationService:
         bonus_total: float = 0.0,
         components: ComponentScores | None = None,
         applicable_categories: set[str] | None = None,
+        config: Any = None,
     ) -> float:
         """
-        Calculates final score from Core requirements total + Bonus total.
-        Penalties are 0.0 (unearned points only, never penalty deductions).
+        Calculates final score from the active weighted model.
+        When categories are absent, their weight is proportionally redistributed.
+        Preferred skills contribute via their effective weight and are not added as an external bonus.
         """
         if components is not None:
-            _, _, calc_core, _ = WeightCalculationService.calculate(
-                components, applicable_categories=applicable_categories
+            _, _, calc_total, _ = WeightCalculationService.calculate(
+                components, config=config, applicable_categories=applicable_categories
             )
-            base_score = calc_core
+            base_score = calc_total
         else:
-            base_score = weighted_total
+            base_score = weighted_total + bonus_total
 
-        return round(min(100.0, max(0.0, base_score + bonus_total)), 2)
-
-
+        return round(min(100.0, max(0.0, base_score)), 2)
 
     @staticmethod
     def knockout(components: ComponentScores, config: Any) -> tuple[bool, str | None]:

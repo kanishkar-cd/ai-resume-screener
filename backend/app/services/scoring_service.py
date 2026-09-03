@@ -316,17 +316,23 @@ class ScoringEngineFacade:
                     if b.delta_points > 0:
                         strengths.append(f"Bonus: {b.description}")
 
-            score_breakdown = [
-                CategoryBreakdownItem(
+            score_breakdown = []
+            for name in ("skills", "responsibilities", "projects", "preferred_skills", "education", "certifications", "experience"):
+                comp_obj = getattr(components, name, None)
+                if comp_obj is None:
+                    continue
+                w_key = "required_skills" if name == "skills" else name
+                eff_w = effective_weights.get(w_key, effective_weights.get(name, 0.0))
+                is_app = name in applicable_categories or w_key in applicable_categories
+                comp_score = 0.0 if (eff_w == 0.0 and not is_app) else comp_obj.score
+                contr = getattr(weighted, name, 0.0)
+                score_breakdown.append(CategoryBreakdownItem(
                     category=name,
-                    component_score=getattr(components, name).score,
-                    effective_weight=effective_weights.get(name, 0.0 if name != "skills" else effective_weights.get("required_skills", 0.0)),
-                    contribution=getattr(weighted, name, 0.0),
-                    is_applicable=name in applicable_categories,
-                )
-                for name in ("skills", "responsibilities", "projects", "preferred_skills", "education", "certifications", "experience")
-                if getattr(components, name, None) is not None
-            ]
+                    component_score=comp_score,
+                    effective_weight=eff_w,
+                    contribution=contr,
+                    is_applicable=is_app,
+                ))
 
             model = await scores.upsert_score(CandidateScoreCreate(
                 document_id=document.id, project_id=document.project_id,
