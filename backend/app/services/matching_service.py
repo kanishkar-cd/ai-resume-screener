@@ -589,11 +589,15 @@ class DeterministicRequirementMatcher:
                 ("project documentation", {"project documentation", "documentation", "meeting notes"}),
                 ("relational databases", {"relational databases", "relational database", "relational", "rdbms"}),
                 ("non-relational databases", {"non-relational databases", "non-relational database", "non-relational", "nosql databases", "nosql database", "nosql"}),
-                ("clean code", {"clean code", "readable code", "maintainable code", "clean coding", "code quality", "code standards"}),
+                ("clean code", {"clean code", "readable code", "maintainable code", "clean coding", "code quality", "code standards", "coding standards", "best practices"}),
                 ("mentoring", {"mentor", "mentored", "mentoring", "guidance", "coach", "coaching", "mentorship"}),
                 ("junior developers", {"junior developers", "junior engineers", "juniors"}),
                 ("team members", {"team members", "cross-functional team members", "cross-functional teams", "team", "developers", "peers"}),
                 ("user interfaces", {"user interfaces", "user interface", "ui", "interfaces", "components"}),
+                ("code reviews", {"code reviews", "code review", "peer reviews", "peer review", "pull requests", "pr reviews"}),
+                ("agile processes", {"agile", "agile development", "scrum", "sprints", "sprint planning", "standups", "kanban"}),
+                ("debugging and testing", {"testing", "unit tests", "integration tests", "debugging", "troubleshooting", "bug fixing", "automated tests"}),
+                ("version control", {"version control", "version-control", "git", "github", "gitlab", "bitbucket"}),
             ]
 
             seen_domains: set[str] = set()

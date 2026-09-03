@@ -5,7 +5,6 @@ from uuid import uuid4
 from app.services.affinda_service import AffindaService, AffindaError
 from app.services.jd_extraction_service import JDExtractionService
 
-
 @pytest.mark.asyncio
 async def test_affinda_async_parsing_and_polling(monkeypatch):
     """Test that Affinda parse omits wait=true and polls if not immediately ready."""
@@ -74,7 +73,6 @@ async def test_jd_extraction_reuses_cached_affinda_payload(monkeypatch):
                 "meta": {"identifier": "cached_doc_99"},
             }
         }
-
 
     class FakeParsedDoc:
         raw_text = "Parsed raw text"

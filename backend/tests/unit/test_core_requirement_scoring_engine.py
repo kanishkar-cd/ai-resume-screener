@@ -60,9 +60,9 @@ def _build_components(
 
 def test_required_skills_and_responsibilities_scored_together_as_core_requirements() -> None:
     """
-    Test 1: Required skills + responsibilities form the unified Core Requirements pool.
-    Example: 2 required skills (both matched) + 2 responsibilities (1 matched, 1 missing).
-    Total Core items = 4 (3 matched, 1 missing) -> Core score = (3/4) * 100 = 75.0%.
+    Test 1: Required skills + responsibilities dynamically redistribute active weight.
+    Example: 2 required skills (both matched -> 100%) + 2 responsibilities (1 matched, 1 missing -> 50%).
+    Base weights 30% / 25% redistributed to 54.55% / 45.45% -> score = 77.27%.
     """
     components = _build_components(
         skill_score=100.0,
@@ -78,10 +78,8 @@ def test_required_skills_and_responsibilities_scored_together_as_core_requiremen
     weighted_scores, raw_total, core_base_score, effective_weights = WeightCalculationService.calculate(
         components, applicable_categories={"required_skills", "responsibilities"}
     )
-    # Proportional redistribution: Skills (40/60 = 66.67%), Responsibilities (20/60 = 33.33%)
-    # 100 * (40/60) + 50 * (20/60) = 66.67 + 16.67 = 83.33
-    assert core_base_score == 83.33
-    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components, applicable_categories={"required_skills", "responsibilities"}) == 83.33
+    assert core_base_score == 77.27
+    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components, applicable_categories={"required_skills", "responsibilities"}) == 77.27
 
 
 def test_lexical_prefilter_miss_routes_to_semantic_verification() -> None:
@@ -255,7 +253,7 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     assert score_perfect == 100.0
 
     # Case: 3 Required Skills (2 matched, 1 missing -> 66.67%), 1 Responsibility (matched -> 100%)
-    # Skills: 66.67 * (40/60) = 44.4467, Resp: 100 * (20/60) = 33.3333 -> 77.78%
+    # Skills: 66.67 * (30/55) = 36.3655, Resp: 100 * (25/55) = 45.4545 -> 81.82%
     components_partial = _build_components(
         skill_score=66.67,
         skill_matched=["A", "B"],
@@ -267,4 +265,4 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     _, _, score_partial, _ = WeightCalculationService.calculate(
         components_partial, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert score_partial == 77.78
+    assert score_partial == 81.82
