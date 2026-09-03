@@ -42,7 +42,7 @@ export default function Assessment() {
     setSyncStatusMsg(null)
     try {
       const res = await api.getAssessmentStatus(projectId)
-      if (res && res.candidates && Array.isArray(res.candidates)) {
+      if (res && res.candidates && Array.isArray(res.candidates) && res.candidates.length > 0) {
         dispatch({
           type: 'UPDATE_ASSESSMENT_RESULTS',
           payload: {
@@ -82,7 +82,7 @@ export default function Assessment() {
         })
         setSyncStatusMsg('Assessment evaluation status updated successfully.')
       } else {
-        setSyncStatusMsg('Polled status: No new updates available.')
+        setSyncStatusMsg('Polled status: Up to date.')
       }
     } catch (err) {
       console.warn('Failed to sync assessment status:', err)

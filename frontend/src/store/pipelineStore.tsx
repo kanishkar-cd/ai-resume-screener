@@ -67,6 +67,8 @@ function restorePipelineState(): PipelineState {
         })),
       },
       candidates: restored.candidates ?? [],
+      assessmentCandidates: restored.assessmentCandidates ?? [],
+      shortlistedCandidateIds: restored.shortlistedCandidateIds ?? [],
       scoringComplete: true,
       scoringRunAt: restored.scoringRunAt ? new Date(restored.scoringRunAt) : undefined,
     }
@@ -231,11 +233,18 @@ function reducer(state: PipelineState, action: Action): PipelineState {
 
     case 'UPDATE_ASSESSMENT_RESULTS': {
       const results = action.payload.results || []
+      if (results.length === 0) {
+        return state
+      }
+      const existing = state.assessmentCandidates || []
       const candidatesMap = new Map(state.candidates.map((c) => [c.id, c]))
+      const merged = [...existing]
 
-      const newItems: PipelineState['assessmentCandidates'] = results.map((res, i) => {
-        const targetId = res.candidateId || res.externalCandidateRef || (res as any).id || `cand_${i}`
-        const c = candidatesMap.get(targetId)
+      for (const res of results) {
+        const targetId = res.candidateId || res.externalCandidateRef || (res as any).id
+        const existingIdx = merged.findIndex(
+          (m) => m.id === targetId || (m.candidateName && m.candidateName === (res as any).candidateName)
+        )
 
         let scoreVal: number | null = null
         const rawScore = res.compositeScore !== undefined && res.compositeScore !== null
@@ -255,32 +264,39 @@ function reducer(state: PipelineState, action: Action): PipelineState {
 
         const bandVal = res.compositeScoreBand || (res as any).composite_score_band || (res as any).score_band || null
         const sessStatus = (res.sessionStatus || (res as any).session_status || 'not_started').toLowerCase()
+        const c = targetId ? candidatesMap.get(targetId) : undefined
 
-        return {
-          id: targetId,
-          candidateName: (res as any).candidateName || (res as any).name || c?.name || 'Candidate',
-          email: res.email || c?.email || '',
-          currentTitle: c?.currentTitle || 'Applicant',
-          reqRef: action.payload.reqRef || '',
-          meritScore: c?.overallScore || 0,
-          rank: c?.rank || i + 1,
-          status: (sessStatus === 'submitted' || sessStatus === 'completed') ? 'Submitted' : 'Sent',
-          sentAt: new Date().toLocaleDateString(),
-          assessmentLink: res.assessmentLink || (res as any).assessment_link || null,
-          sessionStatus: sessStatus,
-          scoreStatus: res.scoreStatus || (res as any).score_status || (scoreVal !== null ? 'graded' : 'not_graded'),
-          compositeScore: scoreVal,
-          compositeScoreBand: bandVal,
-          identityStatus: res.identityStatus || (res as any).identity_status || null,
-          isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : ((res as any).is_identity_verified ?? null),
-          startedAt: res.startedAt || (res as any).started_at || null,
-          submittedAt: res.submittedAt || (res as any).submitted_at || null,
-          expiresAt: res.expiresAt || (res as any).expires_at || null,
-          decision: res.decision || null,
+        const updatedItem = {
+          id: targetId || (existingIdx >= 0 ? merged[existingIdx].id : `cand_${merged.length}`),
+          candidateName: (res as any).candidateName || (res as any).name || c?.name || (existingIdx >= 0 ? merged[existingIdx].candidateName : 'Candidate'),
+          email: res.email || c?.email || (existingIdx >= 0 ? merged[existingIdx].email : ''),
+          currentTitle: c?.currentTitle || (existingIdx >= 0 ? merged[existingIdx].currentTitle : 'Applicant'),
+          reqRef: action.payload.reqRef || (existingIdx >= 0 ? merged[existingIdx].reqRef : ''),
+          meritScore: c?.overallScore || (existingIdx >= 0 ? merged[existingIdx].meritScore : 0),
+          rank: c?.rank || (existingIdx >= 0 ? merged[existingIdx].rank : 1),
+          status: (sessStatus === 'submitted' || sessStatus === 'completed') ? ('Submitted' as const) : ('Sent' as const),
+          sentAt: (existingIdx >= 0 ? merged[existingIdx].sentAt : new Date().toLocaleDateString()),
+          assessmentLink: res.assessmentLink || (res as any).assessment_link || (existingIdx >= 0 ? merged[existingIdx].assessmentLink : null),
+          sessionStatus: sessStatus || (existingIdx >= 0 ? merged[existingIdx].sessionStatus : 'not_started'),
+          scoreStatus: res.scoreStatus || (res as any).score_status || (scoreVal !== null ? 'graded' : (existingIdx >= 0 ? merged[existingIdx].scoreStatus : 'not_graded')),
+          compositeScore: scoreVal !== null ? scoreVal : (existingIdx >= 0 ? merged[existingIdx].compositeScore : null),
+          compositeScoreBand: bandVal || (existingIdx >= 0 ? merged[existingIdx].compositeScoreBand : null),
+          identityStatus: res.identityStatus || (res as any).identity_status || (existingIdx >= 0 ? merged[existingIdx].identityStatus : null),
+          isIdentityVerified: res.isIdentityVerified !== undefined ? res.isIdentityVerified : ((res as any).is_identity_verified ?? (existingIdx >= 0 ? merged[existingIdx].isIdentityVerified : null)),
+          startedAt: res.startedAt || (res as any).started_at || (existingIdx >= 0 ? merged[existingIdx].startedAt : null),
+          submittedAt: res.submittedAt || (res as any).submitted_at || (existingIdx >= 0 ? merged[existingIdx].submittedAt : null),
+          expiresAt: res.expiresAt || (res as any).expires_at || (existingIdx >= 0 ? merged[existingIdx].expiresAt : null),
+          decision: res.decision || (existingIdx >= 0 ? merged[existingIdx].decision : null),
         }
-      })
 
-      return { ...state, assessmentCandidates: newItems }
+        if (existingIdx >= 0) {
+          merged[existingIdx] = { ...merged[existingIdx], ...updatedItem }
+        } else {
+          merged.push(updatedItem as any)
+        }
+      }
+
+      return { ...state, assessmentCandidates: merged }
     }
 
     case 'RESET_PIPELINE':
