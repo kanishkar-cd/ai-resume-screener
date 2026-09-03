@@ -24,6 +24,39 @@ import {
 import { api, CandidateRanking, CandidateScore, Project } from '@/api'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
+import { Candidate } from '@/types'
+
+function mapCandidateToRanking(c: Candidate, projId: string): CandidateRanking {
+  const isKnockedOut = Boolean(c.isKnockedOut)
+  const rec = (
+    c.recommendation ||
+    (isKnockedOut || c.status === 'rejected'
+      ? 'REJECT'
+      : c.status === 'screened'
+        ? 'SHORTLIST'
+        : 'REVIEW')
+  ).toUpperCase() as 'SHORTLIST' | 'REVIEW' | 'REJECT'
+
+  return {
+    id: c.id,
+    project_id: projId,
+    document_id: c.documentId || c.id,
+    candidate_name: c.name || 'Candidate',
+    email: c.email || null,
+    rank_position: c.rank || 1,
+    percentile: c.percentile ?? 0,
+    final_score: c.overallScore || 0,
+    recommendation: rec,
+    confidence: c.confidence ?? 1.0,
+    is_knocked_out: isKnockedOut,
+    knockout_reason: c.knockoutReason || null,
+    skills_score: c.scores?.find((s) => s.criterionId === 'skills')?.score ?? 0,
+    experience_score: c.scores?.find((s) => s.criterionId === 'experience')?.score ?? 0,
+    previous_rank: null,
+    rank_change: 0,
+    created_at: c.scoredAt ? c.scoredAt.toISOString() : new Date().toISOString(),
+  }
+}
 
 function getExperienceLevel(proj?: Project | null): 'Fresher' | 'Experienced' {
   if (!proj) return 'Fresher'
@@ -65,11 +98,31 @@ export default function Reports() {
   const navigate = useNavigate()
 
   const projectId = routeProjectId || state.projectId
+  const isMatchingSession = Boolean(
+    projectId && (state.projectId === projectId || state.selectedProject?.id === projectId)
+  )
 
-  const [project, setProject] = useState<Project | any | null>(state.selectedProject || null)
-  const [rankings, setRankings] = useState<CandidateRanking[]>([])
+  const [project, setProject] = useState<Project | any | null>(() => {
+    if (isMatchingSession && state.selectedProject) return state.selectedProject
+    return null
+  })
+
+  const [rankings, setRankings] = useState<CandidateRanking[]>(() => {
+    if (isMatchingSession && state.candidates && state.candidates.length > 0) {
+      return state.candidates.map((c) => mapCandidateToRanking(c, projectId!))
+    }
+    return []
+  })
+
   const [scores, setScores] = useState<CandidateScore[]>([])
-  const [assessmentCandidates, setAssessmentCandidates] = useState<any[]>([])
+
+  const [assessmentCandidates, setAssessmentCandidates] = useState<any[]>(() => {
+    if (isMatchingSession && state.assessmentCandidates && state.assessmentCandidates.length > 0) {
+      return state.assessmentCandidates
+    }
+    return []
+  })
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -95,13 +148,49 @@ export default function Reports() {
     ])
       .then(([projRes, rankingRes, scoreRes, assessRes]) => {
         if (!active) return
-        if (projRes) setProject(projRes)
-        setRankings(rankingRes.items || [])
+
+        // 1. Project metadata: API response > matching session project
+        if (projRes) {
+          setProject(projRes)
+        } else if (isMatchingSession && state.selectedProject) {
+          setProject(state.selectedProject)
+        }
+
+        // 2. Rankings: API items > matching session candidates fallback
+        const apiRankings = rankingRes?.items || []
+        if (apiRankings.length > 0) {
+          setRankings(apiRankings)
+        } else if (isMatchingSession && state.candidates && state.candidates.length > 0) {
+          setRankings(state.candidates.map((c) => mapCandidateToRanking(c, projectId)))
+        } else {
+          setRankings([])
+        }
+
+        // 3. Project scores: API scores > empty
         setScores(scoreRes || [])
-        setAssessmentCandidates(assessRes.candidates || [])
+
+        // 4. Assessment candidates: API candidates > matching session assessment candidates fallback
+        const apiAssess = assessRes?.candidates || []
+        if (apiAssess.length > 0) {
+          setAssessmentCandidates(apiAssess)
+        } else if (isMatchingSession && state.assessmentCandidates && state.assessmentCandidates.length > 0) {
+          setAssessmentCandidates(state.assessmentCandidates)
+        } else {
+          setAssessmentCandidates([])
+        }
       })
       .catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : 'Failed to load requisition report.')
+        if (!active) return
+        if (isMatchingSession && state.candidates && state.candidates.length > 0) {
+          setRankings(state.candidates.map((c) => mapCandidateToRanking(c, projectId)))
+          if (state.selectedProject) setProject(state.selectedProject)
+          if (state.assessmentCandidates && state.assessmentCandidates.length > 0) {
+            setAssessmentCandidates(state.assessmentCandidates)
+          }
+          setError(null)
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load requisition report.')
+        }
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -110,7 +199,7 @@ export default function Reports() {
     return () => {
       active = false
     }
-  }, [projectId])
+  }, [projectId, isMatchingSession, state.candidates, state.selectedProject, state.assessmentCandidates])
 
   // Candidate Journey & Summary Calculation
   const metrics = useMemo(() => {
