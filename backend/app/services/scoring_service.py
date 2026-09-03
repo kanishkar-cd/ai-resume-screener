@@ -267,12 +267,12 @@ class ScoringEngineFacade:
                 weighted_total, penalty_total, bonus_total,
                 components=components, applicable_categories=applicable_categories
             )
-            confidence = ConfidenceService.calculate(extracted)
             if weight_config is None and weights is not None:
                 try:
                     weight_config = await weights.get_by_project_id(document.project_id)
                 except Exception:
                     weight_config = None
+            passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
             recommendation = RecommendationService.recommend(
                 final_score=final_score,
                 passing_score=passing_score,
