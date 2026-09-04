@@ -18,7 +18,14 @@ export default function ProjectHeader() {
 
   if (!project || !location.pathname.startsWith(`/projects/${project.id}`)) return null
   const root = `/projects/${project.id}`
-  const isResumesPage = location.pathname === `${root}/resumes` || location.pathname.endsWith('/resumes')
+  const isWorkflowStep =
+    location.pathname === `${root}/rankings` ||
+    location.pathname === `${root}/resumes` ||
+    location.pathname === root ||
+    location.pathname.endsWith('/rankings') ||
+    location.pathname.endsWith('/resumes')
+
+  if (isWorkflowStep) return null
 
   const editProject = async () => {
     const title = window.prompt('Project name', project.title)?.trim()
@@ -28,7 +35,7 @@ export default function ProjectHeader() {
   }
 
   return (
-    <div className={`border-b border-slate-200 bg-white px-6 py-5 ${isResumesPage ? 'mb-6' : 'mb-8'}`}>
+    <div className="border-b border-slate-200 bg-white px-6 py-5 mb-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[22px] font-bold text-slate-900">{project.title}</h1>
@@ -50,29 +57,25 @@ export default function ProjectHeader() {
           </button>
         </div>
       </div>
-      {!isResumesPage && (
-        <div className="flex flex-wrap gap-1 mt-5 -mb-5">
-          {tabs.map(([label, suffix]) => {
-            const path = `${root}/${suffix}`
-            const active =
-              location.pathname === path ||
-              (suffix === 'rankings' && location.pathname === root)
-            return (
-              <button
-                type="button"
-                key={label}
-                onClick={() => navigate(path)}
-                className={`border-b-2 px-3 py-3 text-[11px] font-semibold cursor-pointer ${active
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-900'
-                  }`}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <div className="flex flex-wrap gap-1 mt-5 -mb-5">
+        {tabs.map(([label, suffix]) => {
+          const path = `${root}/${suffix}`
+          const active = location.pathname === path
+          return (
+            <button
+              type="button"
+              key={label}
+              onClick={() => navigate(path)}
+              className={`border-b-2 px-3 py-3 text-[11px] font-semibold cursor-pointer ${active
+                  ? 'border-blue-600 text-blue-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+                }`}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
