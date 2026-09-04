@@ -25,7 +25,6 @@ const STEP_LABELS = [
   'Basic Information',
   'Upload JD',
   'Screening Criteria',
-  'Review & Start',
 ]
 
 const INVALID_STANDALONE_SKILLS = new Set([
@@ -219,12 +218,7 @@ export default function CreateRequisition() {
     }
   }
 
-  // Step 3 → Step 4: just advance
-  const handleContinueToReview = () => {
-    setCurrentStep(4)
-  }
-
-  // Step 4 → Start Screening: ensure project created + persist threshold, then navigate
+  // Step 3 → Start Screening: ensure project created + persist threshold, then navigate
   const handleStartScreening = async () => {
     setIsProcessingJd(true)
     setJdError(null)
@@ -327,15 +321,13 @@ export default function CreateRequisition() {
           <h1 className="text-xl font-extrabold text-slate-900">Create Requisition</h1>
           <p className="text-xs text-slate-500 mt-0.5">
             {STEP_LABELS[currentStep - 1]}
-            {currentStep < 4 && (
-              <span className="ml-1 text-slate-400">— Step {currentStep} of 4</span>
-            )}
+            <span className="ml-1 text-slate-400">— Step {currentStep} of 3</span>
           </p>
         </div>
 
         {/* Stepper */}
         <div className="flex items-center gap-3">
-          {[1, 2, 3, 4].map((step) => (
+          {[1, 2, 3].map((step) => (
             <div key={step} className="flex items-center gap-2">
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -348,7 +340,7 @@ export default function CreateRequisition() {
               >
                 {currentStep > step ? <CheckCircle2 size={16} /> : step}
               </div>
-              {step < 4 && <div className="w-6 h-[2px] bg-slate-200" />}
+              {step < 3 && <div className="w-6 h-[2px] bg-slate-200" />}
             </div>
           ))}
         </div>
@@ -709,115 +701,19 @@ export default function CreateRequisition() {
               </button>
               <button
                 type="button"
-                onClick={handleContinueToReview}
-                disabled={isProcessingJd || Boolean(jdError)}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                Continue to Review
-                <ArrowRight size={15} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 4: Review & Start ── */}
-        {currentStep === 4 && (
-          <div className="space-y-6 py-4 max-w-xl mx-auto">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                <CheckCircle2 size={32} />
-              </div>
-              <h2 className="text-xl font-extrabold text-slate-900">Review & Confirm</h2>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Verify the requisition details and 50+50 scoring model, then click <span className="font-bold text-slate-800">Upload Candidate Resumes</span> to begin screening.
-              </p>
-            </div>
-
-            {/* Requisition Summary Card */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 text-left space-y-3 text-xs shadow-sm">
-              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Requisition Overview</h4>
-              
-              <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 border-b border-slate-100 pb-3">
-                <div>
-                  <span className="text-slate-400 text-[11px]">Department</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{department.name}</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[11px]">Job Title</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{jobTitle}</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[11px]">Experience Level</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{expLevel}</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[11px]">Requisition Reference</span>
-                  <p className="font-bold font-mono text-slate-900 mt-0.5">{reqRef}</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[11px]">Job Description File</span>
-                  <p className="font-bold text-slate-900 truncate mt-0.5">{jdFile ? jdFile.name : 'Uploaded'}</p>
-                </div>
-              </div>
-
-              {/* 100% Component Scoring Model Box */}
-              <div className="space-y-2 pt-1">
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Evaluation Scoring Engine</h4>
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-                  <div className="flex items-center justify-between font-semibold text-slate-800">
-                    <span className="flex items-center gap-2">
-                      <Cpu size={14} className="text-blue-500" />
-                      Core Component Evaluation
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-700 font-bold text-[11px]">6 Active Components</span>
-                  </div>
-                  <div className="flex items-center justify-between font-semibold text-slate-800">
-                    <span className="flex items-center gap-2">
-                      <SlidersHorizontal size={14} className="text-emerald-500" />
-                      Dynamic Weight Normalization
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-bold text-[11px]">Active Weights</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between font-bold text-slate-900">
-                    <span>Total Candidate Score</span>
-                    <span className="text-blue-600 font-extrabold">100% Weighted</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {jdError && (
-              <div className="p-3.5 bg-red-50 text-red-700 rounded-xl text-xs font-semibold flex items-center gap-2 text-left">
-                <AlertCircle size={15} className="shrink-0" />
-                <span>{jdError}</span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center pt-2">
-              <button
-                type="button"
-                onClick={() => setCurrentStep(3)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200"
-              >
-                <ArrowLeft size={15} />
-                Back
-              </button>
-
-              <button
-                type="button"
                 onClick={() => void handleStartScreening()}
-                disabled={isProcessingJd}
-                className="inline-flex items-center gap-2 px-7 py-3 bg-blue-600 text-white rounded-xl text-xs font-extrabold hover:bg-blue-700 transition-colors shadow-md disabled:opacity-60 cursor-pointer"
+                disabled={isProcessingJd || Boolean(jdError)}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
               >
                 {isProcessingJd ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2 size={15} className="animate-spin" />
                     <span>Finalizing Requisition...</span>
                   </>
                 ) : (
                   <>
                     <span>Upload Candidate Resumes</span>
-                    <ArrowRight size={16} />
+                    <ArrowRight size={15} />
                   </>
                 )}
               </button>

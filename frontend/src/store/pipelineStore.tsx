@@ -148,7 +148,7 @@ type Action =
   | { type: 'COMPLETE_AI_PIPELINE' }
   | { type: 'RUN_SCORING' }
   | { type: 'UPDATE_CANDIDATE_STATUS'; payload: { id: string; status: ScreeningStatus } }
-  | { type: 'SET_DEPARTMENT_ID'; payload: string }
+  | { type: 'SET_DEPARTMENT_ID'; payload: string | null }
   | { type: 'TOGGLE_SHORTLIST_CANDIDATE'; payload: string }
   | { type: 'SET_SHORTLIST_CANDIDATES'; payload: string[] }
   | {
