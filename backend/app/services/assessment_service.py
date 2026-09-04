@@ -27,26 +27,18 @@ async def _dispatch_emails_background(
     email_service: EmailService,
     items_to_email: list[dict[str, str]],
     requisition_ref: str,
-    provider: str = "gmail",
+    provider: str = "ses",
 ) -> None:
     """Send assessment invitation emails concurrently in the background."""
     async def _send_one(item: dict[str, str]) -> None:
         try:
-            if provider and provider.lower() != "gmail":
-                await email_service.send_assessment_invitation(
-                    candidate_name=item["candidate_name"],
-                    candidate_email=item["email"],
-                    assessment_link=item["assessment_link"],
-                    requisition_ref=requisition_ref,
-                    provider=provider,
-                )
-            else:
-                await email_service.send_assessment_invitation(
-                    candidate_name=item["candidate_name"],
-                    candidate_email=item["email"],
-                    assessment_link=item["assessment_link"],
-                    requisition_ref=requisition_ref,
-                )
+            await email_service.send_assessment_invitation(
+                candidate_name=item["candidate_name"],
+                candidate_email=item["email"],
+                assessment_link=item["assessment_link"],
+                requisition_ref=requisition_ref,
+                provider=provider or "ses",
+            )
         except Exception as exc:
             logger.warning(
                 "[ASSESSMENT_EMAIL] background delivery failed",
@@ -82,7 +74,7 @@ class AssessmentService:
         project_id: UUID,
         candidate_ids: list[UUID],
         requisition_ref: str,
-        provider: str = "gmail",
+        provider: str = "ses",
     ) -> AssessmentHandoffData:
         logger.info(
             "[ASSESSMENT_HANDOFF] starting handoff",
