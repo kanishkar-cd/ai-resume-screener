@@ -554,22 +554,22 @@ export default function Dashboard() {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header with Concise Dynamic Insight */}
-      <div className="pb-4 border-b border-slate-200/70 flex flex-col md:flex-row md:items-end justify-between gap-3">
+      <div className="pb-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         {isDeptScoped ? (
           <div>
             <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
               <button
                 type="button"
                 onClick={() => updateUrlParams({ dept: 'ALL', page: 1 })}
-                className="hover:text-blue-600 transition-colors cursor-pointer"
+                className="hover:text-slate-900 transition-colors cursor-pointer"
               >
                 Overview
               </button>
-              <ChevronRight size={12} />
-              <span className="text-slate-700 font-bold">{selectedDeptFilter}</span>
+              <ChevronRight size={12} className="text-slate-300" />
+              <span className="text-slate-800 font-semibold">{selectedDeptFilter}</span>
             </div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-              <Building2 size={24} className="text-blue-600" />
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
+              <Building2 size={22} className="text-slate-700" />
               {selectedDeptFilter} Dashboard
             </h1>
             <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
@@ -582,14 +582,14 @@ export default function Dashboard() {
           </div>
         ) : (
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
               Talent Analytics
             </h1>
             <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
               <span>{analytics.total} total requisitions across {analytics.activeDepts} hiring departments.</span>
               <span className="text-slate-300">•</span>
               <span>
-                Top hiring demand in <strong className="text-slate-900 font-bold">{analytics.topDeptName}</strong> ({analytics.topDeptCount} requisitions).
+                Top hiring demand in <strong className="text-slate-800 font-semibold">{analytics.topDeptName}</strong> ({analytics.topDeptCount} requisitions).
               </span>
             </p>
           </div>
@@ -604,7 +604,7 @@ export default function Dashboard() {
                 navigate('/departments')
               }
             }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <Plus size={14} />
             <span>New Requisition</span>
@@ -613,42 +613,42 @@ export default function Dashboard() {
       </div>
 
       {error && (
-        <div className="p-4 bg-red-50/80 border border-red-200/80 rounded-2xl flex items-center gap-3 text-red-700 text-xs font-semibold shadow-xs">
-          <AlertCircle size={16} className="shrink-0" />
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 text-xs font-medium shadow-xs">
+          <AlertCircle size={16} className="shrink-0 text-red-600" />
           <div>
             <p className="font-bold">Backend Service Error</p>
-            <p className="text-[11px] font-normal text-red-600 mt-0.5">{error}</p>
+            <p className="text-[11px] text-red-600 mt-0.5">{error}</p>
           </div>
         </div>
       )}
 
       {/* Modern KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Total Requisitions */}
-        <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Total Requisitions'}
             </p>
             <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
               {loading ? '...' : isDeptScoped ? deptAnalytics.total : analytics.total}
             </p>
             <div className="mt-2.5">
-              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold">
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200/60">
                 {isDeptScoped ? deptAnalytics.fresherCount : analytics.fresherCount} Fresher ·{' '}
                 {isDeptScoped ? deptAnalytics.experiencedCount : analytics.experiencedCount} Exp
               </span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-            <FolderKanban size={20} />
+          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
+            <FolderKanban size={18} />
           </div>
         </div>
 
         {/* Active Requisitions */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               {isDeptScoped ? `${selectedDeptFilter} Active Requisitions` : 'Active Requisitions'}
             </p>
             <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
@@ -659,35 +659,35 @@ export default function Dashboard() {
                 : `${analytics.activeCount} of ${analytics.total}`}
             </p>
             <div className="mt-2.5">
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[11px] font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[11px] font-medium border border-emerald-200/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 {isDeptScoped ? deptAnalytics.activeRate : analytics.activeRate}% Active
               </span>
             </div>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-            <Layers size={20} />
+          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
+            <Layers size={18} />
           </div>
         </div>
       </div>
 
       {/* Ranked Horizontal-Bar Visualization: Hiring Demand by Department (Overview Only) */}
       {!isDeptScoped && (
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs space-y-3">
-          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-3.5">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <BarChart3 size={16} className="text-blue-600" />
+              <BarChart3 size={16} className="text-slate-700" />
               <h2 className="text-sm font-bold text-slate-900 tracking-tight">
                 Hiring Demand by Department
               </h2>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-slate-400 font-semibold">
-              <span className="hidden sm:inline">Click a department to open its dashboard</span>
+            <div className="text-[11px] text-slate-400 font-medium">
+              Click a department to open its dashboard
             </div>
           </div>
 
           {/* 2-Column Responsive Ranked List */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5 pt-0.5">
             {analytics.sortedDepts.map((dept, index) => {
               const count = dept.count
               const percentage = dept.percentage
@@ -698,26 +698,26 @@ export default function Dashboard() {
                 <div
                   key={dept.id}
                   onClick={() => handleDepartmentFilterToggle(dept.name)}
-                  className={`flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer group ${
+                  className={`flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer group ${
                     hasZero
                       ? 'border-transparent opacity-40 hover:opacity-75 hover:bg-slate-50'
-                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50/90'
+                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50'
                   }`}
                   title={`Open ${dept.name} Dashboard`}
                 >
-                  <div className="w-5 text-center text-[10px] font-bold text-slate-400 shrink-0">
+                  <div className="w-5 text-center text-[11px] font-semibold text-slate-400 shrink-0">
                     #{index + 1}
                   </div>
 
                   <div className="w-36 truncate shrink-0">
-                    <p className="text-xs font-bold truncate transition-colors text-slate-800 group-hover:text-blue-600">
+                    <p className="text-xs font-semibold truncate transition-colors text-slate-800 group-hover:text-blue-600">
                       {dept.name}
                     </p>
                   </div>
 
                   <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden relative">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
+                      className={`h-full rounded-full transition-all duration-300 ${
                         count > 0 ? 'bg-slate-700 group-hover:bg-blue-600' : 'bg-slate-200'
                       }`}
                       style={{ width: `${Math.max(barWidth, count > 0 ? 6 : 0)}%` }}
@@ -726,7 +726,7 @@ export default function Dashboard() {
 
                   <div className="w-20 text-right shrink-0 flex items-center justify-end gap-1 text-[11px]">
                     <strong className="text-slate-900 font-bold">{count}</strong>
-                    <span className="text-slate-400 font-medium">({percentage}%)</span>
+                    <span className="text-slate-400 font-normal">({percentage}%)</span>
                   </div>
                 </div>
               )
@@ -736,15 +736,15 @@ export default function Dashboard() {
       )}
 
       {/* Requisitions Workspace (Main Focus) */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
         {/* Section Header & Aligned Toolbar */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
               {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Requisitions Workspace'}
             </h2>
             {!loading && !error && (
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-100/80">
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200/60">
                 {filteredProjects.length} {filteredProjects.length === 1 ? 'requisition' : 'requisitions'}
               </span>
             )}
@@ -752,13 +752,13 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Status Tabs: All, Active, Completed */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold text-slate-600">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium text-slate-600">
               <button
                 type="button"
                 onClick={() => updateUrlParams({ status: 'ALL', page: 1 })}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -767,9 +767,9 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => updateUrlParams({ status: 'ACTIVE', page: 1 })}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'ACTIVE'
-                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                    ? 'bg-white text-emerald-700 shadow-xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -778,9 +778,9 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => updateUrlParams({ status: 'COMPLETED', page: 1 })}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'COMPLETED'
-                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -794,7 +794,7 @@ export default function Dashboard() {
                 <select
                   value={selectedDeptFilter}
                   onChange={(e) => updateUrlParams({ dept: e.target.value, page: 1 })}
-                  className="pl-3 pr-8 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                  className="pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 cursor-pointer shadow-2xs"
                 >
                   <option value="ALL">All Departments</option>
                   {availableDepartments.map((deptName) => (
@@ -814,17 +814,17 @@ export default function Dashboard() {
                 value={searchTerm}
                 onChange={(e) => updateUrlParams({ q: e.target.value, page: 1 })}
                 placeholder={isDeptScoped ? `Search ${selectedDeptFilter} requisitions...` : 'Search requisitions...'}
-                className="w-full pl-8 pr-3.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-all"
+                className="w-full pl-8 pr-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 placeholder:text-slate-400 transition-colors shadow-2xs"
               />
             </div>
 
             {projects.length > 0 && (
-              <div className="flex items-center pl-1 border-l border-slate-200/80">
+              <div className="flex items-center pl-1 border-l border-slate-200">
                 <button
                   type="button"
                   onClick={handleDeleteAllClick}
                   disabled={isDeletingAll}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 border border-red-200/80 rounded-xl transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-lg transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                   title="Delete all requisitions"
                 >
                   <Trash2 size={13} className="shrink-0" />
@@ -838,13 +838,13 @@ export default function Dashboard() {
         {/* Table Content & Intentional Empty State */}
         {loading ? (
           <div className="py-16 text-center text-xs text-slate-400 font-medium flex items-center justify-center gap-2">
-            <Loader2 size={16} className="animate-spin text-blue-600" />
+            <Loader2 size={16} className="animate-spin text-slate-600" />
             <span>Loading requisitions...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="py-16 text-center space-y-3.5 max-w-md mx-auto">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <FolderKanban size={24} />
+            <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60">
+              <FolderKanban size={22} />
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">
@@ -854,7 +854,7 @@ export default function Dashboard() {
                   ? 'No matching requisitions'
                   : 'No requisitions yet'}
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 {isDeptScoped && deptProjects.length === 0
                   ? `Get started by creating the first candidate screening campaign for ${selectedDeptFilter}.`
                   : searchTerm || selectedStatusFilter !== 'ALL'
@@ -866,7 +866,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => updateUrlParams({ q: '', status: 'ALL', page: 1 })}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               >
                 <span>Reset Search & Filter</span>
               </button>
@@ -880,7 +880,7 @@ export default function Dashboard() {
                     navigate('/departments')
                   }
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               >
                 <Plus size={14} />
                 <span>Create Requisition</span>
@@ -889,12 +889,12 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto border border-slate-100/90 rounded-xl">
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 select-none">
+                  <tr className="bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 select-none">
                     <th
-                      className="py-3 px-4.5 min-w-[240px] max-w-[380px] cursor-pointer hover:text-slate-700 transition-colors group/col"
+                      className="py-2.5 px-4 min-w-[240px] max-w-[380px] cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('title')}
                       title="Sort by Requisition Title"
                     >
@@ -904,7 +904,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-3 px-4 w-36 cursor-pointer hover:text-slate-700 transition-colors group/col"
+                      className="py-2.5 px-4 w-36 cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('department')}
                       title="Sort by Department"
                     >
@@ -914,7 +914,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-3 px-4 min-w-[140px] cursor-pointer hover:text-slate-700 transition-colors group/col"
+                      className="py-2.5 px-4 min-w-[140px] cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('target_role')}
                       title="Sort by Target Role"
                     >
@@ -924,7 +924,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-3 px-4 w-28 text-center cursor-pointer hover:text-slate-700 transition-colors group/col"
+                      className="py-2.5 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('experience')}
                       title="Sort by Experience Level"
                     >
@@ -934,7 +934,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-3 px-4 w-28 text-center cursor-pointer hover:text-slate-700 transition-colors group/col"
+                      className="py-2.5 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('status')}
                       title="Sort by Status"
                     >
@@ -943,7 +943,7 @@ export default function Dashboard() {
                         {renderSortIndicator('status')}
                       </div>
                     </th>
-                    <th className="py-3 px-4.5 w-48 text-right">Actions</th>
+                    <th className="py-2.5 px-4 w-44 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
@@ -955,57 +955,51 @@ export default function Dashboard() {
                       <tr
                         key={proj.id}
                         onClick={() => handleRequisitionClick(proj)}
-                        className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
+                        className="hover:bg-slate-50/75 cursor-pointer transition-colors group"
                       >
-                        <td className="py-3.5 px-4.5 font-bold text-slate-900 min-w-[240px] max-w-[380px]" title={proj.title}>
+                        <td className="py-3 px-4 font-bold text-slate-900 min-w-[240px] max-w-[380px]" title={proj.title}>
                           <p className="group-hover:text-blue-600 transition-colors line-clamp-2 break-words leading-snug">
                             {proj.title}
                           </p>
                         </td>
-                        <td className="py-3.5 px-4 w-36">
-                          <span className="inline-block px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold font-mono tracking-tight">
+                        <td className="py-3 px-4 w-36">
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold font-mono tracking-tight border border-slate-200/60">
                             {proj.department || 'General'}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-700 font-semibold min-w-[140px]" title={proj.target_role || undefined}>
+                        <td className="py-3 px-4 text-slate-600 font-medium min-w-[140px]" title={proj.target_role || undefined}>
                           <p className="line-clamp-1 truncate">{proj.target_role || '—'}</p>
                         </td>
-                        <td className="py-3.5 px-4 w-28 text-center">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                              getExperienceLevel(proj) === 'Fresher'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200/70'
-                                : 'bg-indigo-50 text-indigo-700 border-indigo-200/70'
-                            }`}
-                          >
+                        <td className="py-3 px-4 w-28 text-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200/60">
                             {getExperienceLevel(proj)}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 w-28 text-center">
+                        <td className="py-3 px-4 w-28 text-center">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                               isCompleted
-                                ? 'bg-blue-50 text-blue-700 border-blue-200/60'
+                                ? 'bg-slate-100 text-slate-700 border-slate-200'
                                 : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
                             }`}
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                isCompleted ? 'bg-blue-500' : 'bg-emerald-500'
+                                isCompleted ? 'bg-slate-500' : 'bg-emerald-500'
                               }`}
                             />
                             {status}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4.5 w-48 text-right shrink-0">
-                          <div className="inline-flex items-center justify-end gap-1.5 shrink-0 min-w-[170px]" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 w-44 text-right shrink-0">
+                          <div className="inline-flex items-center justify-end gap-1.5 shrink-0 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => handleRequisitionClick(proj)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer border ${
                                 isCompleted
-                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                  : 'bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white'
+                                  ? 'bg-slate-900 hover:bg-slate-800 text-white border-transparent'
+                                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300'
                               }`}
                             >
                               {isCompleted ? <FileText size={13} /> : <ListOrdered size={13} />}
@@ -1018,12 +1012,12 @@ export default function Dashboard() {
                               aria-label={`Delete requisition ${proj.title}`}
                               onClick={(e) => handleDeleteClick(e, proj)}
                               disabled={deletingId === proj.id}
-                              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 active:bg-red-100 border border-transparent hover:border-red-200/70 transition-all cursor-pointer shrink-0 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                             >
                               {deletingId === proj.id ? (
-                                <Loader2 size={14} className="animate-spin text-red-600 shrink-0" />
+                                <Loader2 size={13} className="animate-spin text-red-600 shrink-0" />
                               ) : (
-                                <Trash2 size={14} className="shrink-0" />
+                                <Trash2 size={13} className="shrink-0" />
                               )}
                             </button>
                           </div>
@@ -1046,12 +1040,12 @@ export default function Dashboard() {
                   of <strong className="text-slate-900 font-bold">{filteredProjects.length}</strong> requisitions
                 </p>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => updateUrlParams({ page: Math.max(1, effectivePage - 1) })}
                     disabled={effectivePage === 1}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <ChevronLeft size={14} />
                   </button>
@@ -1061,10 +1055,10 @@ export default function Dashboard() {
                       key={pg}
                       type="button"
                       onClick={() => updateUrlParams({ page: pg })}
-                      className={`w-7 h-7 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      className={`w-7 h-7 rounded-lg text-xs transition-colors cursor-pointer ${
                         effectivePage === pg
-                          ? 'bg-blue-600 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100'
+                          ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 font-medium'
                       }`}
                     >
                       {pg}
@@ -1075,7 +1069,7 @@ export default function Dashboard() {
                     type="button"
                     onClick={() => updateUrlParams({ page: Math.min(totalPages, effectivePage + 1) })}
                     disabled={effectivePage === totalPages}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <ChevronRight size={14} />
                   </button>
@@ -1101,12 +1095,12 @@ export default function Dashboard() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-requisition-title"
-            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150"
+            className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-150"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
-                  <Trash2 size={20} />
+                <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
+                  <Trash2 size={18} />
                 </div>
                 <div>
                   <h3 id="delete-requisition-title" className="text-base font-bold text-slate-900">
@@ -1130,10 +1124,10 @@ export default function Dashboard() {
             </div>
 
             {/* Requisition Details Preview Card */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Requisition</span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-[10px] font-bold font-mono">
+                <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-[10px] font-semibold font-mono">
                   {confirmDeleteProject.department || 'General'}
                 </span>
               </div>
@@ -1152,7 +1146,7 @@ export default function Dashboard() {
             </p>
 
             {deleteError && (
-              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2">
+              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg font-medium border border-red-200 flex items-center gap-2">
                 <AlertCircle size={14} className="shrink-0" />
                 <span>{deleteError}</span>
               </div>
@@ -1166,7 +1160,7 @@ export default function Dashboard() {
                   setDeleteError(null)
                 }}
                 disabled={deletingId === confirmDeleteProject.id}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50 border border-slate-200"
               >
                 Cancel
               </button>
@@ -1174,7 +1168,7 @@ export default function Dashboard() {
                 type="button"
                 onClick={handleConfirmDelete}
                 disabled={deletingId === confirmDeleteProject.id}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {deletingId === confirmDeleteProject.id ? (
                   <>
@@ -1205,12 +1199,12 @@ export default function Dashboard() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-all-dialog-title"
-            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150"
+            className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-150"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
-                  <Trash2 size={20} />
+                <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
+                  <Trash2 size={18} />
                 </div>
                 <div>
                   <h3 id="delete-all-dialog-title" className="text-base font-bold text-slate-900">
@@ -1238,7 +1232,7 @@ export default function Dashboard() {
             </p>
 
             {deleteError && (
-              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2">
+              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg font-medium border border-red-200 flex items-center gap-2">
                 <AlertCircle size={14} className="shrink-0" />
                 <span>{deleteError}</span>
               </div>
@@ -1252,7 +1246,7 @@ export default function Dashboard() {
                   setDeleteError(null)
                 }}
                 disabled={isDeletingAll}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer border border-slate-200"
               >
                 Cancel
               </button>
@@ -1260,7 +1254,7 @@ export default function Dashboard() {
                 type="button"
                 onClick={handleConfirmDeleteAll}
                 disabled={isDeletingAll}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isDeletingAll ? (
                   <>
