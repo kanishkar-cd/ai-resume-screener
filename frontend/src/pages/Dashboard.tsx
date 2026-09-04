@@ -26,7 +26,6 @@ import { usePipeline } from '@/store/pipelineStore'
 import { api, Project } from '@/api'
 
 const PAGE_SIZE = 8
-const DASHBOARD_SESSION_PARAMS_KEY = 'ai-resume-screener.dashboard-query-params'
 
 type SortField = 'title' | 'department' | 'target_role' | 'experience' | 'status' | 'created_at'
 const VALID_SORT_FIELDS: SortField[] = ['title', 'department', 'target_role', 'experience', 'status', 'created_at']
@@ -144,16 +143,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // On mount: if location.search is empty, restore saved query params from session
-  useEffect(() => {
-    if (!location.search) {
-      const saved = window.sessionStorage.getItem(DASHBOARD_SESSION_PARAMS_KEY)
-      if (saved) {
-        setSearchParams(new URLSearchParams(saved), { replace: true })
-      }
-    }
-  }, [location.search, setSearchParams])
-
   // Derive filter and sort state directly from URL searchParams
   const searchTerm = searchParams.get('q') || ''
   const selectedDeptFilter = searchParams.get('dept') || 'ALL'
@@ -204,12 +193,6 @@ export default function Dashboard() {
           if (updates.page !== undefined) {
             if (updates.page > 1) next.set('page', String(updates.page))
             else next.delete('page')
-          }
-          const str = next.toString()
-          if (str) {
-            window.sessionStorage.setItem(DASHBOARD_SESSION_PARAMS_KEY, str)
-          } else {
-            window.sessionStorage.removeItem(DASHBOARD_SESSION_PARAMS_KEY)
           }
           return next
         },
@@ -688,85 +671,69 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Ranked Horizontal-Bar Visualization: Hiring Demand by Department */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={16} className="text-blue-600" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
-              Hiring Demand by Department
-            </h2>
+      {/* Ranked Horizontal-Bar Visualization: Hiring Demand by Department (Overview Only) */}
+      {!isDeptScoped && (
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs space-y-3">
+          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={16} className="text-blue-600" />
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+                Hiring Demand by Department
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-slate-400 font-semibold">
+              <span className="hidden sm:inline">Click a department to open its dashboard</span>
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-slate-400 font-semibold">
-            {selectedDeptFilter !== 'ALL' && (
-              <button
-                type="button"
-                onClick={() => updateUrlParams({ dept: 'ALL', page: 1 })}
-                className="text-blue-600 hover:underline font-bold cursor-pointer"
-              >
-                Clear Filter ({selectedDeptFilter})
-              </button>
-            )}
-            <span className="hidden sm:inline">Click a department to filter table</span>
+
+          {/* 2-Column Responsive Ranked List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 pt-1">
+            {analytics.sortedDepts.map((dept, index) => {
+              const count = dept.count
+              const percentage = dept.percentage
+              const hasZero = count === 0
+              const barWidth = Math.round((count / maxDeptCount) * 100)
+
+              return (
+                <div
+                  key={dept.id}
+                  onClick={() => handleDepartmentFilterToggle(dept.name)}
+                  className={`flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer group ${
+                    hasZero
+                      ? 'border-transparent opacity-40 hover:opacity-75 hover:bg-slate-50'
+                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50/90'
+                  }`}
+                  title={`Open ${dept.name} Dashboard`}
+                >
+                  <div className="w-5 text-center text-[10px] font-bold text-slate-400 shrink-0">
+                    #{index + 1}
+                  </div>
+
+                  <div className="w-36 truncate shrink-0">
+                    <p className="text-xs font-bold truncate transition-colors text-slate-800 group-hover:text-blue-600">
+                      {dept.name}
+                    </p>
+                  </div>
+
+                  <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden relative">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        count > 0 ? 'bg-slate-700 group-hover:bg-blue-600' : 'bg-slate-200'
+                      }`}
+                      style={{ width: `${Math.max(barWidth, count > 0 ? 6 : 0)}%` }}
+                    />
+                  </div>
+
+                  <div className="w-20 text-right shrink-0 flex items-center justify-end gap-1 text-[11px]">
+                    <strong className="text-slate-900 font-bold">{count}</strong>
+                    <span className="text-slate-400 font-medium">({percentage}%)</span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
-
-        {/* 2-Column Responsive Ranked List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 pt-1">
-          {analytics.sortedDepts.map((dept, index) => {
-            const count = dept.count
-            const percentage = dept.percentage
-            const isSelected = selectedDeptFilter.toLowerCase() === dept.name.toLowerCase()
-            const hasZero = count === 0
-            const barWidth = Math.round((count / maxDeptCount) * 100)
-
-            return (
-              <div
-                key={dept.id}
-                onClick={() => handleDepartmentFilterToggle(dept.name)}
-                className={`flex items-center gap-3 p-2 rounded-xl border transition-all cursor-pointer group ${
-                  isSelected
-                    ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/10'
-                    : hasZero
-                    ? 'border-transparent opacity-40 hover:opacity-75 hover:bg-slate-50'
-                    : 'border-transparent hover:border-slate-200 hover:bg-slate-50/90'
-                }`}
-                title={`Filter by ${dept.name}`}
-              >
-                <div className="w-5 text-center text-[10px] font-bold text-slate-400 shrink-0">
-                  #{index + 1}
-                </div>
-
-                <div className="w-36 truncate shrink-0">
-                  <p className={`text-xs font-bold truncate transition-colors ${
-                    isSelected ? 'text-blue-700' : 'text-slate-800 group-hover:text-blue-600'
-                  }`}>
-                    {dept.name}
-                  </p>
-                </div>
-
-                <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden relative">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      isSelected
-                        ? 'bg-blue-600'
-                        : count > 0
-                        ? 'bg-slate-700 group-hover:bg-blue-600'
-                        : 'bg-slate-200'
-                    }`}
-                    style={{ width: `${Math.max(barWidth, count > 0 ? 6 : 0)}%` }}
-                  />
-                </div>
-
-                <div className="w-20 text-right shrink-0 flex items-center justify-end gap-1 text-[11px]">
-                  <strong className="text-slate-900 font-bold">{count}</strong>
-                  <span className="text-slate-400 font-medium">({percentage}%)</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      )}
 
       {/* Requisitions Workspace (Main Focus) */}
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
@@ -821,21 +788,23 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Department Filter Dropdown */}
-            <div className="relative">
-              <select
-                value={selectedDeptFilter}
-                onChange={(e) => updateUrlParams({ dept: e.target.value, page: 1 })}
-                className="pl-3 pr-8 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
-              >
-                <option value="ALL">All Departments</option>
-                {availableDepartments.map((deptName) => (
-                  <option key={deptName} value={deptName}>
-                    {deptName}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Department Filter Dropdown (Overview Dashboard Only) */}
+            {!isDeptScoped && (
+              <div className="relative">
+                <select
+                  value={selectedDeptFilter}
+                  onChange={(e) => updateUrlParams({ dept: e.target.value, page: 1 })}
+                  className="pl-3 pr-8 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                >
+                  <option value="ALL">All Departments</option>
+                  {availableDepartments.map((deptName) => (
+                    <option key={deptName} value={deptName}>
+                      {deptName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Search Input */}
             <div className="relative min-w-[200px]">
@@ -844,7 +813,7 @@ export default function Dashboard() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => updateUrlParams({ q: e.target.value, page: 1 })}
-                placeholder="Search requisitions..."
+                placeholder={isDeptScoped ? `Search ${selectedDeptFilter} requisitions...` : 'Search requisitions...'}
                 className="w-full pl-8 pr-3.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-all"
               />
             </div>
@@ -879,28 +848,38 @@ export default function Dashboard() {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                {searchTerm || selectedDeptFilter !== 'ALL' || selectedStatusFilter !== 'ALL'
+                {isDeptScoped && deptProjects.length === 0
+                  ? `No requisitions in ${selectedDeptFilter} yet`
+                  : searchTerm || selectedStatusFilter !== 'ALL'
                   ? 'No matching requisitions'
                   : 'No requisitions yet'}
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                {searchTerm || selectedDeptFilter !== 'ALL' || selectedStatusFilter !== 'ALL'
-                  ? 'Try adjusting your search query or department filter.'
+                {isDeptScoped && deptProjects.length === 0
+                  ? `Get started by creating the first candidate screening campaign for ${selectedDeptFilter}.`
+                  : searchTerm || selectedStatusFilter !== 'ALL'
+                  ? 'Try adjusting your search query or status filter.'
                   : 'Get started by creating your first candidate screening campaign.'}
               </p>
             </div>
-            {searchTerm || selectedDeptFilter !== 'ALL' || selectedStatusFilter !== 'ALL' ? (
+            {searchTerm || selectedStatusFilter !== 'ALL' ? (
               <button
                 type="button"
-                onClick={() => updateUrlParams({ q: '', dept: 'ALL', status: 'ALL', page: 1 })}
+                onClick={() => updateUrlParams({ q: '', status: 'ALL', page: 1 })}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
               >
-                <span>Reset Filters</span>
+                <span>Reset Search & Filter</span>
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => navigate('/departments')}
+                onClick={() => {
+                  if (isDeptScoped && activeDepartmentObj) {
+                    navigate(`/departments/${activeDepartmentObj.id}/requisitions/new`)
+                  } else {
+                    navigate('/departments')
+                  }
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
               >
                 <Plus size={14} />

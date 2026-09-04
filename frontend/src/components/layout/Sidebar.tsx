@@ -29,6 +29,11 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
     }
   }, [location.pathname, isFilteredByDept])
 
+  const handleDashboardClick = () => {
+    dispatch({ type: 'SET_DEPARTMENT_ID', payload: null })
+    navigate('/dashboard')
+  }
+
   const handleDepartmentSubClick = (dept: Department) => {
     dispatch({ type: 'SET_DEPARTMENT_ID', payload: dept.id })
     navigate(`/dashboard?dept=${encodeURIComponent(dept.name)}`)
@@ -50,7 +55,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
       {/* Sidebar Header & Toggle */}
       <div className={`pb-4 border-b border-slate-100 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
         {!collapsed && (
-          <div className="cursor-pointer overflow-hidden" onClick={() => navigate('/dashboard')}>
+          <div className="cursor-pointer overflow-hidden" onClick={handleDashboardClick}>
             <p className="text-[13px] font-extrabold text-slate-900 truncate">AI Resume Screener</p>
             <p className="text-[10px] text-slate-400 font-semibold truncate">Recruiter Portal</p>
           </div>
@@ -71,7 +76,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         <button
           type="button"
           title={collapsed ? 'Dashboard' : undefined}
-          onClick={() => navigate('/dashboard')}
+          onClick={handleDashboardClick}
           className={`w-full flex items-center ${
             collapsed ? 'justify-center px-2 py-2.5' : 'gap-2.5 px-3 py-2.5'
           } rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
