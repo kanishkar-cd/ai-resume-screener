@@ -4,7 +4,6 @@ import { usePipeline } from '@/store/pipelineStore'
 import { api } from '@/api'
 
 const tabs = [
-  ['Candidates', 'candidates'],
   ['Rankings', 'rankings'],
   ['Shortlist', 'shortlist'],
   ['Assessment', 'assessment'],
@@ -55,8 +54,7 @@ export default function ProjectHeader() {
           const path = `${root}/${suffix}`
           const active =
             location.pathname === path ||
-            (suffix === 'rankings' &&
-              (location.pathname === root || location.pathname === `${root}/overview`))
+            (suffix === 'rankings' && location.pathname === root)
           return (
             <button
               type="button"

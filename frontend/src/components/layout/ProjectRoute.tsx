@@ -28,7 +28,7 @@ export default function ProjectRoute({ children }: { children: ReactNode }) {
     return () => { active = false }
   }, [dispatch, projectId, state.projectId, state.selectedProject])
 
-  if (!projectId) return <Navigate to="/projects" replace />
+  if (!projectId) return <Navigate to="/dashboard" replace />
   if (loading) return <div className="card p-8 text-center text-slate-500">Loading project…</div>
   if (error) return <div className="card p-8 text-center text-red-500">{error}</div>
   return <>{children}</>

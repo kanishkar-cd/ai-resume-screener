@@ -1,22 +1,40 @@
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import Layout from '@/components/layout/Layout'
 import { PipelineProvider } from '@/store/pipelineStore'
+import { DEPARTMENTS } from '@/constants/departments'
 import DocumentUpload from '@/pages/DocumentUpload'
 import ResumeUpload from '@/pages/ResumeUpload'
 import CandidateRanking from '@/pages/CandidateRanking'
-import RecruiterDashboard from '@/pages/RecruiterDashboard'
 import Dashboard from '@/pages/Dashboard'
-import Projects from '@/pages/Projects'
-import CreateProject from '@/pages/CreateProject'
-import ProjectOverview from '@/pages/ProjectOverview'
 import Reports from '@/pages/Reports'
 import Departments from '@/pages/Departments'
-import DepartmentDashboard from '@/pages/DepartmentDashboard'
 import CreateRequisition from '@/pages/CreateRequisition'
 import Shortlist from '@/pages/Shortlist'
 import Assessment from '@/pages/Assessment'
 import ProjectRoute from '@/components/layout/ProjectRoute'
+
+function DepartmentRedirect() {
+  const { deptId } = useParams<{ deptId: string }>()
+  const dept = DEPARTMENTS.find(
+    (d) =>
+      d.id.toLowerCase() === deptId?.toLowerCase() ||
+      d.name.toLowerCase() === deptId?.toLowerCase() ||
+      d.code.toLowerCase() === deptId?.toLowerCase()
+  )
+  const deptName = dept?.name || deptId || 'ALL'
+  return <Navigate to={`/dashboard?dept=${encodeURIComponent(deptName)}`} replace />
+}
+
+function ProjectRootRedirect() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <Navigate to={`/projects/${projectId}/rankings`} replace />
+}
+
+function ProjectCandidatesRedirect() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <Navigate to={`/projects/${projectId}/rankings`} replace />
+}
 
 function AppRoutes() {
   return (
@@ -24,15 +42,15 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/departments" element={<Departments />} />
-      <Route path="/departments/:deptId" element={<DepartmentDashboard />} />
+      <Route path="/departments/:deptId" element={<DepartmentRedirect />} />
       <Route path="/departments/:deptId/requisitions/new" element={<CreateRequisition />} />
-      <Route path="/projects" element={<Projects />} />
+      <Route path="/projects" element={<Navigate to="/dashboard" replace />} />
       <Route path="/projects/new" element={<CreateRequisition />} />
-      <Route path="/projects/:projectId" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
-      <Route path="/projects/:projectId/overview" element={<ProjectRoute><ProjectOverview /></ProjectRoute>} />
+      <Route path="/projects/:projectId" element={<ProjectRootRedirect />} />
+      <Route path="/projects/:projectId/overview" element={<ProjectRootRedirect />} />
       <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
       <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
-      <Route path="/projects/:projectId/candidates" element={<ProjectRoute><RecruiterDashboard /></ProjectRoute>} />
+      <Route path="/projects/:projectId/candidates" element={<ProjectCandidatesRedirect />} />
       <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
       <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
       <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />

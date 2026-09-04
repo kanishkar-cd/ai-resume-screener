@@ -63,7 +63,7 @@ export default function Departments() {
 
   const handleOpenDepartment = (dept: Department) => {
     dispatch({ type: 'SET_DEPARTMENT_ID', payload: dept.id })
-    navigate(`/departments/${dept.id}`)
+    navigate(`/dashboard?dept=${encodeURIComponent(dept.name)}`)
   }
 
   const filteredDepartments = useMemo(() => {

@@ -508,6 +508,13 @@ export default function Dashboard() {
     return sortedProjects.slice(start, start + PAGE_SIZE)
   }, [sortedProjects, effectivePage])
 
+  // If items are deleted and current page exceeds new totalPages, clamp URL page safely
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages >= 1 && !loading) {
+      updateUrlParams({ page: totalPages })
+    }
+  }, [currentPage, totalPages, loading, updateUrlParams])
+
   const maxDeptCount = Math.max(...analytics.sortedDepts.map((d) => d.count), 1)
 
   return (
@@ -750,15 +757,18 @@ export default function Dashboard() {
             </div>
 
             {projects.length > 0 && (
-              <button
-                type="button"
-                onClick={handleDeleteAllClick}
-                disabled={isDeletingAll}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 border border-red-200/80 rounded-xl transition-all cursor-pointer shrink-0 disabled:opacity-50"
-              >
-                <Trash2 size={14} className="shrink-0" />
-                <span>Delete All</span>
-              </button>
+              <div className="flex items-center pl-1 border-l border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={handleDeleteAllClick}
+                  disabled={isDeletingAll}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 border border-red-200/80 rounded-xl transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                  title="Delete all requisitions"
+                >
+                  <Trash2 size={13} className="shrink-0" />
+                  <span>Delete All</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -861,7 +871,7 @@ export default function Dashboard() {
                         {renderSortIndicator('status')}
                       </div>
                     </th>
-                    <th className="py-3 px-4.5 w-44 text-right">Actions</th>
+                    <th className="py-3 px-4.5 w-48 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
@@ -915,8 +925,8 @@ export default function Dashboard() {
                             {status}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4.5 w-44 text-right shrink-0">
-                          <div className="inline-flex items-center justify-end gap-2 shrink-0 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3.5 px-4.5 w-48 text-right shrink-0">
+                          <div className="inline-flex items-center justify-end gap-1.5 shrink-0 min-w-[170px]" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => handleRequisitionClick(proj)}
@@ -929,12 +939,14 @@ export default function Dashboard() {
                               {isCompleted ? <FileText size={13} /> : <ListOrdered size={13} />}
                               <span>{isCompleted ? 'View Report' : 'View Rankings'}</span>
                             </button>
+                            <div className="h-4 w-px bg-slate-200 mx-0.5" />
                             <button
                               type="button"
-                              title="Delete Requisition"
+                              title={`Delete "${proj.title}"`}
+                              aria-label={`Delete requisition ${proj.title}`}
                               onClick={(e) => handleDeleteClick(e, proj)}
                               disabled={deletingId === proj.id}
-                              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 active:bg-red-100 border border-transparent hover:border-red-200/70 transition-all cursor-pointer shrink-0 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500/20"
                             >
                               {deletingId === proj.id ? (
                                 <Loader2 size={14} className="animate-spin text-red-600 shrink-0" />
@@ -1004,29 +1016,67 @@ export default function Dashboard() {
 
       {/* Individual Delete Confirmation Modal */}
       {confirmDeleteProject && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150">
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deletingId) {
+              setConfirmDeleteProject(null)
+              setDeleteError(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-requisition-title"
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150"
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
                   <Trash2 size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Delete Requisition</h3>
-                  <p className="text-xs text-slate-500">This action cannot be undone</p>
+                  <h3 id="delete-requisition-title" className="text-base font-bold text-slate-900">
+                    Delete Requisition
+                  </h3>
+                  <p className="text-xs text-slate-500">Destructive action · cannot be undone</p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setConfirmDeleteProject(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                onClick={() => {
+                  setConfirmDeleteProject(null)
+                  setDeleteError(null)
+                }}
+                disabled={deletingId === confirmDeleteProject.id}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
+                aria-label="Close dialog"
               >
                 <X size={16} />
               </button>
             </div>
 
+            {/* Requisition Details Preview Card */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Requisition</span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-[10px] font-bold font-mono">
+                  {confirmDeleteProject.department || 'General'}
+                </span>
+              </div>
+              <p className="text-xs font-bold text-slate-900 leading-snug break-words">
+                {confirmDeleteProject.title}
+              </p>
+              {confirmDeleteProject.target_role && (
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Role: <span className="text-slate-700 font-semibold">{confirmDeleteProject.target_role}</span>
+                </p>
+              )}
+            </div>
+
             <p className="text-xs text-slate-600 leading-relaxed">
-              Are you sure you want to delete <strong className="text-slate-900">{confirmDeleteProject.title}</strong>? All associated screening scores, candidate rankings, and job description files will be removed from the database.
+              Are you sure you want to permanently delete this requisition? All candidate rankings, screening scores, and uploaded resume records associated with it will be permanently removed.
             </p>
 
             {deleteError && (
@@ -1039,8 +1089,12 @@ export default function Dashboard() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteProject(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                onClick={() => {
+                  setConfirmDeleteProject(null)
+                  setDeleteError(null)
+                }}
+                disabled={deletingId === confirmDeleteProject.id}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1056,7 +1110,7 @@ export default function Dashboard() {
                     <span>Deleting...</span>
                   </>
                 ) : (
-                  <span>Confirm Delete</span>
+                  <span>Delete Requisition</span>
                 )}
               </button>
             </div>
@@ -1066,23 +1120,42 @@ export default function Dashboard() {
 
       {/* Delete All Confirmation Modal */}
       {confirmDeleteAll && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150">
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isDeletingAll) {
+              setConfirmDeleteAll(false)
+              setDeleteError(null)
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-all-dialog-title"
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200/80 space-y-4 animate-in fade-in zoom-in duration-150"
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
                   <Trash2 size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Delete All Requisitions</h3>
-                  <p className="text-xs text-slate-500">This action cannot be undone</p>
+                  <h3 id="delete-all-dialog-title" className="text-base font-bold text-slate-900">
+                    Delete All Requisitions
+                  </h3>
+                  <p className="text-xs text-slate-500">Destructive action · cannot be undone</p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setConfirmDeleteAll(false)}
+                onClick={() => {
+                  setConfirmDeleteAll(false)
+                  setDeleteError(null)
+                }}
                 disabled={isDeletingAll}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+                aria-label="Close dialog"
               >
                 <X size={16} />
               </button>
@@ -1102,7 +1175,10 @@ export default function Dashboard() {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteAll(false)}
+                onClick={() => {
+                  setConfirmDeleteAll(false)
+                  setDeleteError(null)
+                }}
                 disabled={isDeletingAll}
                 className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
               >

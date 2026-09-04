@@ -464,7 +464,7 @@ export default function Reports() {
         <ChevronRight size={13} className="text-slate-300" />
         <button
           type="button"
-          onClick={() => navigate(`/departments/${dept.id}`)}
+          onClick={() => navigate(`/dashboard?dept=${encodeURIComponent(dept.name)}`)}
           className="hover:text-blue-600 transition-colors cursor-pointer"
         >
           {dept.name}

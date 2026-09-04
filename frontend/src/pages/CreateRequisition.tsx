@@ -308,7 +308,7 @@ export default function CreateRequisition() {
       <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
         <button
           type="button"
-          onClick={() => navigate(`/departments/${department.id}`)}
+          onClick={() => navigate(`/dashboard?dept=${encodeURIComponent(department.name)}`)}
           className="hover:text-blue-600 transition-colors"
         >
           {department.name}

@@ -35,6 +35,12 @@ export default function Header() {
     const path = location.pathname
 
     if (path === '/dashboard') {
+      const searchParams = new URLSearchParams(location.search)
+      const dept = searchParams.get('dept')
+      if (dept && dept !== 'ALL') {
+        items.push({ label: 'Departments', href: '/departments' })
+        items.push({ label: dept })
+      }
       return items
     }
 
@@ -51,7 +57,12 @@ export default function Header() {
     if (path.startsWith('/departments/')) {
       const parts = path.split('/').filter(Boolean)
       const deptId = parts[1]
-      const dept = DEPARTMENTS.find((d) => d.id === deptId) || DEPARTMENTS[0]
+      const dept = DEPARTMENTS.find(
+        (d) =>
+          d.id.toLowerCase() === deptId?.toLowerCase() ||
+          d.name.toLowerCase() === deptId?.toLowerCase() ||
+          d.code.toLowerCase() === deptId?.toLowerCase()
+      ) || DEPARTMENTS[0]
       const deptName = dept?.name || 'Department'
 
       items.push({ label: 'Departments', href: '/departments' })
@@ -59,7 +70,7 @@ export default function Header() {
       if (parts.length === 2) {
         items.push({ label: deptName })
       } else if (parts.length > 2 && parts[2] === 'requisitions' && parts[3] === 'new') {
-        items.push({ label: deptName, href: `/departments/${deptId}` })
+        items.push({ label: deptName, href: `/dashboard?dept=${encodeURIComponent(deptName)}` })
         items.push({ label: 'Create Requisition' })
       }
       return items
@@ -85,23 +96,23 @@ export default function Header() {
       const activeDept = DEPARTMENTS.find(
         (d) =>
           d.id === state.activeDepartmentId ||
-          d.name === state.selectedProject?.department ||
-          d.code === state.selectedProject?.department
+          d.name.toLowerCase() === state.selectedProject?.department?.toLowerCase() ||
+          d.code.toLowerCase() === state.selectedProject?.department?.toLowerCase()
       ) || DEPARTMENTS[0]
 
       items.push({
         label: activeDept.name,
-        href: `/departments/${activeDept.id}`,
+        href: `/dashboard?dept=${encodeURIComponent(activeDept.name)}`,
       })
 
       const projectTitle = state.selectedProject?.title || 'Requisition'
 
-      if (subPage === 'overview') {
+      if (subPage === 'rankings') {
         items.push({ label: projectTitle })
       } else {
         items.push({
           label: projectTitle,
-          href: `/projects/${projectId}/overview`,
+          href: `/projects/${projectId}/rankings`,
         })
         const subLabel = PAGE_LABEL_MAP[subPage] || subPage.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
         items.push({ label: subLabel })

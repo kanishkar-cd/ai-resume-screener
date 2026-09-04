@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { LayoutDashboard, Settings, Building2, PanelLeftClose, PanelLeftOpen, ChevronDown, ChevronRight } from 'lucide-react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { DEPARTMENTS } from '@/constants/departments'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { DEPARTMENTS, Department } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
 
 interface SidebarProps {
@@ -12,24 +12,34 @@ interface SidebarProps {
 export default function Sidebar({ collapsed = false, onToggleCollapse }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const { dispatch } = usePipeline()
+
+  const currentDeptParam = location.pathname === '/dashboard' ? searchParams.get('dept') : null
+  const isFilteredByDept = !!currentDeptParam && currentDeptParam !== 'ALL'
+
   const [departmentsExpanded, setDepartmentsExpanded] = useState(
-    location.pathname.startsWith('/departments')
+    location.pathname.startsWith('/departments') || isFilteredByDept
   )
 
-  // Expand departments automatically if navigating to a department subpage
+  // Expand departments automatically if navigating to a department subpage or filtered dashboard
   useEffect(() => {
-    if (location.pathname.startsWith('/departments')) {
+    if (location.pathname.startsWith('/departments') || isFilteredByDept) {
       setDepartmentsExpanded(true)
     }
-  }, [location.pathname])
+  }, [location.pathname, isFilteredByDept])
 
-  const handleDepartmentSubClick = (deptId: string) => {
-    dispatch({ type: 'SET_DEPARTMENT_ID', payload: deptId })
-    navigate(`/departments/${deptId}`)
+  const handleDepartmentSubClick = (dept: Department) => {
+    dispatch({ type: 'SET_DEPARTMENT_ID', payload: dept.id })
+    navigate(`/dashboard?dept=${encodeURIComponent(dept.name)}`)
   }
 
-  const isDepartmentsActive = location.pathname === '/departments' || location.pathname.startsWith('/departments/')
+  const isDepartmentsActive =
+    location.pathname === '/departments' ||
+    location.pathname.startsWith('/departments/') ||
+    isFilteredByDept
+
+  const isDashboardActive = location.pathname === '/dashboard' && !isFilteredByDept
 
   return (
     <aside
@@ -65,7 +75,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           className={`w-full flex items-center ${
             collapsed ? 'justify-center px-2 py-2.5' : 'gap-2.5 px-3 py-2.5'
           } rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
-            location.pathname === '/dashboard'
+            isDashboardActive
               ? 'bg-blue-50 text-blue-700 font-bold'
               : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
           }`}
@@ -117,12 +127,14 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
           {!collapsed && departmentsExpanded && (
             <div className="pl-7 pr-1 py-1 space-y-0.5 mt-0.5 border-l-2 border-slate-100 ml-5">
               {DEPARTMENTS.map((dept) => {
-                const isSubActive = location.pathname === `/departments/${dept.id}`
+                const isSubActive =
+                  isFilteredByDept &&
+                  currentDeptParam?.toLowerCase() === dept.name.toLowerCase()
                 return (
                   <button
                     key={dept.id}
                     type="button"
-                    onClick={() => handleDepartmentSubClick(dept.id)}
+                    onClick={() => handleDepartmentSubClick(dept)}
                     className={`w-full text-left px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors truncate block ${
                       isSubActive
                         ? 'bg-blue-100/70 text-blue-800 font-bold'
