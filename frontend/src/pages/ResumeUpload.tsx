@@ -538,11 +538,13 @@ export default function ResumeUpload() {
     }
   }
 
-
-
   const handleBack = () => {
-    navigate(`/projects/${state.projectId}/job-description`)
+    navigate('/dashboard')
   }
+
+
+
+
 
   return (
     <motion.div
@@ -733,7 +735,7 @@ export default function ResumeUpload() {
             className="btn-outline flex-1 sm:flex-initial py-2.5 px-5 text-[13px] flex items-center justify-center gap-2 font-medium"
           >
             <ArrowLeft size={15} />
-            Back to Job Description
+            Back to Dashboard
           </motion.button>
 
           <motion.button

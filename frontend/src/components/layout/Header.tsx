@@ -10,10 +10,7 @@ interface BreadcrumbItem {
 }
 
 const PAGE_LABEL_MAP: Record<string, string> = {
-  overview: 'Overview',
-  'job-description': 'Job Description',
   resumes: 'Resume Upload',
-  candidates: 'Candidates',
   rankings: 'Candidate Ranking',
   shortlist: 'Shortlisted Talent',
   assessment: 'Assessment Handoff',

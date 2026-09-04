@@ -3,7 +3,6 @@ import { AnimatePresence } from 'framer-motion'
 import Layout from '@/components/layout/Layout'
 import { PipelineProvider } from '@/store/pipelineStore'
 import { DEPARTMENTS } from '@/constants/departments'
-import DocumentUpload from '@/pages/DocumentUpload'
 import ResumeUpload from '@/pages/ResumeUpload'
 import CandidateRanking from '@/pages/CandidateRanking'
 import Dashboard from '@/pages/Dashboard'
@@ -48,7 +47,7 @@ function AppRoutes() {
       <Route path="/projects/new" element={<CreateRequisition />} />
       <Route path="/projects/:projectId" element={<ProjectRootRedirect />} />
       <Route path="/projects/:projectId/overview" element={<ProjectRootRedirect />} />
-      <Route path="/projects/:projectId/job-description" element={<ProjectRoute><DocumentUpload /></ProjectRoute>} />
+      <Route path="/projects/:projectId/job-description" element={<ProjectRootRedirect />} />
       <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
       <Route path="/projects/:projectId/candidates" element={<ProjectCandidatesRedirect />} />
       <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
