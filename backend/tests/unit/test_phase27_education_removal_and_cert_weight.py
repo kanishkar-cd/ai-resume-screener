@@ -61,14 +61,14 @@ def test_3_education_component_score_is_zero_and_disabled():
 
 
 def test_4_and_5_and_6_weights_structure():
-    """Verify COMPONENT_WEIGHTS has education=0%, certifications=5%, and total sum=100%."""
+    """Verify COMPONENT_WEIGHTS has education=0%, certifications=0%, and total sum=100%."""
     assert COMPONENT_WEIGHTS["education"] == 0.0, "Education weight must be 0%"
-    assert COMPONENT_WEIGHTS["certifications"] == 5.0, "Certification weight must be 5%"
-    assert COMPONENT_WEIGHTS["required_skills"] == 30.0
-    assert COMPONENT_WEIGHTS["responsibilities"] == 25.0
-    assert COMPONENT_WEIGHTS["projects"] == 20.0
+    assert COMPONENT_WEIGHTS["certifications"] == 0.0, "Certification weight must be 0%"
+    assert COMPONENT_WEIGHTS["required_skills"] == 45.0
+    assert COMPONENT_WEIGHTS["responsibilities"] == 40.0
     assert COMPONENT_WEIGHTS["preferred_skills"] == 15.0
-    assert COMPONENT_WEIGHTS["experience"] == 5.0
+    assert COMPONENT_WEIGHTS["projects"] == 0.0
+    assert COMPONENT_WEIGHTS["experience"] == 0.0
     assert sum(COMPONENT_WEIGHTS.values()) == 100.0, "Total active weights must equal 100%"
 
 
@@ -117,7 +117,7 @@ def test_7_and_8_education_matching_vs_missing_score_neutrality():
 
 
 def test_9_certification_score_contributes_up_to_5_points():
-    """Verify 100% certification score contributes exactly 5 points to weighted total."""
+    """Verify 100% certification score contributes 0 points to independent weighted total (0% category)."""
     comps = ComponentScores(
         skills=ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=""),
         responsibilities=ComponentScoreDetail(score=0.0, matched_items=[], missing_items=[], explanation=""),
@@ -130,8 +130,8 @@ def test_9_certification_score_contributes_up_to_5_points():
     )
 
     weighted, _, _, effective_weights = WeightCalculationService.calculate(comps, config=None)
-    assert effective_weights["certifications"] == 5.0
-    assert weighted.certifications == 5.0
+    assert effective_weights["certifications"] == 0.0
+    assert weighted.certifications == 0.0
 
 
 def test_10_existing_non_education_matching_unchanged():

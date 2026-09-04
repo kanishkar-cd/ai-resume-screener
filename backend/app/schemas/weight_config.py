@@ -2,16 +2,27 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class WeightDistribution(BaseModel):
-    skills: float = Field(default=40.0, ge=0.0, le=100.0)
-    experience: float = Field(default=25.0, ge=0.0, le=100.0)
-    projects: float = Field(default=15.0, ge=0.0, le=100.0)
-    education: float = Field(default=10.0, ge=0.0, le=100.0)
-    certifications: float = Field(default=5.0, ge=0.0, le=100.0)
-    languages: float = Field(default=5.0, ge=0.0, le=100.0)
+    required_skills: float = Field(default=45.0, ge=0.0, le=100.0)
+    responsibilities: float = Field(default=40.0, ge=0.0, le=100.0)
+    preferred_skills: float = Field(default=15.0, ge=0.0, le=100.0)
+    skills: float | None = None
+    experience: float = 0.0
+    projects: float = 0.0
+    education: float = 0.0
+    certifications: float = 0.0
+    languages: float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "skills" in data and "required_skills" not in data:
+                data["required_skills"] = data["skills"]
+        return data
 
 
 class KnockoutRule(BaseModel):

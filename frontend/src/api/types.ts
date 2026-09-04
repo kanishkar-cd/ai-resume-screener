@@ -343,12 +343,15 @@ export interface NormalizeResult {
 // ─── Weight config ────────────────────────────────────────────
 
 export interface WeightDistribution {
-  skills: number
-  experience: number
-  projects: number
-  education: number
-  certifications: number
-  languages: number
+  required_skills?: number
+  responsibilities?: number
+  preferred_skills?: number
+  skills?: number
+  experience?: number
+  projects?: number
+  education?: number
+  certifications?: number
+  languages?: number
 }
 
 export interface KnockoutRule {

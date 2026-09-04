@@ -226,9 +226,16 @@ class ScoringEngineFacade:
             if extracted is None:
                 extracted = await extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
+
+            if weight_config is None and weights is not None:
+                try:
+                    weight_config = await weights.get_by_project_id(document.project_id)
+                except Exception:
+                    weight_config = None
+
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(
-                    job, resume, extracted, config=None
+                    job, resume, extracted, config=weight_config
                 )
             except Exception as exc:
                 logger.warning(
@@ -238,7 +245,7 @@ class ScoringEngineFacade:
                 )
                 scoring_extracted = extracted
                 try:
-                    requirements = RequirementBuilder.build(job, config=None)
+                    requirements = RequirementBuilder.build(job, config=weight_config)
                     evidence = EvidenceBuilder.build(extracted)
                     match_verdicts = []
                     for item in requirements:
@@ -248,31 +255,27 @@ class ScoringEngineFacade:
                 except Exception:
                     match_verdicts = []
             components = self.components.score(
-                resume, job, config=None,
+                resume, job, config=weight_config,
                 projects=scoring_extracted.projects,
                 match_verdicts=match_verdicts,
             )
-            applicable_categories = WeightCalculationService.applicable_categories(job, config=None)
+            applicable_categories = WeightCalculationService.applicable_categories(job, config=weight_config)
             # pyrefly: ignore [bad-unpacking]
             weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
-                components, config=None, applicable_categories=applicable_categories
+                components, config=weight_config, applicable_categories=applicable_categories
             )
-            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=None)
-            penalty_total, penalties = PenaltyService.calculate(components, config=None)
+            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=weight_config)
+            penalty_total, penalties = PenaltyService.calculate(components, config=weight_config)
             bonus_total, bonuses = BonusService.calculate(
-                resume, job, config=None, components=components,
+                resume, job, config=weight_config, components=components,
                 match_verdicts=match_verdicts, projects=scoring_extracted.projects,
             )
             final_score = WeightCalculationService.final_score(
                 weighted_total, penalty_total, bonus_total,
-                components=components, applicable_categories=applicable_categories
+                components=components, applicable_categories=applicable_categories,
+                config=weight_config,
             )
             confidence = ConfidenceService.calculate(extracted)
-            if weight_config is None and weights is not None:
-                try:
-                    weight_config = await weights.get_by_project_id(document.project_id)
-                except Exception:
-                    weight_config = None
             passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
             recommendation = RecommendationService.recommend(
                 final_score=final_score,

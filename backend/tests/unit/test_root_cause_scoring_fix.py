@@ -79,14 +79,15 @@ def test_1_experience_does_not_contribute_to_weighted_score():
 
 
 def test_2_base_component_weights():
-    """Test 2: Verify base component weights match 30/25/25/15/0/5/0 totaling 100%."""
-    assert COMPONENT_WEIGHTS["required_skills"] == 30.0
-    assert COMPONENT_WEIGHTS["responsibilities"] == 25.0
-    assert COMPONENT_WEIGHTS["projects"] == 25.0
+    """Test 2: Verify base component weights match 45/40/15/0/0/0/0/0 totaling 100%."""
+    assert COMPONENT_WEIGHTS["required_skills"] == 45.0
+    assert COMPONENT_WEIGHTS["responsibilities"] == 40.0
     assert COMPONENT_WEIGHTS["preferred_skills"] == 15.0
+    assert COMPONENT_WEIGHTS["projects"] == 0.0
     assert COMPONENT_WEIGHTS["experience"] == 0.0
-    assert COMPONENT_WEIGHTS["certifications"] == 5.0
+    assert COMPONENT_WEIGHTS["certifications"] == 0.0
     assert COMPONENT_WEIGHTS["education"] == 0.0
+    assert COMPONENT_WEIGHTS["languages"] == 0.0
     assert sum(COMPONENT_WEIGHTS.values()) == 100.0
 
 

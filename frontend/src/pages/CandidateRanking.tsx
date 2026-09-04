@@ -317,9 +317,11 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                   const getDetail = (key: string, fallbackWeight: number) => {
                     const scoreObj = candidate.scores.find((s) => s.criterionId === key)
                     const bItem = candidate.scoreBreakdown?.find((b) => b.category === key || (key === 'skills' && b.category === 'required_skills'))
-                    const scoreVal = scoreObj?.score ?? bItem?.component_score ?? 0
-                    const weightVal = (scoreObj?.weight && scoreObj.weight > 0) ? scoreObj.weight : (bItem?.effective_weight ?? fallbackWeight)
-                    const contributionVal = scoreObj?.weightedScore ?? bItem?.contribution ?? ((scoreVal * weightVal) / 100)
+                    const weightVal = scoreObj?.weight !== undefined ? scoreObj.weight : (bItem?.effective_weight ?? fallbackWeight)
+                    const rawScore = scoreObj?.score ?? bItem?.component_score ?? 0
+                    const isInactive = weightVal === 0 || (bItem && !bItem.is_applicable && bItem.effective_weight === 0) || (scoreObj && !scoreObj.isApplicable && scoreObj.weight === 0)
+                    const scoreVal = isInactive ? 0 : rawScore
+                    const contributionVal = isInactive ? 0 : (scoreObj?.weightedScore ?? bItem?.contribution ?? ((scoreVal * weightVal) / 100))
                     return { scoreVal, weightVal, contributionVal }
                   }
 
@@ -529,11 +531,12 @@ export default function CandidateRanking() {
             const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
             const weightKey = key === 'skills' ? 'required_skills' : key
             const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 30 : key === 'responsibilities' ? 25 : key === 'projects' ? 20 : key === 'preferred_skills' ? 15 : key === 'experience' ? 5 : key === 'certifications' ? 3 : key === 'education' ? 2 : 0)
-            const weightedScore = (persistedScore.weighted_scores as any)?.[key] ?? (detail.score * effectiveWeight / 100)
+            const finalScore = (effectiveWeight === 0 || !isApplicable) ? 0 : (detail.score ?? 0)
+            const weightedScore = (persistedScore.weighted_scores as any)?.[key] ?? (finalScore * effectiveWeight / 100)
             return {
               criterionId: key,
               label,
-              score: detail.score,
+              score: finalScore,
               weight: effectiveWeight,
               weightedScore,
               isApplicable,

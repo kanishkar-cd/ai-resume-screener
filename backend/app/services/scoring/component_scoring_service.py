@@ -131,9 +131,12 @@ class ComponentScoringService:
         match_verdicts: list[Any] | None = None,
     ) -> ComponentScores:
         raw_certs = getattr(resume, "certifications", None) or []
+        cert_names = [(c.get("name") or c.get("title") or "") if isinstance(c, dict) else str(c).strip() for c in raw_certs]
+        cert_names = [c for c in cert_names if c]
         summary_text = str(getattr(resume, "summary", None) or "").strip()
         candidate_skills = list(dict.fromkeys([
             *[str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()],
+            *cert_names,
             *[t for p in (projects or []) for t in (p.get("technologies") or [])],
             *[t for exp in (getattr(resume, "experience", None) or []) for t in (exp.get("technologies") or [])],
             *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or []) if line],

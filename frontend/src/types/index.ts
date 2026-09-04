@@ -69,6 +69,9 @@ export interface UploadState {
 
 // ─── Weightage (aligned with backend WeightDistribution) ──────
 export type WeightCriterionId =
+  | 'required_skills'
+  | 'responsibilities'
+  | 'preferred_skills'
   | 'skills'
   | 'experience'
   | 'projects'

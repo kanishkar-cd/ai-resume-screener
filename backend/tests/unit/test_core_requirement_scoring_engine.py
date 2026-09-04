@@ -78,8 +78,8 @@ def test_required_skills_and_responsibilities_scored_together_as_core_requiremen
     weighted_scores, raw_total, core_base_score, effective_weights = WeightCalculationService.calculate(
         components, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert core_base_score == 77.27
-    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components, applicable_categories={"required_skills", "responsibilities"}) == 77.27
+    assert core_base_score == 76.47
+    assert WeightCalculationService.final_score(core_base_score, 0.0, 0.0, components, applicable_categories={"required_skills", "responsibilities"}) == 76.47
 
 
 def test_lexical_prefilter_miss_routes_to_semantic_verification() -> None:
@@ -253,7 +253,7 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     assert score_perfect == 100.0
 
     # Case: 3 Required Skills (2 matched, 1 missing -> 66.67%), 1 Responsibility (matched -> 100%)
-    # Skills: 66.67 * (30/55) = 36.3655, Resp: 100 * (25/55) = 45.4545 -> 81.82%
+    # Skills: 66.67 * (45/85) = 35.2959, Resp: 100 * (40/85) = 47.0588 -> 82.35%
     components_partial = _build_components(
         skill_score=66.67,
         skill_matched=["A", "B"],
@@ -265,4 +265,4 @@ def test_final_score_independent_of_legacy_static_component_weights() -> None:
     _, _, score_partial, _ = WeightCalculationService.calculate(
         components_partial, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert score_partial == 81.82
+    assert score_partial == 82.35

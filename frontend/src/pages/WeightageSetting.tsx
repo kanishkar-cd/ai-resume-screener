@@ -10,9 +10,9 @@ const ICON_MAP: Record<string, LucideIcon> = { Briefcase, Globe, Folder, Graduat
 
 function toDistribution(weights: WeightCriterion[]): WeightDistribution {
   return weights.reduce<WeightDistribution>((result, criterion) => {
-    result[criterion.id] = Math.round(criterion.weight)
+    result[criterion.id as keyof WeightDistribution] = Math.round(criterion.weight)
     return result
-  }, { skills: 0, experience: 0, projects: 0, education: 0, certifications: 0, languages: 0 })
+  }, { required_skills: 45, responsibilities: 40, preferred_skills: 15 })
 }
 
 const splitValues = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)

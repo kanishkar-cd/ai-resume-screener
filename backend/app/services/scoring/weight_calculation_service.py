@@ -5,13 +5,14 @@ from app.schemas.scoring import ComponentScores, WeightedScores
 
 # Authoritative default business weights summing to exactly 100.0%
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "required_skills": 30.0,
-    "responsibilities": 25.0,
-    "projects": 25.0,
+    "required_skills": 45.0,
+    "responsibilities": 40.0,
     "preferred_skills": 15.0,
+    "certifications": 0.0,
     "experience": 0.0,
-    "certifications": 5.0,
     "education": 0.0,
+    "languages": 0.0,
+    "projects": 0.0,
 }
 
 COMPONENT_WEIGHTS: dict[str, float] = DEFAULT_WEIGHTS
@@ -31,41 +32,31 @@ validate_weights(DEFAULT_WEIGHTS)
 
 
 class WeightCalculationService:
+    # Configurable required-skill safeguard parameters
+    SAFEGUARD_ENABLED: bool = True
+    SAFEGUARD_CRITICAL_SKILL_THRESHOLD: float = 50.0  # Threshold under which required skill protection triggers
+    SAFEGUARD_ZERO_SKILLS_MAX_SCORE: float = 35.0    # Hard ceiling if candidate matches 0 required skills
+
     @staticmethod
     def applicable_categories(job: Any, config: Any = None) -> set[str]:
         # Required criteria that form Core requirements
         mandatory_skills = getattr(config, "mandatory_skills", None) or []
-        req_deg = getattr(config, "required_degree", None) or getattr(job, "required_degree", None)
-        req_certs = getattr(config, "required_certifications", None) or []
-        req_langs = getattr(config, "required_languages", None) or []
 
         has_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
         has_resp = bool(getattr(job, "responsibilities", None) or [])
-        has_proj = bool(
-            (getattr(job, "project_requirements", None) or [])
-            or (getattr(config, "required_projects", None) if config else None)
-        )
         has_pref = bool(getattr(job, "preferred_skills", None) or [])
-        has_edu = bool(
-            req_deg
-            or (getattr(job, "required_degree", None))
-            or (getattr(job, "degree_requirements", None) or [])
-            or (getattr(job, "qualifications", None) or [])
-            or (getattr(config, "required_degree", None) if config else None)
-        )
-        has_certs = bool(req_certs or (getattr(job, "certifications", None) or []))
 
         return {
             name for name, applies in {
                 "required_skills": has_skills,
                 "skills": has_skills,
                 "responsibilities": has_resp,
-                "projects": has_proj,
                 "preferred_skills": has_pref,
+                "projects": False,
                 "experience": False,
-                "education": has_edu,
-                "certifications": has_certs,
-                "languages": bool(req_langs),
+                "education": False,
+                "certifications": False,
+                "languages": False,
             }.items() if applies
         }
 
@@ -77,10 +68,10 @@ class WeightCalculationService:
     ) -> tuple[WeightedScores, float, float, dict[str, float]]:
         """
         Calculate weighted score using authoritative business weights:
-        - Required Skills: 40%
+        - Required Skills: 45%
+        - Responsibilities: 40%
         - Preferred Skills: 15%
-        - Responsibilities: 20%
-        - Projects: 25%
+        All other categories: 0% (serve as evidence only).
         Total: 100%
 
         When a category is genuinely absent from the JD, its configured weight is
@@ -97,7 +88,7 @@ class WeightCalculationService:
                 cfg_weights = cfg_weights.model_dump()
             if isinstance(cfg_weights, dict):
                 mapped = {}
-                for k in ("required_skills", "preferred_skills", "responsibilities", "projects"):
+                for k in ("required_skills", "responsibilities", "preferred_skills"):
                     alt_k = "skills" if k == "required_skills" else k
                     if k in cfg_weights:
                         mapped[k] = float(cfg_weights[k])
@@ -105,20 +96,22 @@ class WeightCalculationService:
                         mapped[k] = float(cfg_weights[alt_k])
                     else:
                         mapped[k] = weights[k]
+                for k in ("projects", "experience", "education", "certifications", "languages"):
+                    mapped[k] = 0.0
                 validate_weights(mapped)
                 weights = mapped
-        elif any(hasattr(config, attr) for attr in ("skills_weight", "required_skills_weight", "responsibilities_weight", "projects_weight", "preferred_skills_weight")):
+        elif any(hasattr(config, attr) for attr in ("skills_weight", "required_skills_weight", "responsibilities_weight", "preferred_skills_weight")):
             mapped = dict(DEFAULT_WEIGHTS)
             if hasattr(config, "required_skills_weight"):
                 mapped["required_skills"] = float(config.required_skills_weight)
             elif hasattr(config, "skills_weight"):
                 mapped["required_skills"] = float(config.skills_weight)
-            if hasattr(config, "preferred_skills_weight"):
-                mapped["preferred_skills"] = float(config.preferred_skills_weight)
             if hasattr(config, "responsibilities_weight"):
                 mapped["responsibilities"] = float(config.responsibilities_weight)
-            if hasattr(config, "projects_weight"):
-                mapped["projects"] = float(config.projects_weight)
+            if hasattr(config, "preferred_skills_weight"):
+                mapped["preferred_skills"] = float(config.preferred_skills_weight)
+            for k in ("projects", "experience", "education", "certifications", "languages"):
+                mapped[k] = 0.0
             total_cfg = sum(mapped.values())
             if abs(total_cfg - 100.0) <= 1e-4:
                 weights = mapped
@@ -131,6 +124,9 @@ class WeightCalculationService:
                     return "required_skills" in applicable_categories or "skills" in applicable_categories
                 return cat_name in applicable_categories
             if comp_detail is None:
+                return False
+            # If not in the 3 scored categories, it is not an active scoring category
+            if cat_name not in ("required_skills", "responsibilities", "preferred_skills"):
                 return False
             explanation = str(getattr(comp_detail, "explanation", "") or "").casefold()
             is_na = "(n/a)" in explanation or ("no " in explanation and "configured" in explanation)
@@ -192,12 +188,28 @@ class WeightCalculationService:
         }
 
         # Calculate final weighted total using unrounded values to prevent rounding drift
-        weighted_total = round(
-            min(100.0, max(0.0,
-                sum(comp_scores[c] * (effective_weights.get(c, 0.0) / 100.0) for c in active_categories)
-            )),
-            2
-        )
+        raw_weighted_total = sum(comp_scores[c] * (effective_weights.get(c, 0.0) / 100.0) for c in active_categories)
+
+        # ── REQUIRED SKILL PROTECTION SAFEGUARD ─────────────────────────────
+        # If required skills are active in the JD, a candidate with critical missing required skills
+        # must not receive an unrealistically high match score purely from responsibilities or preferred skills.
+        is_req_active = "required_skills" in active_categories
+        req_score = comp_scores.get("required_skills", 0.0)
+
+        if WeightCalculationService.SAFEGUARD_ENABLED and is_req_active:
+            if req_score <= 0.0:
+                # 0% required skills matched -> cap score at safe critical ceiling
+                guarded_total = min(raw_weighted_total, WeightCalculationService.SAFEGUARD_ZERO_SKILLS_MAX_SCORE)
+            elif req_score < WeightCalculationService.SAFEGUARD_CRITICAL_SKILL_THRESHOLD:
+                # Under 50% required skills matched -> cap proportional to required skill coverage
+                score_cap = req_score + (100.0 - req_score) * 0.40
+                guarded_total = min(raw_weighted_total, score_cap)
+            else:
+                guarded_total = raw_weighted_total
+        else:
+            guarded_total = raw_weighted_total
+
+        weighted_total = round(min(100.0, max(0.0, guarded_total)), 2)
 
         raw_total = round(
             min(100.0, max(0.0,

@@ -108,13 +108,14 @@ def test_10_no_overall_score_dependency():
 def test_11_weights_remain_unchanged():
     """TEST 11 — Confirm base component weights sum to 100.0% and match exact percentages."""
     expected = {
-        "required_skills": 30.0,
-        "responsibilities": 25.0,
-        "projects": 25.0,
+        "required_skills": 45.0,
+        "responsibilities": 40.0,
         "preferred_skills": 15.0,
+        "certifications": 0.0,
         "experience": 0.0,
-        "certifications": 5.0,
         "education": 0.0,
+        "languages": 0.0,
+        "projects": 0.0,
     }
     assert COMPONENT_WEIGHTS == expected
     assert sum(COMPONENT_WEIGHTS.values()) == 100.0

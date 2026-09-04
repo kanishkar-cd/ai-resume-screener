@@ -252,12 +252,12 @@ def test_scenario_7_and_8_preferred_skills_component_separation_and_15_percent_w
         scores, config=None, applicable_categories=app_cats
     )
 
-    # Total applicable weight = 30 + 15 = 45%
-    # Effective weight skills = 30 / 45 * 100 = 66.67% -> weighted.skills = 50% * 66.67 = 33.33
-    # Effective weight pref = 15 / 45 * 100 = 33.33% -> weighted.preferred_skills = 50% * 33.33 = 16.67
-    # Normalized score = (33.33 + 16.67) = 50.0 / 100
-    assert round(weighted.skills, 2) == 33.33
-    assert round(weighted.preferred_skills, 2) == 16.67
+    # Total applicable weight = 45 + 15 = 60%
+    # Effective weight skills = 45 / 60 * 100 = 75.0% -> weighted.skills = 50% * 75.0 = 37.5
+    # Effective weight pref = 15 / 60 * 100 = 25.0% -> weighted.preferred_skills = 50% * 25.0 = 12.5
+    # Normalized score = (37.5 + 12.5) = 50.0 / 100
+    assert round(weighted.skills, 2) == 37.5
+    assert round(weighted.preferred_skills, 2) == 12.5
     assert weighted_total == 50.0
     final = WeightCalculationService.final_score(0, 0, 0, components=scores, applicable_categories=app_cats)
     assert final == 50.0

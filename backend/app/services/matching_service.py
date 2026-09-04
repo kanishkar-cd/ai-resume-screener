@@ -48,10 +48,10 @@ ALLOWED_EVIDENCE_MAP: dict[RequirementKind, set[str]] = {
     RequirementKind.DEGREE: {"education"},
     RequirementKind.EXPERIENCE: {"experience"},
     RequirementKind.CONTEXTUAL_EXPERIENCE: {"experience"},
-    RequirementKind.SKILL: {"skills", "experience", "project", "summary"},
-    RequirementKind.REQUIRED_SKILL: {"skills", "experience", "project", "summary"},
-    RequirementKind.PREFERRED_SKILL: {"skills", "experience", "project", "summary"},
-    RequirementKind.RESPONSIBILITY: {"experience", "project", "summary"},
+    RequirementKind.SKILL: {"skills", "experience", "project", "summary", "certification"},
+    RequirementKind.REQUIRED_SKILL: {"skills", "experience", "project", "summary", "certification"},
+    RequirementKind.PREFERRED_SKILL: {"skills", "experience", "project", "summary", "certification"},
+    RequirementKind.RESPONSIBILITY: {"experience", "project", "summary", "skills"},
     RequirementKind.PROJECT_RELEVANCE: {"project", "experience", "summary"},
     RequirementKind.CERTIFICATION: {"certification"},
     RequirementKind.LANGUAGE: {"languages"},
@@ -787,7 +787,7 @@ class DeterministicRequirementMatcher:
         if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             aliases = SKILL_ALIASES
             candidates = [str(s).strip() for s in (getattr(resume, "skills", None) or []) if str(s).strip()]
-            skill_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary"}]
+            skill_evidence = [e for e in evidence if e.kind in {"skills", "project", "experience", "summary", "certification"}]
             evidence_terms = [term for e in skill_evidence for term in e.canonical_terms if term]
             evidence_text = " ".join(e.text for e in skill_evidence).casefold()
             candidate_pool = list(dict.fromkeys([*candidates, *evidence_terms]))
@@ -1254,7 +1254,7 @@ class EvidencePrefilter:
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.RESPONSIBILITY:
-            target_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary"}]
+            target_evidence = [e for e in evidence if e.kind in {"experience", "project", "summary", "skills"}]
             if not target_evidence:
                 return []
         elif requirement.kind == RequirementKind.PROJECT_RELEVANCE:
