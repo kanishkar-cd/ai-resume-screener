@@ -554,14 +554,14 @@ export default function Dashboard() {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header with Concise Dynamic Insight */}
-      <div className="pb-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="pb-4 border-b border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
         {isDeptScoped ? (
           <div>
             <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
               <button
                 type="button"
                 onClick={() => updateUrlParams({ dept: 'ALL', page: 1 })}
-                className="hover:text-slate-900 transition-colors cursor-pointer"
+                className="hover:text-blue-600 transition-colors cursor-pointer"
               >
                 Overview
               </button>
@@ -569,7 +569,7 @@ export default function Dashboard() {
               <span className="text-slate-800 font-semibold">{selectedDeptFilter}</span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
-              <Building2 size={22} className="text-slate-700" />
+              <Building2 size={22} className="text-blue-600" />
               {selectedDeptFilter} Dashboard
             </h1>
             <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
@@ -604,7 +604,7 @@ export default function Dashboard() {
                 navigate('/departments')
               }
             }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
           >
             <Plus size={14} />
             <span>New Requisition</span>
@@ -625,7 +625,7 @@ export default function Dashboard() {
       {/* Modern KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Total Requisitions */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
           <div>
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Total Requisitions'}
@@ -640,13 +640,13 @@ export default function Dashboard() {
               </span>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
-            <FolderKanban size={18} />
+          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+            <FolderKanban size={19} />
           </div>
         </div>
 
         {/* Active Requisitions */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs hover:border-slate-300 transition-colors flex items-center justify-between">
           <div>
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               {isDeptScoped ? `${selectedDeptFilter} Active Requisitions` : 'Active Requisitions'}
@@ -665,18 +665,18 @@ export default function Dashboard() {
               </span>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
-            <Layers size={18} />
+          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+            <Layers size={19} />
           </div>
         </div>
       </div>
 
       {/* Ranked Horizontal-Bar Visualization: Hiring Demand by Department (Overview Only) */}
       {!isDeptScoped && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-3.5">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-xs space-y-3.5">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <BarChart3 size={16} className="text-slate-700" />
+              <BarChart3 size={16} className="text-blue-600" />
               <h2 className="text-sm font-bold text-slate-900 tracking-tight">
                 Hiring Demand by Department
               </h2>
@@ -718,7 +718,7 @@ export default function Dashboard() {
                   <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden relative">
                     <div
                       className={`h-full rounded-full transition-all duration-300 ${
-                        count > 0 ? 'bg-slate-700 group-hover:bg-blue-600' : 'bg-slate-200'
+                        count > 0 ? 'bg-blue-600' : 'bg-slate-200'
                       }`}
                       style={{ width: `${Math.max(barWidth, count > 0 ? 6 : 0)}%` }}
                     />
@@ -744,7 +744,7 @@ export default function Dashboard() {
               {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Requisitions Workspace'}
             </h2>
             {!loading && !error && (
-              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200/60">
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200/80">
                 {filteredProjects.length} {filteredProjects.length === 1 ? 'requisition' : 'requisitions'}
               </span>
             )}
@@ -752,13 +752,13 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Status Tabs: All, Active, Completed */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium text-slate-600">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium text-slate-600 border border-slate-200/60">
               <button
                 type="button"
                 onClick={() => updateUrlParams({ status: 'ALL', page: 1 })}
                 className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -769,7 +769,7 @@ export default function Dashboard() {
                 onClick={() => updateUrlParams({ status: 'ACTIVE', page: 1 })}
                 className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'ACTIVE'
-                    ? 'bg-white text-emerald-700 shadow-xs font-semibold'
+                    ? 'bg-white text-emerald-700 shadow-2xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -780,7 +780,7 @@ export default function Dashboard() {
                 onClick={() => updateUrlParams({ status: 'COMPLETED', page: 1 })}
                 className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
                   selectedStatusFilter === 'COMPLETED'
-                    ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                    ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                     : 'hover:text-slate-900'
                 }`}
               >
@@ -794,7 +794,7 @@ export default function Dashboard() {
                 <select
                   value={selectedDeptFilter}
                   onChange={(e) => updateUrlParams({ dept: e.target.value, page: 1 })}
-                  className="pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 cursor-pointer shadow-2xs"
+                  className="pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                 >
                   <option value="ALL">All Departments</option>
                   {availableDepartments.map((deptName) => (
@@ -814,7 +814,7 @@ export default function Dashboard() {
                 value={searchTerm}
                 onChange={(e) => updateUrlParams({ q: e.target.value, page: 1 })}
                 placeholder={isDeptScoped ? `Search ${selectedDeptFilter} requisitions...` : 'Search requisitions...'}
-                className="w-full pl-8 pr-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 placeholder:text-slate-400 transition-colors shadow-2xs"
+                className="w-full pl-8 pr-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 placeholder:text-slate-400 transition-colors shadow-2xs"
               />
             </div>
 
@@ -838,7 +838,7 @@ export default function Dashboard() {
         {/* Table Content & Intentional Empty State */}
         {loading ? (
           <div className="py-16 text-center text-xs text-slate-400 font-medium flex items-center justify-center gap-2">
-            <Loader2 size={16} className="animate-spin text-slate-600" />
+            <Loader2 size={16} className="animate-spin text-blue-600" />
             <span>Loading requisitions...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
@@ -866,7 +866,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => updateUrlParams({ q: '', status: 'ALL', page: 1 })}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer border border-slate-200"
               >
                 <span>Reset Search & Filter</span>
               </button>
@@ -880,7 +880,7 @@ export default function Dashboard() {
                     navigate('/departments')
                   }
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               >
                 <Plus size={14} />
                 <span>Create Requisition</span>
@@ -889,12 +889,12 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <div className="overflow-x-auto border border-slate-200/80 rounded-lg">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 select-none">
+                  <tr className="bg-slate-50/75 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200/80 select-none">
                     <th
-                      className="py-2.5 px-4 min-w-[240px] max-w-[380px] cursor-pointer hover:text-slate-800 transition-colors group/col"
+                      className="py-3 px-4 min-w-[240px] max-w-[380px] cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('title')}
                       title="Sort by Requisition Title"
                     >
@@ -904,7 +904,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-2.5 px-4 w-36 cursor-pointer hover:text-slate-800 transition-colors group/col"
+                      className="py-3 px-4 w-36 cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('department')}
                       title="Sort by Department"
                     >
@@ -914,7 +914,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-2.5 px-4 min-w-[140px] cursor-pointer hover:text-slate-800 transition-colors group/col"
+                      className="py-3 px-4 min-w-[140px] cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('target_role')}
                       title="Sort by Target Role"
                     >
@@ -924,7 +924,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-2.5 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
+                      className="py-3 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('experience')}
                       title="Sort by Experience Level"
                     >
@@ -934,7 +934,7 @@ export default function Dashboard() {
                       </div>
                     </th>
                     <th
-                      className="py-2.5 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
+                      className="py-3 px-4 w-28 text-center cursor-pointer hover:text-slate-800 transition-colors group/col"
                       onClick={() => handleSortToggle('status')}
                       title="Sort by Status"
                     >
@@ -943,7 +943,7 @@ export default function Dashboard() {
                         {renderSortIndicator('status')}
                       </div>
                     </th>
-                    <th className="py-2.5 px-4 w-44 text-right">Actions</th>
+                    <th className="py-3 px-4 w-44 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
@@ -955,32 +955,32 @@ export default function Dashboard() {
                       <tr
                         key={proj.id}
                         onClick={() => handleRequisitionClick(proj)}
-                        className="hover:bg-slate-50/75 cursor-pointer transition-colors group"
+                        className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                       >
-                        <td className="py-3 px-4 font-bold text-slate-900 min-w-[240px] max-w-[380px]" title={proj.title}>
+                        <td className="py-3.5 px-4 font-bold text-slate-900 min-w-[240px] max-w-[380px]" title={proj.title}>
                           <p className="group-hover:text-blue-600 transition-colors line-clamp-2 break-words leading-snug">
                             {proj.title}
                           </p>
                         </td>
-                        <td className="py-3 px-4 w-36">
+                        <td className="py-3.5 px-4 w-36">
                           <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold font-mono tracking-tight border border-slate-200/60">
                             {proj.department || 'General'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-slate-600 font-medium min-w-[140px]" title={proj.target_role || undefined}>
+                        <td className="py-3.5 px-4 text-slate-600 font-medium min-w-[140px]" title={proj.target_role || undefined}>
                           <p className="line-clamp-1 truncate">{proj.target_role || '—'}</p>
                         </td>
-                        <td className="py-3 px-4 w-28 text-center">
+                        <td className="py-3.5 px-4 w-28 text-center">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200/60">
                             {getExperienceLevel(proj)}
                           </span>
                         </td>
-                        <td className="py-3 px-4 w-28 text-center">
+                        <td className="py-3.5 px-4 w-28 text-center">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                               isCompleted
                                 ? 'bg-slate-100 text-slate-700 border-slate-200'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
                             }`}
                           >
                             <span
@@ -991,15 +991,15 @@ export default function Dashboard() {
                             {status}
                           </span>
                         </td>
-                        <td className="py-3 px-4 w-44 text-right shrink-0">
+                        <td className="py-3.5 px-4 w-44 text-right shrink-0">
                           <div className="inline-flex items-center justify-end gap-1.5 shrink-0 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => handleRequisitionClick(proj)}
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer border ${
                                 isCompleted
-                                  ? 'bg-slate-900 hover:bg-slate-800 text-white border-transparent'
-                                  : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300'
+                                  ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white border-transparent'
+                                  : 'bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300'
                               }`}
                             >
                               {isCompleted ? <FileText size={13} /> : <ListOrdered size={13} />}
@@ -1057,7 +1057,7 @@ export default function Dashboard() {
                       onClick={() => updateUrlParams({ page: pg })}
                       className={`w-7 h-7 rounded-lg text-xs transition-colors cursor-pointer ${
                         effectivePage === pg
-                          ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                          ? 'bg-blue-600 text-white font-bold shadow-2xs'
                           : 'text-slate-600 hover:bg-slate-100 font-medium'
                       }`}
                     >
