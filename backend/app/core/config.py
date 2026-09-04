@@ -140,17 +140,26 @@ class Settings(BaseSettings):
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
-    # SMTP Email Configuration (Gmail Provider)
+    # Amazon SES & Standard SMTP Email Configuration
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USERNAME: str | None = None
     SMTP_PASSWORD: str | None = None
     SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
     SMTP_FROM_EMAIL: str = "kanishkar@clouddestinations.com"
+    SMTP_FROM_NAME: str = "AI Resume Screener"
     ENABLE_ASSESSMENT_EMAILS: bool = True
     MAX_CONCURRENT_EMAILS: int = Field(default=5, ge=1, le=50)
     MAX_EMAIL_RETRIES: int = Field(default=3, ge=0, le=10)
     EMAIL_RETRY_BASE_DELAY: float = Field(default=2.0, ge=0.1, le=60.0)
+
+    # Amazon SES specific aliases
+    SES_SMTP_HOST: str | None = None
+    SES_SMTP_PORT: int | None = None
+    SES_SMTP_USERNAME: str | None = None
+    SES_SMTP_PASSWORD: str | None = None
+    SES_FROM_EMAIL: str | None = None
 
     # Microsoft Outlook / Microsoft Graph OAuth Configuration
     OUTLOOK_CLIENT_ID: str | None = None
@@ -159,7 +168,7 @@ class Settings(BaseSettings):
     OUTLOOK_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/outlook/callback"
     OUTLOOK_SENDER_EMAIL: str = "kanishkar@clouddestinations.com"
     OUTLOOK_REFRESH_TOKEN: str | None = None
-    DEFAULT_EMAIL_PROVIDER: str = "gmail"
+    DEFAULT_EMAIL_PROVIDER: str = "ses"
 
 
 
