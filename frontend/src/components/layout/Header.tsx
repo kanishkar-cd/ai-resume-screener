@@ -133,7 +133,7 @@ export default function Header() {
     >
       {/* ── Breadcrumb Hierarchy ── */}
       <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto py-1 scrollbar-none">
-        {breadcrumbs.map((item, index) => {
+        {!location.pathname.endsWith('/shortlist') && breadcrumbs.map((item, index) => {
           const isLast = index === breadcrumbs.length - 1
           return (
             <div key={index} className="flex items-center gap-2 shrink-0 text-[12px]">

@@ -21,9 +21,11 @@ export default function ProjectHeader() {
   const isWorkflowStep =
     location.pathname === `${root}/rankings` ||
     location.pathname === `${root}/resumes` ||
+    location.pathname === `${root}/shortlist` ||
     location.pathname === root ||
     location.pathname.endsWith('/rankings') ||
-    location.pathname.endsWith('/resumes')
+    location.pathname.endsWith('/resumes') ||
+    location.pathname.endsWith('/shortlist')
 
   if (isWorkflowStep) return null
 
