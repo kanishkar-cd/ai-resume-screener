@@ -18,6 +18,18 @@ export default function ProjectHeader() {
 
   if (!project || !location.pathname.startsWith(`/projects/${project.id}`)) return null
   const root = `/projects/${project.id}`
+  const isWorkflowStep =
+    location.pathname === `${root}/rankings` ||
+    location.pathname === `${root}/resumes` ||
+    location.pathname === `${root}/shortlist` ||
+    location.pathname === `${root}/assessment` ||
+    location.pathname === root ||
+    location.pathname.endsWith('/rankings') ||
+    location.pathname.endsWith('/resumes') ||
+    location.pathname.endsWith('/shortlist') ||
+    location.pathname.endsWith('/assessment')
+
+  if (isWorkflowStep) return null
 
   const editProject = async () => {
     const title = window.prompt('Project name', project.title)?.trim()
@@ -27,7 +39,7 @@ export default function ProjectHeader() {
   }
 
   return (
-    <div className="mb-8 border-b border-slate-200 bg-white px-6 py-5">
+    <div className="border-b border-slate-200 bg-white px-6 py-5 mb-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-[22px] font-bold text-slate-900">{project.title}</h1>
@@ -52,9 +64,7 @@ export default function ProjectHeader() {
       <div className="flex flex-wrap gap-1 mt-5 -mb-5">
         {tabs.map(([label, suffix]) => {
           const path = `${root}/${suffix}`
-          const active =
-            location.pathname === path ||
-            (suffix === 'rankings' && location.pathname === root)
+          const active = location.pathname === path
           return (
             <button
               type="button"

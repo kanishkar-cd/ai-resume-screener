@@ -10,10 +10,10 @@ interface BreadcrumbItem {
 }
 
 const PAGE_LABEL_MAP: Record<string, string> = {
-  resumes: 'Resume Upload',
+  resumes: 'Candidate Resumes',
   rankings: 'Candidate Ranking',
   shortlist: 'Shortlisted Talent',
-  assessment: 'Assessment Handoff',
+  assessment: 'Assessment Results',
   reports: 'Reports',
   new: 'Create Requisition',
 }
@@ -133,7 +133,7 @@ export default function Header() {
     >
       {/* ── Breadcrumb Hierarchy ── */}
       <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto py-1 scrollbar-none">
-        {breadcrumbs.map((item, index) => {
+        {!location.pathname.endsWith('/shortlist') && breadcrumbs.map((item, index) => {
           const isLast = index === breadcrumbs.length - 1
           return (
             <div key={index} className="flex items-center gap-2 shrink-0 text-[12px]">

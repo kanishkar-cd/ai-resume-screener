@@ -303,7 +303,7 @@ export default function Dashboard() {
       },
     })
     if (isCompleted) {
-      navigate(`/projects/${proj.id}/reports`)
+      navigate(`/projects/${proj.id}/assessment`)
     } else {
       navigate(`/projects/${proj.id}/rankings`)
     }
@@ -1003,7 +1003,7 @@ export default function Dashboard() {
                               }`}
                             >
                               {isCompleted ? <FileText size={13} /> : <ListOrdered size={13} />}
-                              <span>{isCompleted ? 'View Report' : 'View Rankings'}</span>
+                              <span>{isCompleted ? 'View Reports' : 'View Rankings'}</span>
                             </button>
                             <div className="h-4 w-px bg-slate-200 mx-0.5" />
                             <button

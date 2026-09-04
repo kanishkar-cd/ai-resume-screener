@@ -702,19 +702,19 @@ export default function CandidateRanking() {
         onClose={() => setSelectedCandidate(null)}
       />
 
-      <motion.div variants={container} initial="hidden" animate="show" className="max-w-6xl mx-auto space-y-5 pb-8">
+      <motion.div variants={container} initial="hidden" animate="show" className="w-full max-w-7xl mx-auto space-y-6 pb-10">
 
         {/* ── Page Header ── */}
-        <motion.div variants={fadeUp} className="flex items-start justify-between">
+        <motion.div variants={fadeUp} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-[28px] font-bold tracking-tight text-slate-900 mb-1">Candidate Rankings</h1>
-            <p className="text-[13px] text-slate-500 max-w-xl leading-relaxed">
-              Candidates have been evaluated against the job requirements and ranked by relevance. Click any candidate to view the detailed match explanation.
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Candidate Rankings</h1>
+            <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              AI candidate evaluation and relevance rankings based on job requirements and screening criteria.
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             <select
-              className="text-[12px] border border-slate-200 rounded-lg px-3 py-2 text-slate-600 outline-none bg-white font-medium hover:border-blue-300 transition-colors"
+              className="text-xs border border-slate-200 rounded-xl px-3 py-2 text-slate-600 outline-none bg-white font-semibold hover:border-slate-300 transition-colors shadow-2xs cursor-pointer"
               onChange={async (e) => {
                 const val = e.target.value as 'csv' | 'excel' | 'json' | ''
                 if (!val || !state.projectId) return
@@ -731,14 +731,14 @@ export default function CandidateRanking() {
               }}
               defaultValue=""
             >
-              <option value="" disabled>Export...</option>
+              <option value="" disabled>Export</option>
               <option value="csv">Export CSV</option>
               <option value="excel">Export Excel</option>
               <option value="json">Export JSON</option>
             </select>
             <motion.button
               onClick={handleGoToShortlist}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-[12px] font-bold hover:bg-blue-700 transition-colors shadow-sm"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             >
               <UserCheck size={14} />
@@ -749,23 +749,32 @@ export default function CandidateRanking() {
         </motion.div>
 
         {/* ── Candidate Table ── */}
-        <motion.div variants={fadeUp} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <motion.div variants={fadeUp} className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
 
           {/* Toolbar */}
-          <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/40">
-            <div className="flex items-center gap-2 flex-1 bg-white rounded-xl px-3 py-2 border border-slate-200">
-              <Search size={13} className="text-slate-400 flex-shrink-0" />
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center gap-2 flex-1 bg-white rounded-xl px-3.5 py-2 border border-slate-200/90 shadow-2xs">
+              <Search size={14} className="text-slate-400 shrink-0" />
               <input
                 type="text"
                 placeholder="Search candidates by name or email…"
-                className="bg-transparent outline-none text-[12px] text-slate-600 flex-1 placeholder-slate-300"
+                className="bg-transparent outline-none text-xs text-slate-700 flex-1 placeholder-slate-400 font-medium"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
 
             <select
-              className="text-[12px] border border-slate-200 rounded-xl px-3 py-2 text-slate-600 outline-none bg-white"
+              className="text-xs font-semibold border border-slate-200/90 rounded-xl px-3.5 py-2 text-slate-700 outline-none bg-white shadow-2xs cursor-pointer"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as ScreeningStatus | 'all')}
             >
@@ -773,88 +782,104 @@ export default function CandidateRanking() {
               <option value="screened">Shortlisted</option>
               <option value="rejected">Not Relevant</option>
             </select>
-
-
-
-            <div className="text-[11px] text-slate-400 font-medium px-2">
-              {filtered.length} of {candidates.length} candidates
-            </div>
           </div>
 
           {/* Error notification strip */}
           {fetchError && (
-            <div className="flex items-center gap-2 px-5 py-3 bg-red-50 border-b border-red-200 text-red-700 text-xs font-semibold">
+            <div className="flex items-center gap-2 px-6 py-3 bg-red-50 border-b border-red-200 text-red-700 text-xs font-semibold">
               <AlertCircle size={14} />
               <span>{fetchError}</span>
             </div>
           )}
 
-          {/* Hint strip */}
-          <div className="flex items-center gap-2 px-5 py-2.5 bg-blue-50/40 border-b border-blue-100/60">
-            <Sparkles size={12} className="text-blue-400" />
-            <p className="text-[11px] text-blue-600 font-medium">
-              Click any candidate row to view the full match explanation and score breakdown.
-            </p>
-          </div>
-
           {/* Table */}
           {rankingsLoading ? (
             <div className="py-16 text-center text-slate-400">
-              <motion.div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full mx-auto mb-3"
+              <motion.div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"
                 animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
-              <p className="text-[13px]">Loading candidate rankings…</p>
+              <p className="text-xs font-medium">Loading candidate rankings…</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-[12px]">
+              <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-slate-100 text-left">
-                    <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-14">S.No</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-24">Action</th>
-                    <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center w-20">Explain</th>
+                  <tr className="border-b border-slate-100 bg-slate-50/40 text-left">
+                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
+                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-72">Score & Band</th>
+                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center w-48">Screening Status</th>
+                    <th className="px-6 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right w-36">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-slate-100">
                   <AnimatePresence>
                     {filtered.map((candidate, idx) => {
+                      const recConfig = getRecommendationConfig(candidate)
+
                       return (
                         <motion.tr
                           key={candidate.id}
                           initial={{ opacity: 0, y: 4 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
-                          transition={{ delay: idx * 0.04 }}
-                          className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
+                          transition={{ delay: idx * 0.03 }}
+                          className="hover:bg-slate-50/70 cursor-pointer transition-colors group"
                           onClick={() => setSelectedCandidate(candidate)}
                         >
-                          {/* S.No */}
-                          <td className="px-5 py-3.5">
-                            <span className="text-[13px] font-bold text-slate-500">{idx + 1}</span>
-                          </td>
-
                           {/* Candidate */}
-                          <td className="px-4 py-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">
-                                {candidate.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3.5">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 font-bold text-xs shrink-0 shadow-2xs">
+                                {candidate.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
                               </div>
-                              <div>
-                                <div className="font-bold text-slate-800 text-[13px]">{candidate.name}</div>
-                                <div className="text-[11px] text-slate-400 font-normal">{candidate.email}</div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors">
+                                  {candidate.name}
+                                </div>
+                                <div className="text-xs text-slate-500 font-normal truncate mt-0.5">
+                                  {candidate.email}
+                                </div>
                               </div>
                             </div>
                           </td>
 
-                          {/* Action (status change) */}
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          {/* Score & Band */}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3.5">
+                              <div className="flex flex-col">
+                                <div className="flex items-baseline gap-1">
+                                  <span className="text-base font-extrabold text-slate-900 leading-none">
+                                    {Math.round(candidate.overallScore)}%
+                                  </span>
+                                </div>
+                                <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      candidate.overallScore >= 70
+                                        ? 'bg-emerald-500'
+                                        : candidate.overallScore >= 45
+                                        ? 'bg-amber-500'
+                                        : 'bg-rose-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, Math.max(0, candidate.overallScore))}%` }}
+                                  />
+                                </div>
+                              </div>
+                              <div className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border shadow-2xs ${recConfig.cls}`}>
+                                <recConfig.Icon size={13} className={recConfig.iconColor} />
+                                <span>{recConfig.label}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Screening Status */}
+                          <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                             <select
-                              className={`text-[11px] font-bold border rounded-xl px-2.5 py-1.5 outline-none transition-colors cursor-pointer ${
+                              className={`text-xs font-bold border rounded-xl px-3.5 py-2 outline-none transition-all cursor-pointer shadow-2xs ${
                                 candidate.status === 'screened'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100/70'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80'
                                   : candidate.status === 'pending'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100/70'
-                                  : 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100/70'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80'
+                                  : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100/80'
                               }`}
                               value={candidate.status}
                               onChange={(e) => {
@@ -862,20 +887,21 @@ export default function CandidateRanking() {
                                 updateStatus(candidate.id, e.target.value as ScreeningStatus)
                               }}
                             >
-                              <option value="screened" className="bg-white text-slate-800 font-medium">Screened</option>
-                              <option value="rejected" className="bg-white text-slate-800 font-medium">Reject</option>
+                              <option value="screened" className="bg-white text-slate-800 font-semibold">Shortlisted</option>
+                              <option value="rejected" className="bg-white text-slate-800 font-semibold">Not Relevant</option>
                             </select>
                           </td>
 
-                          {/* Explain */}
-                          <td className="px-4 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          {/* Explain / View Details */}
+                          <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                             <motion.button
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-blue-100 transition-colors"
+                              type="button"
+                              className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 px-3.5 py-2 rounded-xl hover:bg-blue-50 border border-blue-200/80 bg-white transition-all shadow-2xs cursor-pointer"
                               onClick={(e) => { e.stopPropagation(); setSelectedCandidate(candidate) }}
-                              whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                             >
-                              <Sparkles size={11} />
-                              Explain
+                              <Sparkles size={13} className="text-blue-500" />
+                              <span>Explain</span>
                             </motion.button>
                           </td>
                         </motion.tr>
@@ -888,11 +914,11 @@ export default function CandidateRanking() {
               {!rankingsLoading && filtered.length === 0 && (
                 <div className="py-14 text-center text-slate-400">
                   <Users size={28} className="mx-auto mb-3 opacity-25" />
-                  <p className="text-[13px]">
+                  <p className="text-xs font-medium">
                     {search || filterStatus !== 'all' ? 'No candidates match your filter.' : 'No candidates have been ranked yet.'}
                   </p>
                   {(search || filterStatus !== 'all') && (
-                    <button onClick={() => { setSearch(''); setFilterStatus('all') }} className="mt-2 text-[12px] text-blue-500 hover:underline">
+                    <button onClick={() => { setSearch(''); setFilterStatus('all') }} className="mt-2 text-xs text-blue-500 hover:underline cursor-pointer">
                       Clear filters
                     </button>
                   )}
@@ -900,34 +926,6 @@ export default function CandidateRanking() {
               )}
             </div>
           )}
-
-          {/* Table footer: summary */}
-          {candidates.length > 0 && (
-            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-[11px] text-slate-500">
-              <span>
-                {shortlisted} shortlisted · {rejected} not relevant
-              </span>
-              <span>
-                {candidates.length} total candidates evaluated
-              </span>
-            </div>
-          )}
-        </motion.div>
-
-        {/* ── CTA Footer ── */}
-        <motion.div variants={fadeUp} className="flex items-center justify-between">
-          <p className="text-[12px] text-slate-400">
-            Review candidates, then proceed to the Shortlist to confirm your selections.
-          </p>
-          <motion.button
-            onClick={handleGoToShortlist}
-            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[12px] font-bold hover:bg-blue-700 transition-colors shadow-sm"
-            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          >
-            <UserCheck size={14} />
-            Proceed to Shortlist
-            <ChevronRight size={13} />
-          </motion.button>
         </motion.div>
 
       </motion.div>

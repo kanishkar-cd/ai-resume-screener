@@ -6,7 +6,6 @@ import { DEPARTMENTS } from '@/constants/departments'
 import ResumeUpload from '@/pages/ResumeUpload'
 import CandidateRanking from '@/pages/CandidateRanking'
 import Dashboard from '@/pages/Dashboard'
-import Reports from '@/pages/Reports'
 import Departments from '@/pages/Departments'
 import CreateRequisition from '@/pages/CreateRequisition'
 import Shortlist from '@/pages/Shortlist'
@@ -35,6 +34,11 @@ function ProjectCandidatesRedirect() {
   return <Navigate to={`/projects/${projectId}/rankings`} replace />
 }
 
+function ProjectReportsRedirect() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <Navigate to={`/projects/${projectId}/assessment`} replace />
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -53,7 +57,7 @@ function AppRoutes() {
       <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
       <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
       <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />
-      <Route path="/projects/:projectId/reports" element={<ProjectRoute><Reports /></ProjectRoute>} />
+      <Route path="/projects/:projectId/reports" element={<ProjectReportsRedirect />} />
       <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
