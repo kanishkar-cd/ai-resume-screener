@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     GROQ_TPM_LIMIT: int = Field(default=8000, ge=100)
     GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.125, ge=0.0, le=0.5)
     GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
+    GROQ_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
 
     CEREBRAS_API_KEY: str | None = None
     CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
@@ -106,8 +107,13 @@ class Settings(BaseSettings):
     CEREBRAS_MAX_RETRIES: int = 1
     CEREBRAS_TPM_LIMIT: int = Field(default=60000, ge=100)
     CEREBRAS_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+    CEREBRAS_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
 
     MAX_CONCURRENT_RESUMES: int = Field(default=3, ge=1, le=10)
+    LLM_BATCH_THROTTLE_SECONDS: float = Field(default=0.25, ge=0.0, le=5.0)
+    LLM_BATCH_CHUNK_SIZE: int = Field(default=8, ge=1, le=20)
+    PROVIDER_CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = Field(default=60.0, ge=0.01, le=600.0)
+    PROVIDER_CIRCUIT_BREAKER_MAX_FAILURES: int = Field(default=2, ge=1, le=10)
 
     ENABLE_OCR_FALLBACK: bool = False
     OCR_ENGINE: str = "easyocr"

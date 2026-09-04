@@ -155,6 +155,8 @@ class ComponentScoringService:
 
         skills = self._match(candidate_skills, required_skills, "required skills")
 
+        IMPORTANCE_WEIGHTS = {"critical": 3.0, "important": 2.0, "minor": 1.0}
+
         def _is_matched(v: Any) -> bool:
             st = getattr(v, "status", None)
             val = getattr(st, "value", st)
@@ -166,88 +168,105 @@ class ComponentScoringService:
                 or str(mth_val).lower() == "llm_confirmed"
             )
 
-        # Enrich skills with LLM-confirmed skill verdicts if present
-        if match_verdicts and skills.missing_items:
+        # Importance-weighted continuous skills scoring
+        if match_verdicts and required_skills:
             req_id_to_skill: dict[str, str] = {}
-            counter = 1
+            for i, s in enumerate(required_skills, 1):
+                req_id_to_skill[f"skill:{i}"] = s
+                req_id_to_skill[f"required_skill:{i}"] = s
+
+            skill_verdict_map: dict[str, Any] = {}
+            for v in match_verdicts:
+                v_id = str(getattr(v, "requirement_id", ""))
+                v_text = str(getattr(v, "requirement_text", "")).casefold()
+                if v_id in req_id_to_skill:
+                    skill_verdict_map[req_id_to_skill[v_id].casefold()] = v
+                else:
+                    for s in required_skills:
+                        if s.casefold() == v_text or s.casefold() == v_id.casefold():
+                            skill_verdict_map[s.casefold()] = v
+                            break
+
+            weighted_cov_sum = 0.0
+            total_imp_weight = 0.0
+            matched_skill_items = []
+            missing_skill_items = []
+
             for s in required_skills:
-                req_id_to_skill[f"skill:{counter}"] = s
-                req_id_to_skill[f"required_skill:{counter}"] = s
-                counter += 1
+                v = skill_verdict_map.get(s.casefold())
+                if v is not None:
+                    cov = float(getattr(v, "coverage_score", getattr(v, "coverage", 1.0 if _is_matched(v) else 0.0)) or 0.0)
+                    imp = str(getattr(v, "importance", "critical") or "critical").lower()
+                elif s in skills.matched_items:
+                    cov = 1.0
+                    imp = "critical"
+                else:
+                    cov = 0.0
+                    imp = "important"
 
-            confirmed_skills = [
-                v for v in match_verdicts
-                if (str(getattr(v, "requirement_id", "")).startswith(("skill:", "required_skill:", "preferred_skill:")) or any(str(getattr(v, "requirement_id", "")).casefold() == s.casefold() for s in required_skills)) and _is_matched(v)
-            ]
-            if confirmed_skills:
-                confirmed_skill_texts = {
-                    req_id_to_skill[str(getattr(cv, "requirement_id", ""))].casefold()
-                    for cv in confirmed_skills
-                    if str(getattr(cv, "requirement_id", "")) in req_id_to_skill
-                }
-                new_matched = list(skills.matched_items)
-                new_missing = []
-                for missing_skill in skills.missing_items:
-                    matched_v = False
-                    m_cf = missing_skill.casefold()
-                    if m_cf in confirmed_skill_texts:
-                        matched_v = True
-                    else:
-                        for cv in confirmed_skills:
-                            cv_reasoning = str(getattr(cv, "reasoning", "")).casefold()
-                            cv_id = str(getattr(cv, "requirement_id", "")).casefold()
-                            if m_cf in cv_reasoning or m_cf in cv_id:
-                                matched_v = True
-                                break
-                    if matched_v:
-                        new_matched.append(missing_skill)
-                    else:
-                        new_missing.append(missing_skill)
+                w = IMPORTANCE_WEIGHTS.get(imp, 2.0)
+                weighted_cov_sum += cov * w
+                total_imp_weight += w
 
-                if len(new_matched) > len(skills.matched_items):
-                    skills = ComponentScoreDetail(
-                        score=round(min(100.0, (len(new_matched) / len(required_skills)) * 100.0), 2) if required_skills else 100.0,
-                        matched_items=new_matched,
-                        missing_items=new_missing,
-                        explanation=f"Matched {len(new_matched)} of {len(required_skills)} required skills ({len(new_matched)} satisfied deterministically/semantically).",
-                    )
+                if cov >= 0.35 or (v and _is_matched(v)) or s in skills.matched_items:
+                    matched_skill_items.append(s)
+                else:
+                    missing_skill_items.append(s)
 
-        # ── Responsibilities Component (25% weight) ─────────────────────────
+            skills_score = round((weighted_cov_sum / total_imp_weight) * 100.0, 2) if total_imp_weight > 0 else 0.0
+            skills = ComponentScoreDetail(
+                score=skills_score,
+                matched_items=matched_skill_items,
+                missing_items=missing_skill_items,
+                explanation=f"Demonstrated {len(matched_skill_items)} of {len(required_skills)} required skills ({skills_score:.2f}% importance-weighted coverage).",
+            )
+        elif required_skills:
+            skills = ComponentScoreDetail(
+                score=round(min(100.0, (len(skills.matched_items) / len(required_skills)) * 100.0), 2),
+                matched_items=skills.matched_items,
+                missing_items=skills.missing_items,
+                explanation=f"Matched {len(skills.matched_items)} of {len(required_skills)} required skills.",
+            )
+
+        # ── Responsibilities Component ─────────────────────────
         responsibility_verdicts = [
             v for v in (match_verdicts or [])
             if str(getattr(v, "requirement_id", "")).startswith("responsibility:")
+            or getattr(getattr(v, "kind", None), "value", str(getattr(v, "kind", ""))) in {"responsibility", "responsibilities"}
         ]
         job_responsibilities = list(getattr(job, "responsibilities", None) or [])
 
         if responsibility_verdicts:
-            matched_verdicts = [v for v in responsibility_verdicts if _is_matched(v)]
-            matched_resp = len(matched_verdicts)
-            total_coverage_sum = 0.0
-            exp_text = " ".join([
-                *[exp.get("description") or "" for exp in (getattr(resume, "experience", None) or [])],
-                *[line for exp in (getattr(resume, "experience", None) or []) for line in (exp.get("responsibilities") or []) if isinstance(line, str)],
-                *[p.get("description") or "" for p in (projects or [])],
-                *[line for p in (projects or []) for line in (p.get("deliverables") or []) if isinstance(line, str)],
-            ]).casefold()
+            weighted_resp_sum = 0.0
+            total_resp_weight = 0.0
+            matched_resp_items = []
+            missing_resp_items = []
 
             for v in responsibility_verdicts:
-                if _is_matched(v):
-                    total_coverage_sum += float(getattr(v, "coverage", 1.0) or 1.0)
-                elif any(kw in str(v.status).upper() or kw in str(getattr(v.status, "value", "")).upper() for kw in ("PARTIAL", "PARTIALLY_MATCHED")):
-                    total_coverage_sum += float(getattr(v, "coverage", 0.5) or 0.5)
-                else:
-                    req_text = str(getattr(v, "requirement_text", getattr(v, "requirement_id", "")))
-                    words = [w for w in req_text.casefold().split() if len(w) > 3]
-                    if words and any(w in exp_text for w in words):
-                        total_coverage_sum += 0.5
+                cov = float(getattr(v, "coverage_score", getattr(v, "coverage", 0.0)) or 0.0)
+                if cov == 0.0:
+                    if _is_matched(v):
+                        cov = 1.0
+                    elif any(kw in str(v.status).upper() or kw in str(getattr(v.status, "value", "")).upper() for kw in ("PARTIAL", "PARTIALLY_MATCHED")):
+                        cov = 0.5
+                imp = str(getattr(v, "importance", "important") or "important").lower()
+                w = IMPORTANCE_WEIGHTS.get(imp, 2.0)
+                weighted_resp_sum += cov * w
+                total_resp_weight += w
 
-            denom = max(len(job_responsibilities), len(responsibility_verdicts))
-            resp_score = round((total_coverage_sum / denom) * 100.0, 2)
+                req_id = getattr(v, "requirement_id", "")
+                if cov >= 0.35 or _is_matched(v):
+                    matched_resp_items.append(req_id)
+                else:
+                    missing_resp_items.append(req_id)
+
+            denom_weight = total_resp_weight if total_resp_weight > 0 else len(responsibility_verdicts)
+            resp_score = round((weighted_resp_sum / denom_weight) * 100.0, 2) if denom_weight > 0 else 0.0
             responsibilities = ComponentScoreDetail(
                 score=resp_score,
-                matched_items=[getattr(v, "requirement_id", "") for v in matched_verdicts],
-                missing_items=[getattr(v, "requirement_id", "") for v in responsibility_verdicts if not _is_matched(v)],
-                explanation=f"Demonstrated {matched_resp} of {denom} role responsibilities ({resp_score:.2f}% aggregate coverage).",
+                matched_items=matched_resp_items,
+                missing_items=missing_resp_items,
+                explanation=f"Demonstrated {len(matched_resp_items)} of {len(responsibility_verdicts)} role responsibilities ({resp_score:.2f}% aggregate coverage).",
             )
         elif job_responsibilities:
             # Fallback when LLM verdicts are absent

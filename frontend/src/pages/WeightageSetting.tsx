@@ -12,7 +12,7 @@ function toDistribution(weights: WeightCriterion[]): WeightDistribution {
   return weights.reduce<WeightDistribution>((result, criterion) => {
     result[criterion.id as keyof WeightDistribution] = Math.round(criterion.weight)
     return result
-  }, { required_skills: 45, responsibilities: 40, preferred_skills: 15 })
+  }, { required_skills: 50, responsibilities: 50, preferred_skills: 0 })
 }
 
 const splitValues = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean)

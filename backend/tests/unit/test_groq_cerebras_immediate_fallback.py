@@ -11,12 +11,14 @@ from app.services.matching_service import (
     CerebrasTokenBudgetGate,
     GroqMatchEvaluator,
     GroqTokenBudgetGate,
+    ProviderCircuitBreaker,
     SmartMatchEvaluator,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_gates():
+    ProviderCircuitBreaker.reset_breaker()
     GroqTokenBudgetGate.reset_gate()
     CerebrasTokenBudgetGate.reset_gate()
     GroqMatchEvaluator._cache.clear()
@@ -32,12 +34,17 @@ def make_test_settings():
         GROQ_TIMEOUT_SECONDS=5.0,
         GROQ_TPM_LIMIT=8000,
         GROQ_TPM_SAFETY_MARGIN=0.125,
+        GROQ_MAX_RETRIES=2,
         CEREBRAS_API_KEY="mock_cerebras_key",
         CEREBRAS_BASE_URL="https://api.cerebras.ai/v1",
         CEREBRAS_MODEL="gpt-oss-120b",
         CEREBRAS_TIMEOUT_SECONDS=5.0,
         CEREBRAS_TPM_LIMIT=60000,
         CEREBRAS_TPM_SAFETY_MARGIN=0.10,
+        CEREBRAS_MAX_RETRIES=2,
+        LLM_BATCH_THROTTLE_SECONDS=0.0,
+        PROVIDER_CIRCUIT_BREAKER_COOLDOWN_SECONDS=60.0,
+        PROVIDER_CIRCUIT_BREAKER_MAX_FAILURES=2,
         HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD=0.8,
         HYBRID_MATCHING_CACHE_SIZE=100,
     )
@@ -53,6 +60,7 @@ def make_valid_response(requirement_id: str = "req1", reasoning: str = "Valid ma
                             {
                                 "requirement_id": requirement_id,
                                 "status": "MATCHED",
+                                "coverage_score": 1.0,
                                 "confidence": 0.95,
                                 "evidence_ids": ["ev1"],
                                 "reasoning": reasoning,
@@ -140,7 +148,7 @@ async def test_2_groq_budget_exhausted_skips_groq_and_invokes_cerebras_immediate
         mock_sleep.assert_not_called()
 
 
-# Test 3: Groq timeout -> Cerebras called immediately after timeout
+# Test 3: Groq timeout -> Retries transient error, then Cerebras called
 @pytest.mark.asyncio
 async def test_3_groq_timeout_immediately_invokes_cerebras():
     settings = make_test_settings()
@@ -168,12 +176,12 @@ async def test_3_groq_timeout_immediately_invokes_cerebras():
         assert len(verdicts) == 1
         assert tele["provider_selected"] == "cerebras"
         assert tele["reason"] == "groq_timeout"
-        mock_groq_client.post.assert_called_once()
+        assert mock_groq_client.post.call_count == 3
         mock_cerebras_client.post.assert_called_once()
-        mock_sleep.assert_not_called()
+        assert mock_sleep.call_count >= 2
 
 
-# Test 4: Groq 429 -> Cerebras called immediately, NO retry wait
+# Test 4: Groq 429 -> Retries with backoff, then falls back to Cerebras
 @pytest.mark.asyncio
 async def test_4_groq_429_immediately_invokes_cerebras_no_retry_wait():
     settings = make_test_settings()
@@ -208,13 +216,12 @@ async def test_4_groq_429_immediately_invokes_cerebras_no_retry_wait():
         assert len(verdicts) == 1
         assert tele["provider_selected"] == "cerebras"
         assert tele["reason"] == "groq_429"
-        mock_groq_client.post.assert_called_once()
+        assert mock_groq_client.post.call_count == 3
         mock_cerebras_client.post.assert_called_once()
-        # Crucial: 429 must NOT sleep
-        mock_sleep.assert_not_called()
+        assert mock_sleep.call_count >= 2
 
 
-# Test 5: Groq 500 -> Cerebras called immediately
+# Test 5: Groq 500 -> Retries transient error, then falls back to Cerebras
 @pytest.mark.asyncio
 async def test_5_groq_500_immediately_invokes_cerebras():
     settings = make_test_settings()
@@ -238,7 +245,8 @@ async def test_5_groq_500_immediately_invokes_cerebras():
     mock_cerebras_client.post.return_value = mock_cerebras_resp
 
     with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
-         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client), \
+         patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -247,11 +255,12 @@ async def test_5_groq_500_immediately_invokes_cerebras():
         assert len(verdicts) == 1
         assert tele["provider_selected"] == "cerebras"
         assert tele["reason"] == "groq_500"
-        mock_groq_client.post.assert_called_once()
+        assert mock_groq_client.post.call_count == 3
         mock_cerebras_client.post.assert_called_once()
+        assert mock_sleep.call_count >= 2
 
 
-# Test 6: Groq network error -> Cerebras called immediately
+# Test 6: Groq network error -> Retries, then falls back to Cerebras
 @pytest.mark.asyncio
 async def test_6_groq_network_error_immediately_invokes_cerebras():
     settings = make_test_settings()
@@ -269,7 +278,8 @@ async def test_6_groq_network_error_immediately_invokes_cerebras():
     mock_cerebras_client.post.return_value = mock_cerebras_resp
 
     with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
-         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client), \
+         patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -278,11 +288,12 @@ async def test_6_groq_network_error_immediately_invokes_cerebras():
         assert len(verdicts) == 1
         assert tele["provider_selected"] == "cerebras"
         assert tele["reason"] == "groq_network_error"
-        mock_groq_client.post.assert_called_once()
+        assert mock_groq_client.post.call_count == 3
         mock_cerebras_client.post.assert_called_once()
+        assert mock_sleep.call_count >= 2
 
 
-# Test 7: Groq returns invalid/empty verdict -> Cerebras called immediately
+# Test 7: Groq returns invalid/empty verdict -> Cerebras called
 @pytest.mark.asyncio
 async def test_7_groq_empty_or_invalid_verdict_immediately_invokes_cerebras():
     settings = make_test_settings()
@@ -306,7 +317,8 @@ async def test_7_groq_empty_or_invalid_verdict_immediately_invokes_cerebras():
     mock_cerebras_client.post.return_value = mock_cerebras_resp
 
     with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
-         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -339,6 +351,7 @@ async def test_8_cerebras_succeeds_verdicts_returned():
                             {
                                 "requirement_id": "skill:1",
                                 "status": "MATCHED",
+                                "coverage_score": 1.0,
                                 "confidence": 0.94,
                                 "evidence_ids": ["ev1"],
                                 "reasoning": "High confidence Cerebras match",
@@ -356,7 +369,8 @@ async def test_8_cerebras_succeeds_verdicts_returned():
     mock_cerebras_client.post.return_value = mock_cerebras_resp
 
     with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
-         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
         reqs = [Requirement(requirement_id="skill:1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 
@@ -370,7 +384,7 @@ async def test_8_cerebras_succeeds_verdicts_returned():
         assert tele["actual_total_tokens"] == 240
 
 
-# Test 9: Both providers fail -> Existing graceful error behavior without indefinite wait
+# Test 9: Both providers fail -> Existing graceful error behavior
 @pytest.mark.asyncio
 async def test_9_both_providers_fail_graceful_handling():
     settings = make_test_settings()
@@ -383,7 +397,8 @@ async def test_9_both_providers_fail_graceful_handling():
     mock_cerebras_client.post.side_effect = httpx.ConnectError("Cerebras down")
 
     with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
-         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
         reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
         evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
 

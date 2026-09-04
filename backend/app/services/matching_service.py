@@ -16,7 +16,7 @@ import structlog
 
 from app.core.config import Settings, get_settings
 from app.schemas.matching import (
-    Evidence, LLMVerdictBatch, MatchMethod, MatchStatus, MatchVerdict,
+    Evidence, LLMVerdict, LLMVerdictBatch, MatchMethod, MatchStatus, MatchVerdict,
     Requirement, RequirementKind,
 )
 from app.services.pipeline.canonical_dictionaries import (
@@ -163,7 +163,7 @@ class RequirementBuilder:
         )
 
     @staticmethod
-    def build(job: Any, config: Any) -> list[Requirement]:
+    def build(job: Any, config: Any, classifications: dict[str, Any] | None = None) -> list[Requirement]:
         rows: list[tuple[RequirementKind, str, bool, bool]] = []
         mandatory = {_key(value) for value in (getattr(config, "mandatory_skills", None) or [])}
         preferred_skills = list(getattr(job, "preferred_skills", None) or [])
@@ -251,6 +251,7 @@ class RequirementBuilder:
             else:
                 rows.append((RequirementKind.RESPONSIBILITY, value.strip(), True, False))
 
+        class_dict = classifications or getattr(job, "requirement_classifications", None) or (getattr(job, "raw_metadata", None) or {}).get("requirement_classifications") or {}
         result: list[Requirement] = []
         seen: set[tuple[RequirementKind, str]] = set()
         counters: dict[RequirementKind, int] = {}
@@ -260,10 +261,31 @@ class RequirementBuilder:
                 continue
             seen.add(identity)
             counters[kind] = counters.get(kind, 0) + 1
+
+            # Determine importance and boilerplate signals
+            text_strip = text.strip()
+            cls_info = class_dict.get(text_strip.casefold()) or class_dict.get(_key(text_strip))
+            if cls_info:
+                importance = getattr(cls_info, "importance", None) or (cls_info.get("importance") if isinstance(cls_info, dict) else "important")
+                reasoning = getattr(cls_info, "reasoning", None) or (cls_info.get("reasoning") if isinstance(cls_info, dict) else "")
+                boilerplate = getattr(cls_info, "is_likely_boilerplate", False) or (cls_info.get("is_likely_boilerplate", False) if isinstance(cls_info, dict) else False)
+            else:
+                boilerplate = any(sa in text_strip.casefold() for sa in RequirementBuilder.SOFT_ATTRIBUTES_KEYWORDS)
+                if not required or kind == RequirementKind.CANDIDATE_ATTRIBUTE or boilerplate:
+                    importance = "minor"
+                elif hard:
+                    importance = "critical"
+                else:
+                    importance = "important"
+                reasoning = None
+
             result.append(Requirement(
                 requirement_id=f"{kind.value}:{counters[kind]}", kind=kind,
-                text=text.strip(), canonical_value=text.strip(), required=required,
+                text=text_strip, canonical_value=text_strip, required=required,
                 hard_constraint=hard,
+                importance=str(importance).lower(),
+                importance_reasoning=reasoning,
+                is_likely_boilerplate=bool(boilerplate),
             ))
         return result
 
@@ -1416,10 +1438,10 @@ class GroqTokenBudgetGate:
             try:
                 data = json.loads(user_content)
                 req_count = len(data.get("requirements", []))
-                output_estimate = max(150, req_count * 35)
+                output_estimate = max(250, req_count * 250)
             except Exception:
-                output_estimate = getattr(self.settings, "GROQ_ESTIMATED_OUTPUT_TOKENS", 350)
-        return input_tokens + output_estimate + 200
+                output_estimate = int(_get_setting_val(self.settings, "GROQ_ESTIMATED_OUTPUT_TOKENS", 350))
+        return input_tokens + output_estimate + 100
 
     async def try_reserve(self, estimated_tokens: int) -> bool:
         """
@@ -1543,6 +1565,211 @@ class GroqTokenBudgetGate:
             return retry_after
 
 
+def _parse_llm_batch_response(
+    content: Any,
+    requirements: list[Requirement],
+    finish_reason: str | None = None,
+) -> LLMVerdictBatch:
+    is_truncated = (finish_reason == "length")
+    if isinstance(content, str):
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+        try:
+            data = json.loads(cleaned)
+        except Exception as json_err:
+            parsed_json = None
+            # Truncated JSON recovery: find the last completed object in array/object
+            last_brace_idx = cleaned.rfind("}")
+            while last_brace_idx > 0 and parsed_json is None:
+                candidate = cleaned[:last_brace_idx + 1]
+                for suffix in ("]}", "]", ""):
+                    try:
+                        parsed_json = json.loads(candidate + suffix)
+                        if parsed_json:
+                            is_truncated = True
+                            logger.warning(
+                                "llm_response_truncated_max_tokens",
+                                reason="recovered_partial_objects_from_truncated_json",
+                                raw_length=len(cleaned),
+                                truncated_at_index=last_brace_idx,
+                                finish_reason=finish_reason,
+                            )
+                            break
+                    except Exception:
+                        pass
+                if parsed_json is not None:
+                    break
+                last_brace_idx = cleaned.rfind("}", 0, last_brace_idx)
+
+            if parsed_json is not None:
+                data = parsed_json
+            else:
+                logger.error("llm_response_json_parse_failed", raw_content=content[:500], error=str(json_err))
+                raise json_err
+    else:
+        data = content
+
+    raw_items: list[dict[str, Any]] = []
+    if isinstance(data, list):
+        raw_items = [item for item in data if isinstance(item, dict)]
+    elif isinstance(data, dict):
+        for candidate_key in ("verdicts", "evaluations", "results", "requirements", "classifications", "data", "items"):
+            if candidate_key in data and isinstance(data[candidate_key], list):
+                raw_items = [item for item in data[candidate_key] if isinstance(item, dict)]
+                break
+        if not raw_items and ("coverage_score" in data or "sub_claims" in data or "coverage" in data or "reasoning" in data or "requirement_id" in data):
+            raw_items = [data]
+
+    if not raw_items:
+        logger.warning("llm_response_no_verdict_items_extracted", raw_data=str(data)[:300])
+        return LLMVerdictBatch(verdicts=[])
+
+    # Build stable ID lookup maps from requirements to map each verdict safely
+    req_map_exact = {r.requirement_id: r.requirement_id for r in requirements}
+    req_map_casefold = {r.requirement_id.casefold(): r.requirement_id for r in requirements}
+    req_map_norm = {re.sub(r"[\s_#-]+", ":", r.requirement_id.casefold()): r.requirement_id for r in requirements}
+    req_map_text = {r.text.strip().casefold(): r.requirement_id for r in requirements}
+    req_map_idx = {str(i + 1): r.requirement_id for i, r in enumerate(requirements)}
+
+    validated_verdicts: list[LLMVerdict] = []
+    for idx, item in enumerate(raw_items):
+        raw_id = str(item.get("requirement_id") or item.get("id") or item.get("requirement_text") or item.get("text") or "").strip()
+        matched_id = None
+        if raw_id in req_map_exact:
+            matched_id = req_map_exact[raw_id]
+        elif raw_id.casefold() in req_map_casefold:
+            matched_id = req_map_casefold[raw_id.casefold()]
+        elif re.sub(r"[\s_#-]+", ":", raw_id.casefold()) in req_map_norm:
+            matched_id = req_map_norm[re.sub(r"[\s_#-]+", ":", raw_id.casefold())]
+        elif raw_id.casefold() in req_map_text:
+            matched_id = req_map_text[raw_id.casefold()]
+        elif raw_id in req_map_idx:
+            matched_id = req_map_idx[raw_id]
+        elif len(raw_items) == len(requirements) and idx < len(requirements):
+            matched_id = requirements[idx].requirement_id
+
+        if not matched_id and len(requirements) == 1:
+            matched_id = requirements[0].requirement_id
+
+        if matched_id:
+            item_copy = dict(item)
+            item_copy["requirement_id"] = matched_id
+            try:
+                validated_verdicts.append(LLMVerdict.model_validate(item_copy))
+            except Exception as v_err:
+                logger.warning("llm_verdict_model_validation_warning", requirement_id=matched_id, error=str(v_err))
+
+    if is_truncated or (len(validated_verdicts) < len(requirements) and finish_reason == "length"):
+        logger.warning(
+            "llm_response_truncated_max_tokens",
+            finish_reason=finish_reason,
+            requirements_sent=len(requirements),
+            verdicts_parsed=len(validated_verdicts),
+            missing_count=len(requirements) - len(validated_verdicts),
+        )
+
+    return LLMVerdictBatch(verdicts=validated_verdicts)
+
+
+def _get_setting_val(settings: Any, attr: str, default: Any) -> Any:
+    val = getattr(settings, attr, None)
+    if val is None:
+        return default
+    if type(val) is type(default):
+        return val
+    try:
+        if isinstance(default, int):
+            return int(val)
+        if isinstance(default, float):
+            return float(val)
+        if isinstance(default, str):
+            return str(val)
+        if isinstance(default, bool):
+            return bool(val)
+    except Exception:
+        pass
+    return default
+
+
+class ProviderCircuitBreaker:
+    _instance: ProviderCircuitBreaker | None = None
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self._states: dict[str, dict[str, Any]] = {
+            "groq": {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0},
+            "cerebras": {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0},
+        }
+
+    @classmethod
+    def get_breaker(cls, settings: Settings | None = None) -> ProviderCircuitBreaker:
+        if cls._instance is None:
+            cls._instance = cls(settings)
+        elif settings is not None:
+            cls._instance.settings = settings
+        return cls._instance
+
+    @classmethod
+    def reset_breaker(cls) -> None:
+        if cls._instance is not None:
+            cls._instance._states = {
+                "groq": {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0},
+                "cerebras": {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0},
+            }
+
+    @property
+    def cooldown_seconds(self) -> float:
+        return float(_get_setting_val(self.settings, "PROVIDER_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 60.0))
+
+    @property
+    def max_failures(self) -> int:
+        return int(_get_setting_val(self.settings, "PROVIDER_CIRCUIT_BREAKER_MAX_FAILURES", 2))
+
+    def can_call(self, provider: str) -> bool:
+        entry = self._states.setdefault(provider, {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0})
+        now = time.monotonic()
+        if entry["state"] == "OPEN":
+            if now - entry["last_failure_time"] >= self.cooldown_seconds:
+                entry["state"] = "HALF_OPEN"
+                logger.info("provider_circuit_breaker_half_open", provider=provider, cooldown_seconds=self.cooldown_seconds)
+                return True
+            return False
+        return True
+
+    def record_success(self, provider: str) -> None:
+        entry = self._states.setdefault(provider, {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0})
+        if entry["state"] in ("OPEN", "HALF_OPEN"):
+            logger.info("provider_circuit_breaker_closed", provider=provider)
+        entry["state"] = "CLOSED"
+        entry["failure_count"] = 0
+        entry["permanent_failures"] = 0
+
+    def record_failure(self, provider: str, status_code: int | None = None, is_permanent: bool = False, error_msg: str = "") -> None:
+        entry = self._states.setdefault(provider, {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0})
+        now = time.monotonic()
+        entry["last_failure_time"] = now
+        entry["failure_count"] += 1
+        if is_permanent or status_code in (401, 402, 403, 404):
+            entry["permanent_failures"] += 1
+
+        if is_permanent or entry["permanent_failures"] >= 1 or entry["failure_count"] >= self.max_failures:
+            old_state = entry["state"]
+            entry["state"] = "OPEN"
+            if old_state != "OPEN":
+                logger.warning(
+                    "provider_circuit_breaker_opened",
+                    provider=provider,
+                    status_code=status_code,
+                    is_permanent=is_permanent,
+                    permanent_failures=entry["permanent_failures"],
+                    total_failures=entry["failure_count"],
+                    cooldown_seconds=self.cooldown_seconds,
+                    error=error_msg,
+                )
+
+
 class GroqMatchEvaluator:
     _cache: OrderedDict[str, list[MatchVerdict]] = OrderedDict()
     _client: httpx.AsyncClient | None = None
@@ -1570,10 +1797,15 @@ class GroqMatchEvaluator:
         if not self.enabled or not requirements:
             return [], usage_stats
 
-        # Safe batch chunking to avoid LLM token overflow on large inputs (> 15 requirements)
-        if len(requirements) > 15:
+        breaker = ProviderCircuitBreaker.get_breaker(self.settings)
+        if not breaker.can_call("groq"):
+            logger.warning("groq_circuit_breaker_open_skipping_call")
+            return [], usage_stats
+
+        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
+        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
+        if len(requirements) > chunk_size:
             all_verdicts: list[MatchVerdict] = []
-            chunk_size = 12
             for i in range(0, len(requirements), chunk_size):
                 req_chunk = requirements[i:i + chunk_size]
                 chunk_allowed = {
@@ -1605,9 +1837,11 @@ class GroqMatchEvaluator:
         estimated_tokens = gate.estimate_tokens(payload)
 
         parsed: LLMVerdictBatch | None = None
-        client = self._get_client(self.settings.GROQ_TIMEOUT_SECONDS)
-        max_retries = max(1, getattr(self.settings, "GROQ_MAX_RETRIES", 2)) if allow_retries else 0
+        client = self._get_client(float(_get_setting_val(self.settings, "GROQ_TIMEOUT_SECONDS", 30.0)))
+        groq_retries = int(_get_setting_val(self.settings, "GROQ_MAX_RETRIES", 2))
+        max_retries = max(1, groq_retries) if allow_retries else 0
         total_attempts = max_retries + 1
+        resp_finish_reason: str | None = None
 
         for attempt in range(total_attempts):
             if not (attempt == 0 and pre_reserved):
@@ -1638,6 +1872,7 @@ class GroqMatchEvaluator:
                 usage_stats = {"prompt_tokens": prompt_toks, "completion_tokens": comp_toks, "total_tokens": tot_toks}
 
                 await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
+                breaker.record_success("groq")
 
                 logger.info(
                     "llm_request_completed",
@@ -1648,8 +1883,11 @@ class GroqMatchEvaluator:
                     correlation_id=digest[:8],
                 )
 
-                content = resp_json["choices"][0]["message"]["content"]
-                parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
+                choices = resp_json.get("choices", [])
+                choice = choices[0] if choices else {}
+                resp_finish_reason = choice.get("finish_reason")
+                content = choice.get("message", {}).get("content", "")
+                parsed = _parse_llm_batch_response(content, requirements, finish_reason=resp_finish_reason)
                 break
             except Exception as exc:
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -1669,6 +1907,33 @@ class GroqMatchEvaluator:
 
                 is_last_attempt = (attempt == total_attempts - 1)
 
+                resp_body = None
+                if resp_obj is not None:
+                    try:
+                        resp_body = resp_obj.text
+                    except Exception:
+                        pass
+
+                # Permanent client errors: 401/402/403/404 -> Fail fast immediately, DO NOT RETRY
+                if status_code in {400, 401, 402, 403, 404}:
+                    if status_code == 402:
+                        logger.critical(
+                            "groq_provider_billing_error — requires manual account action",
+                            provider="groq",
+                            status_code=402,
+                            response_body=resp_body,
+                        )
+                    else:
+                        logger.error(
+                            "hybrid_match_llm_client_error",
+                            attempt=attempt + 1,
+                            status_code=status_code,
+                            error_type=type(exc).__name__,
+                            response_body=resp_body,
+                        )
+                    breaker.record_failure("groq", status_code=status_code, is_permanent=True, error_msg=str(exc))
+                    raise exc
+
                 if not allow_retries:
                     logger.warning(
                         "groq_attempt_failed_fast",
@@ -1680,23 +1945,6 @@ class GroqMatchEvaluator:
                     )
                     raise exc
 
-                resp_body = None
-                if resp_obj is not None:
-                    try:
-                        resp_body = resp_obj.text
-                    except Exception:
-                        pass
-
-                if status_code in {400, 401, 403, 404}:
-                    logger.error(
-                        "hybrid_match_llm_client_error",
-                        attempt=attempt + 1,
-                        status_code=status_code,
-                        error_type=type(exc).__name__,
-                        response_body=resp_body,
-                    )
-                    break
-
                 if is_last_attempt:
                     logger.error(
                         "hybrid_match_llm_all_retries_failed",
@@ -1705,14 +1953,15 @@ class GroqMatchEvaluator:
                         error_type=type(exc).__name__,
                         response_body=resp_body,
                     )
-                    break
+                    breaker.record_failure("groq", status_code=status_code, is_permanent=False, error_msg=str(exc))
+                    raise exc
 
                 retry_after_hdr = None
                 if status_code == 429 and resp_obj is not None:
                     retry_after_hdr = resp_obj.headers.get("retry-after") or resp_obj.headers.get("Retry-After")
 
                 used_retry_after = False
-                delay = 2.0 * (2 ** attempt)
+                delay = 1.0 if attempt == 0 else 3.0
                 if retry_after_hdr:
                     try:
                         parsed_delay = float(retry_after_hdr)
@@ -1738,6 +1987,33 @@ class GroqMatchEvaluator:
         if parsed is None:
             return [], usage_stats
         validated = self._validate(parsed, requirements, evidence, allowed_evidence)
+
+        # Truncation recovery: if any requirements from the batch were omitted or truncated, evaluate missing ones
+        parsed_ids = {v.requirement_id for v in validated}
+        missing_reqs = [r for r in requirements if r.requirement_id not in parsed_ids]
+        if missing_reqs and len(validated) > 0 and len(missing_reqs) < len(requirements):
+            logger.warning(
+                "llm_response_truncated_max_tokens",
+                reason="evaluating_missing_requirements_in_sub_batch",
+                finish_reason=resp_finish_reason,
+                total_requirements=len(requirements),
+                parsed_count=len(validated),
+                missing_count=len(missing_reqs),
+                missing_ids=[r.requirement_id for r in missing_reqs],
+            )
+            missing_allowed = {
+                r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                for r in missing_reqs
+            } if allowed_evidence else None
+            missing_ev_ids = {eid for r in missing_reqs for eid in (missing_allowed.get(r.requirement_id, set()) if missing_allowed else set())}
+            missing_ev = [e for e in evidence if e.evidence_id in missing_ev_ids] if missing_ev_ids else evidence
+            sub_verdicts, sub_usage = await self.evaluate_with_usage(
+                missing_reqs, missing_ev, missing_allowed, pre_reserved=False, allow_retries=allow_retries
+            )
+            validated.extend(sub_verdicts)
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                usage_stats[k] += sub_usage.get(k, 0)
+
         self._cache[digest] = validated
         self._cache.move_to_end(digest)
         while len(self._cache) > self.settings.HYBRID_MATCHING_CACHE_SIZE:
@@ -1837,54 +2113,98 @@ class GroqMatchEvaluator:
 
             has_valid_evidence = bool(valid_cited_ids)
 
-            raw_status_str = str(getattr(item.status, "value", item.status)).upper()
+            sub_claims_val = getattr(item, "sub_claims", []) or []
+            sub_claim_evidence_val = getattr(item, "sub_claim_evidence", []) or []
+            raw_reasoning = str(getattr(item, "reasoning", "") or "").strip()
+            raw_reasoning_lower = raw_reasoning.lower()
+
+            # Negation detection to prevent score/reasoning contradictions
+            negation_phrases = (
+                "no evidence", "none of the provided", "none of the candidate", "no candidate evidence",
+                "does not mention", "doesn't mention", "no mention", "lacks ", "lacking ",
+                "not mentioned", "no relevant evidence", "no direct or adjacent",
+                "neither direct nor adjacent", "no experience mentioned", "no matching evidence",
+                "no demonstrated experience", "unmet", "zero evidence", "no transferable evidence"
+            )
+            has_negation = any(phrase in raw_reasoning_lower for phrase in negation_phrases)
+            all_subclaims_none = (
+                bool(sub_claim_evidence_val)
+                and all(isinstance(sc, dict) and sc.get("evidence_level") == "none" for sc in sub_claim_evidence_val)
+            )
+
+            # Extract coverage score
+            raw_cov = getattr(item, "coverage_score", None)
+            if raw_cov is None:
+                raw_cov = getattr(item, "coverage", None)
+
+            if raw_cov is not None:
+                coverage_val = float(raw_cov)
+            elif sub_claim_evidence_val:
+                direct_cnt = sum(1 for sc in sub_claim_evidence_val if isinstance(sc, dict) and sc.get("evidence_level") == "direct")
+                adj_cnt = sum(1 for sc in sub_claim_evidence_val if isinstance(sc, dict) and sc.get("evidence_level") == "adjacent")
+                tot = len(sub_claim_evidence_val)
+                coverage_val = (direct_cnt * 1.0 + adj_cnt * 0.5) / tot if tot > 0 else 0.0
+            else:
+                coverage_val = 0.0
+
+            raw_status_str = str(getattr(item.status, "value", item.status) if item.status is not None else "").upper()
             is_matched_raw = raw_status_str in {"MATCHED", "MATCH"}
             is_partial_raw = raw_status_str in {"PARTIALLY_MATCHED", "PARTIAL"}
             is_no_match_raw = raw_status_str in {"NO_MATCH", "UNMATCHED", "REJECTED"}
 
-            confirmed = (is_matched_raw or is_partial_raw) and item.confidence >= threshold and has_valid_evidence
+            # Contradiction Prevention Rule: If reasoning states no evidence or all subclaims are none,
+            # coverage_val MUST be 0.0 and status MUST be NO_MATCH
+            if has_negation or all_subclaims_none:
+                if coverage_val >= 0.25 or is_matched_raw or is_partial_raw:
+                    logger.warning(
+                        "score_reasoning_contradiction_corrected",
+                        requirement_id=req_id,
+                        requirement_text=req_obj.text,
+                        raw_coverage=coverage_val,
+                        raw_status=raw_status_str,
+                        raw_reasoning=raw_reasoning,
+                        reason="negation_in_reasoning_or_all_subclaims_none",
+                    )
+                coverage_val = 0.0
+                is_matched_raw = False
+                is_partial_raw = False
+                is_no_match_raw = True
 
-            if confirmed:
-                if is_partial_raw:
-                    status = MatchStatus.PARTIALLY_MATCHED
-                else:
+            importance_val = str(getattr(item, "importance", None) or getattr(req_obj, "importance", "important") or "important").lower()
+            if importance_val not in {"critical", "important", "minor"}:
+                importance_val = getattr(req_obj, "importance", "important")
+
+            # Determine final status
+            confirmed = (coverage_val >= 0.25 or is_matched_raw or is_partial_raw) and not is_no_match_raw
+
+            if confirmed and coverage_val > 0.0:
+                if coverage_val >= 0.7 or (is_matched_raw and coverage_val >= 0.5):
                     status = MatchStatus.MATCHED
+                else:
+                    status = MatchStatus.PARTIALLY_MATCHED
                 method = MatchMethod.LLM_CONFIRMED
-                reasoning = item.reasoning or "LLM confirmed requirement match from candidate evidence."
-            elif is_no_match_raw:
+                reasoning = raw_reasoning or ("LLM confirmed requirement match from candidate evidence." if status == MatchStatus.MATCHED else "Candidate shows partial / transferable evidence for requirement.")
+            elif is_no_match_raw or coverage_val == 0.0:
                 status = MatchStatus.NO_MATCH
                 method = MatchMethod.LLM_REJECTED
-                reasoning = item.reasoning or "LLM verified requirement is unmet."
+                reasoning = raw_reasoning or "LLM verified requirement is unmet."
             else:
                 status = MatchStatus.UNRESOLVED
                 method = MatchMethod.LLM_UNRESOLVED
-                if (is_matched_raw or is_partial_raw) and not has_valid_evidence:
-                    has_incompatible = any(
-                        (norm_id := self._normalize_evidence_id(raw_id, req_supplied_ids))
-                        and norm_id in evidence_by_id
-                        and not is_entity_compatible(req_obj.kind, evidence_by_id[norm_id].kind)
-                        for raw_id in raw_cited_ids
-                    )
-                    if has_incompatible:
-                        reasoning = (item.reasoning or "") + " (Rejected: Cited evidence type is incompatible with requirement entity type: cross_entity_evidence_forbidden)."
-                    else:
-                        reasoning = (item.reasoning or "") + " (Rejected: No valid candidate evidence ID cited for match)."
-                else:
-
-                    reasoning = item.reasoning or "LLM verdict unresolved by evidence validation."
-
-            coverage_val = float(getattr(item, "coverage", 1.0 if confirmed and not is_partial_raw else (0.5 if is_partial_raw else 0.0)) or (1.0 if confirmed and not is_partial_raw else 0.0))
-            if confirmed and not is_partial_raw and coverage_val < 0.45:
-                coverage_val = max(coverage_val, 0.50)
+                reasoning = raw_reasoning or "LLM verdict unresolved by evidence validation."
 
             result.append(MatchVerdict(
                 requirement_id=req_id,
                 status=status,
-                confidence=item.confidence if (confirmed or is_no_match_raw) else (item.confidence if raw_status_str == "UNRESOLVED" else 0.0),
-                evidence_ids=sorted(valid_cited_ids) if confirmed else [],
+                confidence=item.confidence if (confirmed or is_no_match_raw) else 0.0,
+                evidence_ids=sorted(valid_cited_ids) if valid_cited_ids else [],
                 reasoning=reasoning.strip(),
                 method=method,
                 coverage=coverage_val,
+                coverage_score=coverage_val,
+                importance=importance_val,
+                sub_claims=sub_claims_val,
+                sub_claim_evidence=sub_claim_evidence_val,
                 matched_concepts=getattr(item, "matched_concepts", []) or [],
                 missing_concepts=getattr(item, "missing_concepts", []) or [],
             ))
@@ -1897,11 +2217,11 @@ class GroqMatchEvaluator:
         req_list = [
             {
                 "requirement_id": r.requirement_id,
-                "kind": r.kind.value,
-                "entity_type": r.kind.value,
-                "allowed_evidence_types": sorted(list(ALLOWED_EVIDENCE_MAP.get(r.kind, set()))),
+                "requirement_type": "skill" if getattr(r.kind, "value", str(r.kind)) in {"skill", "required_skills", "preferred_skills"} else "responsibility",
+                "kind": getattr(r.kind, "value", str(r.kind)),
                 "text": r.text,
                 "required": r.required,
+                "importance": getattr(r, "importance", "important"),
                 "allowed_evidence_ids": sorted(list(allowed_evidence.get(r.requirement_id, set()))) if allowed_evidence and r.requirement_id in allowed_evidence else [],
             }
             for r in requirements
@@ -1915,32 +2235,51 @@ class GroqMatchEvaluator:
             }
             for e in evidence
         ]
-        content = json.dumps({"requirements": req_list, "evidence": ev_list})
+        content = json.dumps({"requirements": req_list, "candidate_evidence": ev_list})
         system_prompt = (
-            "You are an enterprise AI Resume Matching Evaluator. Evaluate whether supplied candidate evidence satisfies JD requirements.\n\n"
-            "STRICT ENTITY ISOLATION RULES:\n"
-            "- EDUCATION / DEGREE requirements MUST ONLY be matched against 'education' evidence. NEVER cite 'experience', 'project', or 'skills' evidence for an education requirement.\n"
-            "- EXPERIENCE requirements MUST ONLY be matched against 'experience' evidence. NEVER cite 'education' evidence for an experience requirement.\n"
-            "- You MUST NOT cite evidence_ids outside allowed_evidence_types or allowed_evidence_ids.\n\n"
-            "STATUS DEFINITIONS:\n"
-            "- MATCHED: Direct or equivalent proof satisfying requirement.\n"
-            "- PARTIALLY_MATCHED: Satisfies part of compound/complex requirement, but key part unsupported.\n"
-            "- NO_MATCH: No relevant proof.\n"
-            "- UNRESOLVED: Ambiguous or insufficient evidence.\n\n"
-            "EVALUATION RULES & HIERARCHY:\n"
-            "1. TIER 1 (Direct): Explicit mention of required skill/responsibility -> MATCHED.\n"
-            "2. TIER 2 (Semantic Equivalents): Technical equivalence, industry aliases, or standardized concepts (JWT/RBAC->auth, async/await->asynchronous, CI/CD pipelines, MongoDB/PostgreSQL->schema design, REST endpoints->REST APIs, root cause->debugging) -> MATCHED.\n"
-            "3. TIER 3 (Implementation): Practical proof in projects, experience, or internships is valid.\n"
-            "4. TIER 4 (Strict Negative Boundaries): General language (JS) NEVER satisfies framework (Next.js). React NEVER satisfies Next.js without proof. Backend NEVER satisfies Docker/AWS without proof. Do not invent evidence.\n"
-            "5. Rule 5 (Compound): Decompose compound expectations. If major portion shown but key concept missing -> PARTIALLY_MATCHED.\n"
-            "6. Rule 6 (Citations): Every MATCHED or PARTIALLY_MATCHED verdict MUST cite valid evidence_ids.\n\n"
-            "DOMAINS: Software Engineering, QA / Testing, SecOps / SOC, Data Engineering, DevOps / SRE, Compound Responsibilities.\n\n"
+            "You are evaluating how well a candidate matches job requirements. "
+            "Do not give a binary verdict. Score on a continuous scale because most real matches are partial.\n\n"
+            "INSTRUCTIONS:\n"
+            "1. If a requirement is compound (bundles multiple sub-skills or sub-duties, e.g. 'design and implement scalable microservices using REST APIs and event-driven queues'), "
+            "first mentally decompose it into its atomic sub-claims. List them in 'sub_claims'.\n\n"
+            "2. For each atomic sub-claim, check the candidate evidence for:\n"
+            "   - 'direct' = explicit tool/skill/duty match\n"
+            "   - 'adjacent' = similar tool, same domain pattern, related tech stack, or transferable duty\n"
+            "   - 'none' = no evidence\n"
+            "   Record in 'sub_claim_evidence' as list of objects: {\"claim\": \"...\", \"evidence_level\": \"direct|adjacent|none\", \"note\": \"...\"}.\n\n"
+            "3. Score each requirement 0.0–1.0 as 'coverage_score', not a yes/no:\n"
+            "   - 1.0 = full direct evidence across all sub-claims\n"
+            "   - 0.7–0.9 = most sub-claims directly evidenced, minor gaps\n"
+            "   - 0.4–0.6 = partial — either some sub-claims fully met and others missing, or all sub-claims have adjacent/transferable (not direct) evidence\n"
+            "   - 0.1–0.3 = weak — tangential relevance only, one minor sub-claim touched\n"
+            "   - 0.0 = no relevant evidence at all\n"
+            "   Do not default to 0 or 1 just because you're uncertain — estimate the most likely coverage given the evidence.\n\n"
+            "4. Rate how critical this requirement is to the role, independent of the candidate:\n"
+            "   - 'critical' = core to daily function of the role, explicitly required\n"
+            "   - 'important' = significant but role is doable without deep strength here\n"
+            "   - 'minor' = nice-to-have, tangential, or boilerplate JD language\n\n"
+            "5. Cite matching evidence_ids from candidate evidence in 'evidence_ids' when available.\n\n"
             "OUTPUT FORMAT:\n"
-            "Return JSON: {\"verdicts\":[{\"requirement_id\":\"string\",\"status\":\"MATCHED|PARTIALLY_MATCHED|NO_MATCH|UNRESOLVED\",\"confidence\":0.0-1.0,\"evidence_ids\":[\"string\"],\"reasoning\":\"1 concise sentence under 15 words.\"}]}"
+            "Return JSON: {\"verdicts\": ["
+            "  {"
+            "    \"requirement_id\": \"string\","
+            "    \"sub_claims\": [\"string\"],"
+            "    \"sub_claim_evidence\": [{\"claim\": \"string\", \"evidence_level\": \"direct|adjacent|none\", \"note\": \"string\"}],"
+            "    \"coverage_score\": 0.0,"
+            "    \"importance\": \"critical|important|minor\","
+            "    \"evidence_ids\": [\"string\"],"
+            "    \"reasoning\": \"1-2 sentence justification citing specific evidence\""
+            "  }"
+            "]}"
+        )
+        max_output_tokens = min(
+            int(_get_setting_val(self.settings, "GROQ_MAX_COMPLETION_TOKENS", 4096)),
+            max(1024, len(requirements) * 350 + 200),
         )
         return {
-            "model": self.settings.GROQ_MODEL,
+            "model": getattr(self.settings, "GROQ_MODEL", "openai/gpt-oss-20b"),
             "temperature": 0,
+            "max_tokens": max_output_tokens,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content},
@@ -2074,10 +2413,36 @@ class CerebrasMatchEvaluator:
     async def evaluate_with_usage(
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
+        allow_retries: bool = True,
     ) -> tuple[list[MatchVerdict], dict[str, int]]:
         usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         if not self.enabled or not requirements:
             return [], usage_stats
+
+        breaker = ProviderCircuitBreaker.get_breaker(self.settings)
+        if not breaker.can_call("cerebras"):
+            logger.warning("cerebras_circuit_breaker_open_skipping_call")
+            return [], usage_stats
+
+        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
+        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
+        if len(requirements) > chunk_size:
+            all_verdicts: list[MatchVerdict] = []
+            for i in range(0, len(requirements), chunk_size):
+                req_chunk = requirements[i:i + chunk_size]
+                chunk_allowed = {
+                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                    for r in req_chunk
+                } if allowed_evidence else None
+                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
+                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
+                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
+                    req_chunk, chunk_ev, chunk_allowed, allow_retries=allow_retries
+                )
+                all_verdicts.extend(chunk_verdicts)
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    usage_stats[k] += chunk_usage.get(k, 0)
+            return all_verdicts, usage_stats
 
         model_name = getattr(self.settings, "CEREBRAS_MODEL", "gpt-oss-120b")
         digest = hashlib.sha256(json.dumps({
@@ -2094,6 +2459,10 @@ class CerebrasMatchEvaluator:
 
         payload = GroqMatchEvaluator(self.settings)._payload(requirements, evidence, allowed_evidence)
         payload["model"] = model_name
+        payload["max_tokens"] = min(
+            int(_get_setting_val(self.settings, "CEREBRAS_MAX_COMPLETION_TOKENS", 4096)),
+            max(1024, len(requirements) * 350 + 200),
+        )
 
         gate = CerebrasTokenBudgetGate.get_gate(self.settings)
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
@@ -2110,64 +2479,163 @@ class CerebrasMatchEvaluator:
                 correlation_id=digest[:8],
             )
             return [], usage_stats
+
         parsed: LLMVerdictBatch | None = None
-        client = self._get_client(getattr(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
+        cerebras_timeout = float(_get_setting_val(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
+        client = self._get_client(cerebras_timeout)
+        cerebras_retries = int(_get_setting_val(self.settings, "CEREBRAS_MAX_RETRIES", 2))
+        max_retries = max(1, cerebras_retries) if allow_retries else 0
+        total_attempts = max_retries + 1
+        resp_finish_reason: str | None = None
 
-        try:
-            url = f"{getattr(self.settings, 'CEREBRAS_BASE_URL', 'https://api.cerebras.ai/v1').rstrip('/')}/chat/completions"
-            headers = {"Authorization": f"Bearer {getattr(self.settings, 'CEREBRAS_API_KEY', '')}"}
-            response = await client.post(url, headers=headers, json=payload, timeout=getattr(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
-            response.raise_for_status()
+        for attempt in range(total_attempts):
+            try:
+                base_url = str(_get_setting_val(self.settings, "CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")).rstrip("/")
+                url = f"{base_url}/chat/completions"
+                api_key = str(_get_setting_val(self.settings, "CEREBRAS_API_KEY", ""))
+                headers = {"Authorization": f"Bearer {api_key}"}
+                response = await client.post(url, headers=headers, json=payload, timeout=cerebras_timeout)
+                response.raise_for_status()
 
-            resp_json = response.json()
-            usage = resp_json.get("usage", {})
-            actual_tokens = usage.get("total_tokens")
-            prompt_toks = usage.get("prompt_tokens", 0)
-            comp_toks = usage.get("completion_tokens", 0)
-            tot_toks = actual_tokens if actual_tokens is not None else (prompt_toks + comp_toks)
-            usage_stats = {"prompt_tokens": prompt_toks, "completion_tokens": comp_toks, "total_tokens": tot_toks}
+                resp_json = response.json()
+                usage = resp_json.get("usage", {})
+                actual_tokens = usage.get("total_tokens")
+                prompt_toks = usage.get("prompt_tokens", 0)
+                comp_toks = usage.get("completion_tokens", 0)
+                tot_toks = actual_tokens if actual_tokens is not None else (prompt_toks + comp_toks)
+                usage_stats = {"prompt_tokens": prompt_toks, "completion_tokens": comp_toks, "total_tokens": tot_toks}
 
-            await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
+                await gate.record_response(estimated_tokens, response=response, actual_tokens=actual_tokens)
+                breaker.record_success("cerebras")
 
-            content = resp_json["choices"][0]["message"]["content"]
-            parsed = LLMVerdictBatch.model_validate(json.loads(content) if isinstance(content, str) else content)
-        except Exception as exc:
-            await gate.release_reservation(estimated_tokens)
-            status_code = getattr(getattr(exc, "response", None), "status_code", None)
-            resp_body = None
-            if hasattr(exc, "response") and exc.response is not None:
-                try:
-                    resp_body = exc.response.text
-                except Exception:
-                    pass
+                choices = resp_json.get("choices", [])
+                choice = choices[0] if choices else {}
+                resp_finish_reason = choice.get("finish_reason")
+                content = choice.get("message", {}).get("content", "")
+                parsed = _parse_llm_batch_response(content, requirements, finish_reason=resp_finish_reason)
+                break
+            except Exception as exc:
+                if attempt == total_attempts - 1:
+                    await gate.release_reservation(estimated_tokens)
 
-            error_type = type(exc).__name__
-            if status_code == 401:
-                error_kind = "authentication_error"
-            elif status_code == 402:
-                error_kind = "payment_required_error"
-            elif status_code == 404:
-                error_kind = "model_not_found_error"
-            elif status_code == 429:
-                error_kind = "rate_limit_error"
-            elif status_code and status_code >= 500:
-                error_kind = "server_error"
-            else:
-                error_kind = "request_failed_error"
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                resp_body = None
+                if hasattr(exc, "response") and exc.response is not None:
+                    try:
+                        resp_body = exc.response.text
+                    except Exception:
+                        pass
 
-            logger.error(
-                "cerebras_llm_request_failed",
-                provider="cerebras",
-                status_code=status_code,
-                error_type=error_type,
-                error_kind=error_kind,
-                model=model_name,
-                response_body=resp_body,
-                correlation_id=digest[:8],
-            )
-            return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                error_type = type(exc).__name__
+                if status_code == 401:
+                    error_kind = "authentication_error"
+                elif status_code == 402:
+                    error_kind = "payment_required_error"
+                elif status_code == 404:
+                    error_kind = "model_not_found_error"
+                elif status_code == 429:
+                    error_kind = "rate_limit_error"
+                elif status_code and status_code >= 500:
+                    error_kind = "server_error"
+                else:
+                    error_kind = "request_failed_error"
+
+                # Permanent errors: 402 (payment required) or 401/403/404 -> Fail fast immediately, DO NOT RETRY
+                if status_code in {400, 401, 402, 403, 404}:
+                    if status_code == 402:
+                        logger.critical(
+                            "cerebras_provider_billing_error — requires manual account action",
+                            provider="cerebras",
+                            status_code=402,
+                            error_kind="payment_required_error",
+                            response_body=resp_body,
+                            correlation_id=digest[:8],
+                        )
+                    else:
+                        logger.error(
+                            "cerebras_permanent_client_error",
+                            provider="cerebras",
+                            status_code=status_code,
+                            error_type=error_type,
+                            error_kind=error_kind,
+                            model=model_name,
+                            response_body=resp_body,
+                            correlation_id=digest[:8],
+                        )
+                    breaker.record_failure("cerebras", status_code=status_code, is_permanent=True, error_msg=str(exc))
+                    return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+                is_last_attempt = (attempt == total_attempts - 1)
+                if is_last_attempt:
+                    logger.error(
+                        "cerebras_llm_request_failed",
+                        provider="cerebras",
+                        status_code=status_code,
+                        error_type=error_type,
+                        error_kind=error_kind,
+                        model=model_name,
+                        response_body=resp_body,
+                        correlation_id=digest[:8],
+                    )
+                    breaker.record_failure("cerebras", status_code=status_code, is_permanent=False, error_msg=str(exc))
+                    return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+                retry_after_hdr = None
+                if status_code == 429 and getattr(exc, "response", None) is not None:
+                    retry_after_hdr = exc.response.headers.get("retry-after") or exc.response.headers.get("Retry-After")
+
+                delay = 1.0 if attempt == 0 else 3.0
+                if retry_after_hdr:
+                    try:
+                        parsed_delay = float(retry_after_hdr)
+                        if parsed_delay >= 0:
+                            delay = parsed_delay
+                    except (ValueError, TypeError):
+                        pass
+
+                delay = min(delay, 15.0)
+                logger.warning(
+                    "cerebras_llm_attempt_failed",
+                    attempt=attempt + 1,
+                    status_code=status_code,
+                    error_type=error_type,
+                    delay_seconds=round(delay, 2),
+                    response_body=resp_body,
+                )
+                await asyncio.sleep(delay)
+
+        if parsed is None:
+            return [], usage_stats
 
         validated = GroqMatchEvaluator(self.settings)._validate(parsed, requirements, evidence, allowed_evidence)
+
+        # Truncation recovery: if any requirements from the batch were omitted or truncated, evaluate missing ones
+        parsed_ids = {v.requirement_id for v in validated}
+        missing_reqs = [r for r in requirements if r.requirement_id not in parsed_ids]
+        if missing_reqs and len(validated) > 0 and len(missing_reqs) < len(requirements):
+            logger.warning(
+                "llm_response_truncated_max_tokens",
+                provider="cerebras",
+                reason="evaluating_missing_requirements_in_sub_batch",
+                finish_reason=resp_finish_reason,
+                total_requirements=len(requirements),
+                parsed_count=len(validated),
+                missing_count=len(missing_reqs),
+                missing_ids=[r.requirement_id for r in missing_reqs],
+            )
+            missing_allowed = {
+                r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                for r in missing_reqs
+            } if allowed_evidence else None
+            missing_ev_ids = {eid for r in missing_reqs for eid in (missing_allowed.get(r.requirement_id, set()) if missing_allowed else set())}
+            missing_ev = [e for e in evidence if e.evidence_id in missing_ev_ids] if missing_ev_ids else evidence
+            sub_verdicts, sub_usage = await self.evaluate_with_usage(
+                missing_reqs, missing_ev, missing_allowed, allow_retries=allow_retries
+            )
+            validated.extend(sub_verdicts)
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                usage_stats[k] += sub_usage.get(k, 0)
+
         self._cache[digest] = validated
         self._cache.move_to_end(digest)
         while len(self._cache) > self.settings.HYBRID_MATCHING_CACHE_SIZE:
@@ -2177,8 +2645,9 @@ class CerebrasMatchEvaluator:
     async def evaluate(
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
+        allow_retries: bool = True,
     ) -> list[MatchVerdict]:
-        verdicts, _ = await self.evaluate_with_usage(requirements, evidence, allowed_evidence)
+        verdicts, _ = await self.evaluate_with_usage(requirements, evidence, allowed_evidence, allow_retries=allow_retries)
         return verdicts
 
 
@@ -2230,6 +2699,41 @@ class SmartMatchEvaluator:
         if not requirements:
             return [], {}
 
+        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
+        if len(requirements) > chunk_size:
+            all_verdicts: list[MatchVerdict] = []
+            combined_telemetry: dict[str, Any] = {
+                "provider_selected": "groq",
+                "reason": "budget_available",
+                "actual_total_tokens": 0,
+                "actual_input_tokens": 0,
+                "actual_output_tokens": 0,
+                "llm_duration_ms": 0.0,
+                "total_resume_duration_ms": 0.0,
+                "circuit_skipped": [],
+            }
+            for i in range(0, len(requirements), chunk_size):
+                req_chunk = requirements[i:i + chunk_size]
+                chunk_allowed = {
+                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                    for r in req_chunk
+                } if allowed_evidence else None
+                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
+                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
+                c_verdicts, c_tele = await self.evaluate(req_chunk, chunk_ev, chunk_allowed, resume_id=resume_id)
+                all_verdicts.extend(c_verdicts)
+                for k in ("actual_total_tokens", "actual_input_tokens", "actual_output_tokens"):
+                    combined_telemetry[k] += c_tele.get(k, 0)
+                combined_telemetry["llm_duration_ms"] += c_tele.get("llm_duration_ms", 0.0)
+                combined_telemetry["total_resume_duration_ms"] += c_tele.get("total_resume_duration_ms", 0.0)
+                if c_tele.get("provider_selected") == "cerebras":
+                    combined_telemetry["provider_selected"] = "cerebras"
+                for p in c_tele.get("circuit_skipped", []):
+                    if p not in combined_telemetry["circuit_skipped"]:
+                        combined_telemetry["circuit_skipped"].append(p)
+            return all_verdicts, combined_telemetry
+
+        breaker = ProviderCircuitBreaker.get_breaker(self.settings)
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
 
         if hasattr(self.groq, "_payload"):
@@ -2254,9 +2758,15 @@ class SmartMatchEvaluator:
         actual_total = 0
         verdicts: list[MatchVerdict] = []
         usage: dict[str, int] = {}
+        circuit_skipped: list[str] = []
 
-        # 1. Primary Attempt: Groq (only if enabled AND budget immediately available)
-        if self.groq.enabled:
+        # 1. Primary Attempt: Groq (only if enabled, circuit CLOSED, and budget available)
+        groq_can_call = self.groq.enabled and breaker.can_call("groq")
+        if not groq_can_call and self.groq.enabled:
+            circuit_skipped.append("groq")
+            logger.warning("groq_circuit_open_skipping_primary", resume_id=resume_id)
+
+        if groq_can_call:
             can_reserve = await groq_gate.try_reserve(estimated_tokens)
             if can_reserve:
                 provider_selected = "groq"
@@ -2272,7 +2782,7 @@ class SmartMatchEvaluator:
                 t0 = time.monotonic()
                 try:
                     verdicts, usage = await self._invoke_evaluator(
-                        self.groq, requirements, evidence, allowed_evidence, pre_reserved=True, allow_retries=False
+                        self.groq, requirements, evidence, allowed_evidence, pre_reserved=True, allow_retries=True
                     )
                     wait_ms = (time.monotonic() - t0) * 1000.0
 
@@ -2309,17 +2819,21 @@ class SmartMatchEvaluator:
 
                     selection_reason = reason
                     fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
+                    cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
+                    if not cerebras_can_call and self.cerebras.enabled:
+                        circuit_skipped.append("cerebras")
+
                     logger.warning(
                         "llm_provider_fallback",
-                        provider_selected="cerebras",
+                        provider_selected="cerebras" if cerebras_can_call else "none",
                         reason=reason,
-                        fallback_provider="cerebras" if self.cerebras.enabled else "none",
+                        fallback_provider="cerebras" if cerebras_can_call else "none",
                         error=str(exc),
                         error_type=type(exc).__name__,
                         resume_id=resume_id,
-                        fallback_available=self.cerebras.enabled,
+                        fallback_available=cerebras_can_call,
                     )
-                    if self.cerebras.enabled:
+                    if cerebras_can_call:
                         provider_selected = "cerebras"
                         logger.info(
                             "llm_fallback_to_cerebras_started",
@@ -2330,18 +2844,19 @@ class SmartMatchEvaluator:
                         t1 = time.monotonic()
                         try:
                             verdicts, usage = await self._invoke_evaluator(
-                                self.cerebras, requirements, evidence, allowed_evidence
+                                self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
                             )
                             wait_ms += (time.monotonic() - t1) * 1000.0
-                            logger.info(
-                                "llm_request_handled_by_cerebras_fallback",
-                                provider_selected="cerebras",
-                                fallback=True,
-                                status="success",
-                                resume_id=resume_id,
-                                verdicts_count=len(verdicts),
-                                duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
-                            )
+                            if verdicts:
+                                logger.info(
+                                    "llm_request_handled_by_cerebras_fallback",
+                                    provider_selected="cerebras",
+                                    fallback=True,
+                                    status="success",
+                                    resume_id=resume_id,
+                                    verdicts_count=len(verdicts),
+                                    duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
+                                )
                         except Exception as c_exc:
                             logger.error(
                                 "cerebras_fallback_also_failed",
@@ -2353,19 +2868,23 @@ class SmartMatchEvaluator:
                     else:
                         verdicts = []
             else:
-                # Groq budget unavailable -> DO NOT WAIT, immediately invoke Cerebras fallback
-                provider_selected = "cerebras"
+                # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
+                cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
+                if not cerebras_can_call and self.cerebras.enabled:
+                    circuit_skipped.append("cerebras")
+
+                provider_selected = "cerebras" if cerebras_can_call else "none"
                 selection_reason = "groq_budget_exhausted"
                 fallback_reason = "groq_budget_exhausted"
                 logger.warning(
                     "llm_provider_selected",
-                    provider_selected="cerebras",
+                    provider_selected=provider_selected,
                     reason="groq_budget_exhausted",
                     estimated_tokens=estimated_tokens,
                     available_tokens=groq_available,
                     resume_id=resume_id,
                 )
-                if self.cerebras.enabled:
+                if cerebras_can_call:
                     logger.info(
                         "llm_fallback_to_cerebras_started",
                         provider_selected="cerebras",
@@ -2375,18 +2894,19 @@ class SmartMatchEvaluator:
                     t1 = time.monotonic()
                     try:
                         verdicts, usage = await self._invoke_evaluator(
-                            self.cerebras, requirements, evidence, allowed_evidence
+                            self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
                         )
                         wait_ms = (time.monotonic() - t1) * 1000.0
-                        logger.info(
-                            "llm_request_handled_by_cerebras_fallback",
-                            provider_selected="cerebras",
-                            fallback=True,
-                            status="success",
-                            resume_id=resume_id,
-                            verdicts_count=len(verdicts),
-                            duration_ms=round(wait_ms, 2),
-                        )
+                        if verdicts:
+                            logger.info(
+                                "llm_request_handled_by_cerebras_fallback",
+                                provider_selected="cerebras",
+                                fallback=True,
+                                status="success",
+                                resume_id=resume_id,
+                                verdicts_count=len(verdicts),
+                                duration_ms=round(wait_ms, 2),
+                            )
                     except Exception as c_exc:
                         logger.error(
                             "cerebras_fallback_also_failed",
@@ -2396,34 +2916,35 @@ class SmartMatchEvaluator:
                         )
                         verdicts = []
                 else:
-                    logger.error("groq_budget_exhausted_and_cerebras_disabled", resume_id=resume_id)
+                    logger.error("groq_budget_exhausted_and_cerebras_unavailable", resume_id=resume_id, circuit_skipped=circuit_skipped)
                     verdicts = []
-        elif self.cerebras.enabled:
-            # Groq is not configured/enabled; using Cerebras as fallback
+        elif self.cerebras.enabled and breaker.can_call("cerebras"):
+            # Groq is not configured or circuit open; using Cerebras
             provider_selected = "cerebras"
-            selection_reason = "groq_not_enabled"
-            fallback_reason = "groq_not_enabled"
+            selection_reason = "groq_circuit_open" if self.groq.enabled else "groq_not_enabled"
+            fallback_reason = selection_reason
             logger.info(
                 "llm_provider_selected",
                 provider_selected="cerebras",
-                reason="groq_not_enabled",
+                reason=selection_reason,
                 resume_id=resume_id,
             )
             t0 = time.monotonic()
             try:
                 verdicts, usage = await self._invoke_evaluator(
-                    self.cerebras, requirements, evidence, allowed_evidence
+                    self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
                 )
                 wait_ms = (time.monotonic() - t0) * 1000.0
-                logger.info(
-                    "llm_request_handled_by_cerebras_fallback",
-                    provider_selected="cerebras",
-                    fallback=True,
-                    status="success",
-                    resume_id=resume_id,
-                    verdicts_count=len(verdicts),
-                    duration_ms=round(wait_ms, 2),
-                )
+                if verdicts:
+                    logger.info(
+                        "llm_request_handled_by_cerebras_fallback",
+                        provider_selected="cerebras",
+                        fallback=True,
+                        status="success",
+                        resume_id=resume_id,
+                        verdicts_count=len(verdicts),
+                        duration_ms=round(wait_ms, 2),
+                    )
             except Exception as c_exc:
                 logger.error(
                     "cerebras_request_failed",
@@ -2453,20 +2974,38 @@ class SmartMatchEvaluator:
             "llm_duration_ms": round(llm_duration_ms, 2),
             "total_resume_duration_ms": round(llm_duration_ms, 2),
             "fallback_reason": fallback_reason,
+            "circuit_skipped": circuit_skipped,
         }
 
         logger.info("resume_llm_routing_telemetry", **telemetry)
+
+        # One-line run summary metric for logging & monitoring
+        logger.info(
+            "llm_evaluation_run_summary",
+            resume_id=resume_id,
+            total_requirements=len(requirements),
+            verdicts_count=len(verdicts),
+            provider_selected=provider_selected,
+            fallback_used=(provider_selected == "cerebras" or fallback_reason != "none"),
+            circuit_skipped=circuit_skipped,
+            eval_failed_count=sum(1 for v in verdicts if getattr(v, "status", None) == MatchStatus.EVALUATION_FAILED),
+            duration_ms=round(llm_duration_ms, 2),
+        )
+
         return verdicts, telemetry
 
 
 class ResumeQueueScheduler:
-    """Concurrency manager limiting active resume evaluations to MAX_CONCURRENT_RESUMES (default 3)."""
-    def __init__(self, max_concurrent: int = 3) -> None:
+    """Concurrency manager limiting active resume evaluations to MAX_CONCURRENT_RESUMES (default 3) with request pacing."""
+    def __init__(self, max_concurrent: int = 3, throttle_seconds: float = 0.0) -> None:
         self.max_concurrent = max_concurrent
+        self.throttle_seconds = throttle_seconds
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
     async def run_resume_task(self, resume_id: str, task_coro: Any) -> Any:
         async with self.semaphore:
+            if self.throttle_seconds > 0:
+                await asyncio.sleep(self.throttle_seconds)
             logger.info("resume_scheduler_task_started", resume_id=resume_id, max_concurrent=self.max_concurrent)
             res = await task_coro
             logger.info("resume_scheduler_task_completed", resume_id=resume_id)
@@ -2498,6 +3037,11 @@ class HybridMatchingService:
                 continue
             # Rule 1: Canonical / deterministic success -> MATCHED -> STOP (Do NOT call LLM)
             if verdict.status == MatchStatus.MATCHED:
+                verdict.coverage = 1.0
+                verdict.coverage_score = 1.0
+                verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                verdict.sub_claims = [requirement.text]
+                verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / alias canonical match."}]
                 logger.info(
                     "matching_routing_decision",
                     requirement_id=requirement.requirement_id,
@@ -2529,6 +3073,11 @@ class HybridMatchingService:
                 # Rule 3: Canonical fails + genuinely NO candidate evidence -> NO_MATCH (0 LLM calls)
                 allowed_evidence[requirement.requirement_id] = set()
                 verdict.status = MatchStatus.NO_MATCH
+                verdict.coverage = 0.0
+                verdict.coverage_score = 0.0
+                verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                verdict.sub_claims = [requirement.text]
+                verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No candidate evidence available."}]
                 verdict.reasoning = "No candidate evidence available for prefilter."
                 logger.info(
                     "matching_routing_decision",
@@ -2556,7 +3105,39 @@ class HybridMatchingService:
         else:
             llm = []
         llm_by_id = {item.requirement_id: item for item in llm}
-        fused = [llm_by_id.get(item.requirement_id, item) for item in deterministic]
+        unresolved_ids = {item.requirement_id for item in unresolved}
+        fused = []
+        for item in deterministic:
+            req_id = item.requirement_id
+            if req_id in llm_by_id:
+                fused.append(llm_by_id[req_id])
+            elif req_id in unresolved_ids:
+                req_obj = requirement_by_id.get(req_id)
+                logger.error(
+                    "llm_evaluation_failed_for_requirement",
+                    requirement_id=req_id,
+                    requirement_text=getattr(req_obj, "text", ""),
+                    resume_id=resume_id,
+                    error="llm_evaluation_omitted_or_failed",
+                )
+                failed_verdict = MatchVerdict(
+                    requirement_id=req_id,
+                    requirement_text=getattr(req_obj, "text", None),
+                    kind=getattr(req_obj, "kind", None),
+                    status=MatchStatus.EVALUATION_FAILED,
+                    confidence=0.0,
+                    evidence_ids=[],
+                    reasoning="AI evaluation could not be completed for this requirement (provider failure or timeout).",
+                    method=MatchMethod.EVALUATION_FAILED,
+                    coverage=0.0,
+                    coverage_score=0.0,
+                    importance=getattr(req_obj, "importance", "important") if req_obj else "important",
+                    sub_claims=[getattr(req_obj, "text", "")] if req_obj else [],
+                    sub_claim_evidence=[{"claim": getattr(req_obj, "text", ""), "evidence_level": "none", "note": "Evaluation failed."}] if req_obj else [],
+                )
+                fused.append(failed_verdict)
+            else:
+                fused.append(item)
         projects = EvidenceBuilder._projects(extracted)
         for project in projects:
             project["technologies"] = list(project.get("technologies") or [])

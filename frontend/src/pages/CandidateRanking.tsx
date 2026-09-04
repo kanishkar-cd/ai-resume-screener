@@ -305,136 +305,176 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
 
 
 
-              {/* Total Match Score Hero Card (100% Backend Weightage Model) */}
-              <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-4 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                      Total Match Score
-                    </span>
-                    <div className="flex items-baseline gap-1.5 mt-0.5">
-                      <span className="text-3xl font-black tracking-tight text-slate-900">
-                        {Number(candidate.overallScore ?? 0).toFixed(1)}%
-                      </span>
-                      <span className="text-[11px] font-semibold text-slate-400">/ 100</span>
-                    </div>
-                  </div>
+              {(() => {
+                const getDetail = (key: string, fallbackWeight: number) => {
+                  const scoreObj = candidate.scores?.find((s) => s.criterionId === key)
+                  const bItem = candidate.scoreBreakdown?.find((b) => b.category === key || (key === 'skills' && b.category === 'required_skills'))
+                  const weightVal = scoreObj?.weight !== undefined ? scoreObj.weight : (bItem?.effective_weight ?? fallbackWeight)
+                  const rawScore = scoreObj?.score ?? bItem?.component_score ?? 0
+                  const isInactive = weightVal === 0 || (bItem && !bItem.is_applicable && bItem.effective_weight === 0) || (scoreObj && !scoreObj.isApplicable && scoreObj.weight === 0)
+                  const scoreVal = isInactive ? 0 : rawScore
+                  const contributionVal = isInactive ? 0 : (scoreObj?.weightedScore ?? bItem?.contribution ?? ((scoreVal * weightVal) / 100))
+                  return { scoreVal, weightVal, contributionVal }
+                }
 
-                  {/* Recommendation Status Badge */}
-                  <div className="text-right">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-xs ${
-                        candidate.isKnockedOut
-                          ? 'bg-red-100 text-red-800 border border-red-200'
-                          : candidate.recommendation === 'SHORTLIST'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : candidate.recommendation === 'REVIEW'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-slate-100 text-slate-700 border border-slate-200'
-                      }`}
-                    >
-                      {candidate.isKnockedOut ? 'Knocked Out' : candidate.recommendation || 'Evaluated'}
-                    </span>
-                    <p className="text-[9.5px] font-medium text-slate-400 mt-1">
-                      Pass Threshold: {candidate.passingScore ?? 70}%
-                    </p>
-                  </div>
-                </div>
+                const skillsDetail = getDetail('skills', 50)
+                const respDetail = getDetail('responsibilities', 50)
+                const skillsPts = Number(skillsDetail.contributionVal)
+                const respPts = Number(respDetail.contributionVal)
+                const totalScore = Number(candidate.overallScore ?? (skillsPts + respPts))
 
-                {/* Overall Progress Bar */}
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden p-0.5">
-                  <motion.div
-                    className={`h-full rounded-full ${
-                      (candidate.overallScore ?? 0) >= 70
-                        ? 'bg-emerald-500'
-                        : (candidate.overallScore ?? 0) >= 50
-                        ? 'bg-blue-600'
-                        : 'bg-amber-500'
-                    }`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, Math.max(0, candidate.overallScore ?? 0))}%` }}
-                    transition={{ duration: 0.6, ease: 'easeOut' }}
-                  />
-                </div>
+                return (
+                  <>
+                    {/* Total Match Score Hero Card (100% Backend Weightage Model) */}
+                    <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-4 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                            Total Match Score
+                          </span>
+                          <div className="flex items-baseline gap-1.5 mt-0.5">
+                            <span className="text-3xl font-black tracking-tight text-slate-900">
+                              {totalScore.toFixed(1)}%
+                            </span>
+                            <span className="text-[11px] font-semibold text-slate-400">/ 100</span>
+                          </div>
+                        </div>
 
-                {/* Formula Breakdown Indicator */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-500 font-medium">
-                  <span>Backend Weightage: 45% Skills + 40% Resp + 15% Pref</span>
-                  <span className="font-semibold text-slate-700">
-                    Total: {Number(candidate.overallScore ?? 0).toFixed(1)}%
-                  </span>
-                </div>
-              </div>
+                        {/* Recommendation Status Badge */}
+                        <div className="text-right">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-xs ${
+                              candidate.isKnockedOut
+                                ? 'bg-red-100 text-red-800 border border-red-200'
+                                : candidate.recommendation === 'SHORTLIST'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : candidate.recommendation === 'REVIEW'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {candidate.isKnockedOut ? 'Knocked Out' : candidate.recommendation || 'Evaluated'}
+                          </span>
+                          <p className="text-[9.5px] font-medium text-slate-400 mt-1">
+                            Pass Threshold: {candidate.passingScore ?? 70}%
+                          </p>
+                        </div>
+                      </div>
 
-              {/* Backend Component Scoring Breakdown (100% Model) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
-                    Component Scoring Breakdown
-                  </p>
-                </div>
-                
-                {(() => {
-                  const getDetail = (key: string, fallbackWeight: number) => {
-                    const scoreObj = candidate.scores.find((s) => s.criterionId === key)
-                    const bItem = candidate.scoreBreakdown?.find((b) => b.category === key || (key === 'skills' && b.category === 'required_skills'))
-                    const weightVal = scoreObj?.weight !== undefined ? scoreObj.weight : (bItem?.effective_weight ?? fallbackWeight)
-                    const rawScore = scoreObj?.score ?? bItem?.component_score ?? 0
-                    const isInactive = weightVal === 0 || (bItem && !bItem.is_applicable && bItem.effective_weight === 0) || (scoreObj && !scoreObj.isApplicable && scoreObj.weight === 0)
-                    const scoreVal = isInactive ? 0 : rawScore
-                    const contributionVal = isInactive ? 0 : (scoreObj?.weightedScore ?? bItem?.contribution ?? ((scoreVal * weightVal) / 100))
-                    return { scoreVal, weightVal, contributionVal }
-                  }
+                      {/* Overall Progress Bar */}
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden p-0.5">
+                        <motion.div
+                          className={`h-full rounded-full ${
+                            totalScore >= 70
+                              ? 'bg-emerald-500'
+                              : totalScore >= 50
+                              ? 'bg-blue-600'
+                              : 'bg-amber-500'
+                          }`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(100, Math.max(0, totalScore))}%` }}
+                          transition={{ duration: 0.6, ease: 'easeOut' }}
+                        />
+                      </div>
 
-                  const componentsList = [
-                    { key: 'skills', label: 'Required Skills', defaultWeight: 45 },
-                    { key: 'responsibilities', label: 'Responsibilities', defaultWeight: 40 },
-                    { key: 'preferred_skills', label: 'Preferred Skills', defaultWeight: 15 },
-                  ]
-
-                  return (
-                    <div className="space-y-2.5">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {componentsList.map((c) => {
-                          const { scoreVal, weightVal, contributionVal } = getDetail(c.key, c.defaultWeight)
-                          const roundedScore = Math.round(scoreVal)
-                          const roundedContrib = Number(contributionVal).toFixed(1)
-
-                          return (
-                            <div
-                              key={c.key}
-                              className="bg-slate-50/80 border border-slate-100 rounded-xl p-2.5 space-y-1.5 hover:border-blue-200 transition-colors"
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[11px] text-slate-700 font-bold truncate">
-                                  {c.label}
-                                </span>
-                                <span className="text-[12px] font-extrabold text-slate-800 shrink-0">
-                                  {roundedScore}%
-                                </span>
-                              </div>
-                              <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
-                                <motion.div
-                                  className={`h-full rounded-full ${
-                                    roundedScore >= 50 ? 'bg-emerald-500' : 'bg-amber-500'
-                                  }`}
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${Math.min(100, Math.max(0, roundedScore))}%` }}
-                                  transition={{ duration: 0.5 }}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between text-[9.5px] text-slate-500">
-                                <span>Weight: {Math.round(weightVal)}%</span>
-                                <span>Contr: {roundedContrib}%</span>
-                              </div>
-                            </div>
-                          )
-                        })}
+                      {/* 50 + 50 Score Addition Formula */}
+                      <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200/80 text-emerald-900 font-semibold shadow-2xs">
+                            <span className="text-slate-600 font-medium text-[11px]">Skills:</span>
+                            <span className="font-black text-emerald-700 text-[12.5px]">{skillsPts.toFixed(1)}</span>
+                            <span className="text-[10px] font-bold text-slate-400">/ 50</span>
+                          </div>
+                          <span className="text-slate-400 font-black text-sm px-0.5">+</span>
+                          <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200/80 text-blue-900 font-semibold shadow-2xs">
+                            <span className="text-slate-600 font-medium text-[11px]">Responsibilities:</span>
+                            <span className="font-black text-blue-700 text-[12.5px]">{respPts.toFixed(1)}</span>
+                            <span className="text-[10px] font-bold text-slate-400">/ 50</span>
+                          </div>
+                        </div>
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100/90 border border-slate-200/80 font-bold">
+                          <span className="text-slate-400 font-bold">=</span>
+                          <span className="text-slate-900 font-black text-[13px]">{totalScore.toFixed(1)}</span>
+                          <span className="text-[10.5px] text-slate-500 font-semibold">/ 100</span>
+                        </div>
                       </div>
                     </div>
-                  )
-                })()}
-              </div>
+
+                    {/* Backend Component Scoring Breakdown (50 / 50 Model) */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+                          Component Scoring Breakdown
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Skills Card */}
+                        <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-2.5 space-y-1.5 hover:border-emerald-200 transition-colors">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[11px] text-slate-700 font-bold truncate">
+                              Required Skills
+                            </span>
+                            <div className="flex items-baseline gap-0.5 shrink-0">
+                              <span className="text-[13px] font-black text-emerald-700">
+                                {skillsPts.toFixed(1)}
+                              </span>
+                              <span className="text-[10.5px] font-bold text-slate-400">
+                                / 50
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+                            <motion.div
+                              className={`h-full rounded-full ${
+                                Math.round(skillsDetail.scoreVal) >= 50 ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min(100, Math.max(0, Math.round(skillsDetail.scoreVal)))}%` }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[9.5px] text-slate-500">
+                            <span>Match: {Math.round(skillsDetail.scoreVal)}%</span>
+                            <span>Weight: {Math.round(skillsDetail.weightVal)}% (50 pts)</span>
+                          </div>
+                        </div>
+
+                        {/* Responsibilities Card */}
+                        <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-2.5 space-y-1.5 hover:border-blue-200 transition-colors">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[11px] text-slate-700 font-bold truncate">
+                              Roles & Responsibilities
+                            </span>
+                            <div className="flex items-baseline gap-0.5 shrink-0">
+                              <span className="text-[13px] font-black text-blue-700">
+                                {respPts.toFixed(1)}
+                              </span>
+                              <span className="text-[10.5px] font-bold text-slate-400">
+                                / 50
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+                            <motion.div
+                              className={`h-full rounded-full ${
+                                Math.round(respDetail.scoreVal) >= 50 ? 'bg-blue-600' : 'bg-amber-500'
+                              }`}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min(100, Math.max(0, Math.round(respDetail.scoreVal)))}%` }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between text-[9.5px] text-slate-500">
+                            <span>Match: {Math.round(respDetail.scoreVal)}%</span>
+                            <span>Weight: {Math.round(respDetail.weightVal)}% (50 pts)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* Requirement-level AI verdicts and reasoning */}
               {(candidate.matchVerdicts?.length ?? 0) > 0 && (
@@ -442,39 +482,109 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                   <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">AI Requirement Evaluation & Reasoning</p>
                   <div className="space-y-2">
                     {candidate.matchVerdicts!.map((verdict) => {
-                      const isMatched = verdict.status === 'MATCHED'
-                      const isNoMatch = verdict.status === 'NO_MATCH'
+                      const coverageVal = verdict.coverage_score !== undefined 
+                        ? verdict.coverage_score 
+                        : (verdict.coverage !== undefined 
+                            ? verdict.coverage 
+                            : (verdict.status === 'MATCHED' ? 1.0 : (verdict.status === 'NO_MATCH' ? 0.0 : 0.5)))
+                      const coveragePct = Math.round(coverageVal * 100)
+                      const isHighMatch = coverageVal >= 0.85
+                      const isPartial = coverageVal >= 0.35 && coverageVal < 0.85
+                      const isWeak = coverageVal > 0 && coverageVal < 0.35
+                      const isZero = coverageVal === 0
+
                       const reqText = (verdict as any).requirement_text || requirementLabels.get(verdict.requirement_id) || verdict.requirement_id
-                      const method = verdict.method || ''
-                      const isLlm = typeof method === 'string' && method.toLowerCase().includes('llm')
-                      
+                      const imp = (verdict.importance || 'important').toLowerCase()
+
                       return (
                         <div
                           key={verdict.requirement_id}
-                          className={`rounded-xl border p-3.5 space-y-1.5 transition-all ${
-                            isMatched
+                          className={`rounded-xl border p-3.5 space-y-2 transition-all ${
+                            isHighMatch
                               ? 'bg-emerald-50/40 border-emerald-100'
-                              : isNoMatch
-                              ? 'bg-rose-50/30 border-rose-100'
-                              : 'bg-slate-50 border-slate-100'
+                              : isPartial
+                              ? 'bg-blue-50/40 border-blue-100'
+                              : isWeak
+                              ? 'bg-amber-50/30 border-amber-100'
+                              : 'bg-rose-50/30 border-rose-100'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-[12px] font-semibold text-slate-800 leading-snug">{reqText}</p>
-                            <span
-                              className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                                isMatched
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : isNoMatch
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : 'bg-slate-200 text-slate-700'
-                              }`}
-                            >
-                              {isMatched ? (isLlm ? 'AI Confirmed' : 'Matched') : isNoMatch ? (isLlm ? 'AI Unmet' : 'Unmet') : 'Unresolved'}
-                            </span>
+                            <div className="space-y-1">
+                              <p className="text-[12px] font-semibold text-slate-800 leading-snug">{reqText}</p>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {imp === 'critical' && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-200 uppercase tracking-wider">
+                                    Critical (×3)
+                                  </span>
+                                )}
+                                {imp === 'important' && (
+                                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                    Important (×2)
+                                  </span>
+                                )}
+                                {imp === 'minor' && (
+                                  <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                    Minor (×1)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Continuous Coverage Badge */}
+                            {verdict.status === 'EVALUATION_FAILED' || verdict.method === 'evaluation_failed' ? (
+                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                                AI Review Unavailable
+                              </span>
+                            ) : (
+                              <span
+                                className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-md tracking-wider ${
+                                  isHighMatch
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    : isPartial
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                    : isWeak
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                }`}
+                              >
+                                {isHighMatch ? `${coveragePct}% Match` : isPartial ? `Partial ${coveragePct}%` : isWeak ? `Weak ${coveragePct}%` : 'Unmet 0%'}
+                              </span>
+                            )}
                           </div>
+
+                          {/* Sub-claim atomic breakdown if available */}
+                          {verdict.sub_claim_evidence && verdict.sub_claim_evidence.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {verdict.sub_claim_evidence.map((sub, idx) => (
+                                <span
+                                  key={idx}
+                                  className={`inline-flex items-center gap-1 text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${
+                                    sub.evidence_level === 'direct'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : sub.evidence_level === 'adjacent'
+                                      ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                      : 'bg-slate-100 text-slate-500 border-slate-200 line-through decoration-slate-400'
+                                  }`}
+                                  title={sub.note || sub.claim}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      sub.evidence_level === 'direct'
+                                        ? 'bg-emerald-500'
+                                        : sub.evidence_level === 'adjacent'
+                                        ? 'bg-blue-500'
+                                        : 'bg-slate-400'
+                                    }`}
+                                  />
+                                  {sub.claim}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                           {verdict.reasoning && (
-                            <p className="text-[11.5px] text-slate-600 leading-relaxed bg-white/70 rounded-lg p-2 border border-slate-100">
+                            <p className="text-[11px] text-slate-600 leading-relaxed bg-white/80 rounded-lg p-2 border border-slate-100">
                               <span className="font-semibold text-slate-700 mr-1">AI Reason:</span>
                               {verdict.reasoning}
                             </p>
@@ -589,7 +699,7 @@ export default function CandidateRanking() {
             const explanation = detail.explanation || ''
             const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
             const weightKey = key === 'skills' ? 'required_skills' : key
-            const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 45 : key === 'responsibilities' ? 40 : key === 'preferred_skills' ? 15 : 0)
+            const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 50 : key === 'responsibilities' ? 50 : 0)
             const finalScore = (effectiveWeight === 0 || !isApplicable) ? 0 : (detail.score ?? 0)
             const weightedScore = (persistedScore.weighted_scores as any)?.[key] ?? (finalScore * effectiveWeight / 100)
             return {
@@ -619,7 +729,7 @@ export default function CandidateRanking() {
     if (!state.projectId) { setRankingsLoading(false); return }
     let active = true
     setRankingsLoading(true)
-    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { required_skills: 45, responsibilities: 40, preferred_skills: 15, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
+    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { required_skills: 50, responsibilities: 50, preferred_skills: 0, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
 
     const loadData = async () => {
       try {

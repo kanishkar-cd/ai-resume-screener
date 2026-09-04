@@ -104,8 +104,10 @@ class ScoringEngineFacade:
         norm_map = {n.document_id: n for n in norm_models}
         ext_map = {e.document_id: e for e in ext_models}
 
-        max_concurrent = getattr(get_settings(), "MAX_CONCURRENT_RESUMES", 3)
-        scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent)
+        settings = get_settings()
+        max_concurrent = getattr(settings, "MAX_CONCURRENT_RESUMES", 3)
+        throttle_seconds = getattr(settings, "LLM_BATCH_THROTTLE_SECONDS", 0.25)
+        scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent, throttle_seconds=throttle_seconds)
 
         from unittest.mock import AsyncMock, MagicMock
         is_mock = isinstance(self.scores, (MagicMock, AsyncMock))

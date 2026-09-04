@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class WeightDistribution(BaseModel):
-    required_skills: float = Field(default=45.0, ge=0.0, le=100.0)
-    responsibilities: float = Field(default=40.0, ge=0.0, le=100.0)
-    preferred_skills: float = Field(default=15.0, ge=0.0, le=100.0)
+    required_skills: float = Field(default=50.0, ge=0.0, le=100.0)
+    responsibilities: float = Field(default=50.0, ge=0.0, le=100.0)
+    preferred_skills: float = Field(default=0.0, ge=0.0, le=100.0)
     skills: float | None = None
     experience: float = 0.0
     projects: float = 0.0

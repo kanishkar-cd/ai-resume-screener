@@ -5,9 +5,9 @@ from app.schemas.scoring import ComponentScores, WeightedScores
 
 # Authoritative default business weights summing to exactly 100.0%
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "required_skills": 45.0,
-    "responsibilities": 40.0,
-    "preferred_skills": 15.0,
+    "required_skills": 50.0,
+    "responsibilities": 50.0,
+    "preferred_skills": 0.0,
     "certifications": 0.0,
     "experience": 0.0,
     "education": 0.0,
@@ -44,7 +44,16 @@ class WeightCalculationService:
 
         has_skills = bool((getattr(job, "skills", None) or []) or (getattr(job, "required_skills", None) or []) or mandatory_skills)
         has_resp = bool(getattr(job, "responsibilities", None) or [])
-        has_pref = bool(getattr(job, "preferred_skills", None) or [])
+        cfg_pref_w = 0.0
+        if config is not None:
+            weights_cfg = getattr(config, "weights", None)
+            if isinstance(weights_cfg, dict):
+                cfg_pref_w = float(weights_cfg.get("preferred_skills") or 0.0)
+            elif hasattr(weights_cfg, "preferred_skills"):
+                cfg_pref_w = float(getattr(weights_cfg, "preferred_skills") or 0.0)
+            elif hasattr(config, "preferred_skills_weight"):
+                cfg_pref_w = float(getattr(config, "preferred_skills_weight") or 0.0)
+        has_pref = bool(getattr(job, "preferred_skills", None) or []) and cfg_pref_w > 0.0
 
         return {
             name for name, applies in {
@@ -68,9 +77,8 @@ class WeightCalculationService:
     ) -> tuple[WeightedScores, float, float, dict[str, float]]:
         """
         Calculate weighted score using authoritative business weights:
-        - Required Skills: 45%
-        - Responsibilities: 40%
-        - Preferred Skills: 15%
+        - Required Skills: 50%
+        - Responsibilities: 50%
         All other categories: 0% (serve as evidence only).
         Total: 100%
 
@@ -93,7 +101,7 @@ class WeightCalculationService:
                 resp_in_cfg = "responsibilities" in cfg_weights
 
                 if has_legacy_weights and not resp_in_cfg:
-                    # Obsolete legacy project configuration: safely fall back to authoritative default 45/40/15
+                    # Obsolete legacy project configuration: safely fall back to authoritative default 50/50
                     weights = dict(DEFAULT_WEIGHTS)
                 else:
                     req_val = cfg_weights.get("required_skills", cfg_weights.get("skills"))
@@ -160,8 +168,8 @@ class WeightCalculationService:
                 return cat_name in applicable_categories
             if comp_detail is None:
                 return False
-            # If not in the 3 scored categories, it is not an active scoring category
-            if cat_name not in ("required_skills", "responsibilities", "preferred_skills"):
+            # If not in the scored categories with positive weight, it is not an active scoring category
+            if weights.get(cat_name, 0.0) <= 0.0:
                 return False
             explanation = str(getattr(comp_detail, "explanation", "") or "").casefold()
             is_na = "(n/a)" in explanation or ("no " in explanation and "configured" in explanation)

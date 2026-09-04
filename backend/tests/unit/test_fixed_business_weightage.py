@@ -64,30 +64,29 @@ def _build_components(
 
 
 def test_1_all_categories_present():
-    """Test 1: All scored categories present in JD -> weights remain 45 / 40 / 15."""
+    """Test 1: All scored categories present in JD -> weights remain 50 / 50."""
     comp = _build_components(req_score=100.0, pref_score=100.0, resp_score=100.0, proj_score=100.0)
     _, _, total, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
+        comp, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert eff_weights["required_skills"] == 45.0
-    assert eff_weights["preferred_skills"] == 15.0
-    assert eff_weights["responsibilities"] == 40.0
+    assert eff_weights["required_skills"] == 50.0
+    assert eff_weights["responsibilities"] == 50.0
+    assert eff_weights["preferred_skills"] == 0.0
     assert eff_weights["projects"] == 0.0
-    assert sum(eff_weights[c] for c in ("required_skills", "preferred_skills", "responsibilities")) == 100.0
+    assert sum(eff_weights[c] for c in ("required_skills", "responsibilities")) == 100.0
 
 
 def test_2_preferred_skills_absent():
     """
     Test 2: Preferred Skills absent.
-    Active total: 45 + 40 = 85.
-    Required: 45/85 = 52.9412%, Resp: 40/85 = 47.0588%.
+    Required Skills = 50%, Responsibilities = 50%.
     """
     comp = _build_components(req_score=100.0, resp_score=100.0, proj_score=100.0)
     _, _, _, eff_weights = WeightCalculationService.calculate(
         comp, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert pytest.approx(eff_weights["required_skills"], rel=1e-4) == 52.9412
-    assert pytest.approx(eff_weights["responsibilities"], rel=1e-4) == 47.0588
+    assert eff_weights["required_skills"] == 50.0
+    assert eff_weights["responsibilities"] == 50.0
     assert eff_weights["preferred_skills"] == 0.0
     assert pytest.approx(sum(eff_weights.values()), abs=1e-3) == 100.0
 
@@ -95,15 +94,14 @@ def test_2_preferred_skills_absent():
 def test_3_responsibilities_absent():
     """
     Test 3: Responsibilities absent.
-    Active total: 45 + 15 = 60.
-    Required: 45/60 = 75.0%, Preferred: 15/60 = 25.0%.
+    Required Skills redistributes to 100%.
     """
     comp = _build_components(req_score=100.0, pref_score=100.0, resp_score=100.0)
     _, _, _, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills"}
+        comp, applicable_categories={"required_skills"}
     )
-    assert pytest.approx(eff_weights["required_skills"], rel=1e-4) == 75.0
-    assert pytest.approx(eff_weights["preferred_skills"], rel=1e-4) == 25.0
+    assert eff_weights["required_skills"] == 100.0
+    assert eff_weights["preferred_skills"] == 0.0
     assert eff_weights["responsibilities"] == 0.0
     assert pytest.approx(sum(eff_weights.values()), abs=1e-3) == 100.0
 
@@ -147,12 +145,11 @@ def test_6_category_exists_but_candidate_scores_zero_does_not_redistribute():
         proj_score=100.0,
     )
     _, _, total, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
+        comp, applicable_categories={"required_skills", "responsibilities"}
     )
     # Weights must NOT be redistributed
-    assert eff_weights["required_skills"] == 45.0
-    assert eff_weights["preferred_skills"] == 15.0
-    assert eff_weights["responsibilities"] == 40.0
+    assert eff_weights["required_skills"] == 50.0
+    assert eff_weights["responsibilities"] == 50.0
     # Capped by safeguard when required skills is 0%
     assert total <= 35.0
 
@@ -168,11 +165,10 @@ def test_7_different_item_counts_do_not_alter_effective_weights():
         pref_score=100.0,
     )
     _, _, _, eff_a = WeightCalculationService.calculate(
-        comp_a, applicable_categories={"required_skills", "responsibilities", "preferred_skills"}
+        comp_a, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert eff_a["required_skills"] == 45.0
-    assert eff_a["responsibilities"] == 40.0
-    assert eff_a["preferred_skills"] == 15.0
+    assert eff_a["required_skills"] == 50.0
+    assert eff_a["responsibilities"] == 50.0
 
 
 def test_8_preferred_skill_bonus_not_added_to_final_score():
@@ -186,12 +182,10 @@ def test_9_end_to_end_score_calculation_with_redistribution():
     """
     Test 9: End to end calculation with redistribution:
     Required Skills score  = 75
-    Preferred Skills score = N/A (absent)
     Responsibilities score = 50
 
-    Active weights: 45/85 (52.9412%), 40/85 (47.0588%).
-    Expected: (75 * 45/85) + (50 * 40/85)
-            = 39.7059 + 23.5294 = 63.2353 -> 63.24.
+    Active weights: 50% / 50%.
+    Expected: (75 * 0.50) + (50 * 0.50) = 37.5 + 25.0 = 62.5.
     """
     comp = _build_components(
         req_score=75.0,
@@ -205,14 +199,14 @@ def test_9_end_to_end_score_calculation_with_redistribution():
     _, _, total, eff_weights = WeightCalculationService.calculate(
         comp, applicable_categories={"required_skills", "responsibilities"}
     )
-    assert total == 63.24
+    assert total == 62.5
     assert WeightCalculationService.final_score(
         components=comp, applicable_categories={"required_skills", "responsibilities"}
-    ) == 63.24
+    ) == 62.5
 
 
-def test_10_active_preferred_skills_with_zero_matches():
-    """Backend Test B: Active Preferred Skills with zero matches has weight=15, score=0, contribution=0."""
+def test_10_active_preferred_skills_with_custom_config():
+    """Test 10: Custom configuration allows preferred_skills when explicitly weighted."""
     comp = _build_components(
         req_score=100.0,
         pref_score=0.0,
@@ -222,37 +216,17 @@ def test_10_active_preferred_skills_with_zero_matches():
         pref_missing=["AWS", "Docker"],
         pref_explanation="Matched 0 of 2 preferred skills.",
     )
+    custom_cfg = SimpleNamespace(weights={"required_skills": 40.0, "responsibilities": 40.0, "preferred_skills": 20.0})
     weighted, _, total, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
+        comp, config=custom_cfg, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
     )
-    assert eff_weights["preferred_skills"] == 15.0
-    assert comp.preferred_skills.score == 0.0
-    assert weighted.preferred_skills == 0.0
-    # 100 * 0.45 + 100 * 0.40 + 0 * 0.15 = 85.0
-    assert total == 85.0
+    assert eff_weights["preferred_skills"] == 20.0
+    assert eff_weights["required_skills"] == 40.0
+    assert eff_weights["responsibilities"] == 40.0
 
 
-def test_11_active_preferred_skills_with_all_matches():
-    """Backend Test C: Active Preferred Skills with all matches has weight=15, score=100, contribution=15."""
-    comp = _build_components(
-        req_score=100.0,
-        pref_score=100.0,
-        resp_score=100.0,
-        proj_score=100.0,
-        pref_matched=["AWS", "Docker"],
-        pref_missing=[],
-        pref_explanation="Matched 2 of 2 preferred skills.",
-    )
-    weighted, _, _, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
-    )
-    assert eff_weights["preferred_skills"] == 15.0
-    assert comp.preferred_skills.score == 100.0
-    assert weighted.preferred_skills == 15.0
-
-
-def test_12_inactive_categories_do_not_participate_in_final_score():
-    """Backend Test E: Inactive categories do not participate in final weighted score."""
+def test_11_inactive_categories_do_not_participate_in_final_score():
+    """Test 11: Inactive categories do not participate in final weighted score."""
     comp = _build_components(
         req_score=90.0,
         resp_score=60.0,
@@ -262,14 +236,14 @@ def test_12_inactive_categories_do_not_participate_in_final_score():
     _, _, total, eff_weights = WeightCalculationService.calculate(
         comp, applicable_categories={"required_skills", "responsibilities"}
     )
-    # 90 * (45/85) + 60 * (40/85) = 47.647 + 28.235 = 75.88
-    assert total == 75.88
+    # 90 * 0.50 + 60 * 0.50 = 45.0 + 30.0 = 75.0
+    assert total == 75.0
     assert eff_weights["preferred_skills"] == 0.0
     assert eff_weights["projects"] == 0.0
 
 
-def test_13_active_categories_use_actual_calculated_score():
-    """Backend Test F: Active categories continue using their actual calculated score."""
+def test_12_active_categories_use_actual_calculated_score():
+    """Test 12: Active categories continue using their actual calculated score."""
     comp = _build_components(
         req_score=80.0,
         pref_score=60.0,
@@ -277,11 +251,11 @@ def test_13_active_categories_use_actual_calculated_score():
         proj_score=90.0,
     )
     _, _, total, eff_weights = WeightCalculationService.calculate(
-        comp, applicable_categories={"required_skills", "preferred_skills", "responsibilities"}
+        comp, applicable_categories={"required_skills", "responsibilities"}
     )
-    # 80 * 0.45 + 70 * 0.40 + 60 * 0.15 = 36 + 28 + 9 = 73.0
-    assert total == 73.0
-    assert eff_weights["required_skills"] == 45.0
-    assert eff_weights["responsibilities"] == 40.0
-    assert eff_weights["preferred_skills"] == 15.0
+    # 80 * 0.50 + 70 * 0.50 = 40.0 + 35.0 = 75.0
+    assert total == 75.0
+    assert eff_weights["required_skills"] == 50.0
+    assert eff_weights["responsibilities"] == 50.0
+    assert eff_weights["preferred_skills"] == 0.0
     assert eff_weights["projects"] == 0.0

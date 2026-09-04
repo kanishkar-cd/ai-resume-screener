@@ -113,17 +113,28 @@ export interface CandidateScore {
   explanation?: string
 }
 
-export type MatchVerdictStatus = 'MATCHED' | 'NO_MATCH' | 'UNRESOLVED'
+export type MatchVerdictStatus = 'MATCHED' | 'NO_MATCH' | 'UNRESOLVED' | 'PARTIALLY_MATCHED' | 'EVALUATION_FAILED' | string
 
-export type MatchVerdictMethod = 'exact' | 'alias' | 'taxonomy' | 'llm_confirmed' | 'llm_rejected' | 'llm_unresolved'
+export type MatchVerdictMethod = 'exact' | 'alias' | 'taxonomy' | 'llm_confirmed' | 'llm_rejected' | 'llm_unresolved' | 'evaluation_failed' | string
+
+export interface SubClaimEvidence {
+  claim: string
+  evidence_level: 'direct' | 'adjacent' | 'none' | string
+  note?: string
+}
 
 export interface MatchVerdict {
   requirement_id: string
-  status: MatchVerdictStatus
+  status: MatchVerdictStatus | 'PARTIALLY_MATCHED' | string
   confidence: number
   evidence_ids: string[]
   reasoning: string
   method: MatchVerdictMethod | null
+  coverage_score?: number
+  coverage?: number
+  importance?: 'critical' | 'important' | 'minor' | string
+  sub_claims?: string[]
+  sub_claim_evidence?: SubClaimEvidence[]
 }
 
 export interface Candidate {

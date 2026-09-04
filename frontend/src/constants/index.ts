@@ -114,7 +114,7 @@ export const DEFAULT_WEIGHTS = [
     id: 'required_skills' as const,
     label: 'Required Skills',
     description: 'Mandatory technical skills and qualifications',
-    weight: 45,
+    weight: 50,
     locked: false,
     color: '#f43f5e',
     badgeBg: '#ffe4e6',
@@ -125,9 +125,9 @@ export const DEFAULT_WEIGHTS = [
   },
   {
     id: 'responsibilities' as const,
-    label: 'Responsibilities',
+    label: 'Roles & Responsibilities',
     description: 'Demonstrated experience, deliverables, and role execution',
-    weight: 40,
+    weight: 50,
     locked: false,
     color: '#10b981',
     badgeBg: '#dcfce7',
@@ -136,29 +136,16 @@ export const DEFAULT_WEIGHTS = [
     iconColor: '#16a34a',
     icon: 'Briefcase',
   },
-  {
-    id: 'preferred_skills' as const,
-    label: 'Preferred Skills',
-    description: 'Nice-to-have bonus technologies and competencies',
-    weight: 15,
-    locked: false,
-    color: '#3b82f6',
-    badgeBg: '#dbeafe',
-    badgeText: '#1d4ed8',
-    iconBg: '#dbeafe',
-    iconColor: '#2563eb',
-    icon: 'Award',
-  },
 ]
 
 export const ROLE_PRESETS = [
   {
     id: 'standard',
-    label: 'Standard (45 / 40 / 15)',
+    label: 'Standard 50 / 50 (50% Skills / 50% Roles & Resp)',
     weights: {
-      required_skills: 45,
-      responsibilities: 40,
-      preferred_skills: 15,
+      required_skills: 50,
+      responsibilities: 50,
+      preferred_skills: 0,
     },
   },
   {

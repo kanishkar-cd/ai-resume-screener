@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -25,6 +26,7 @@ class MatchStatus(str, Enum):
     NO_MATCH = "NO_MATCH"
     UNMATCHED = "UNMATCHED"
     UNRESOLVED = "UNRESOLVED"
+    EVALUATION_FAILED = "EVALUATION_FAILED"
 
 
 class MatchMethod(str, Enum):
@@ -34,6 +36,7 @@ class MatchMethod(str, Enum):
     LLM_CONFIRMED = "llm_confirmed"
     LLM_REJECTED = "llm_rejected"
     LLM_UNRESOLVED = "llm_unresolved"
+    EVALUATION_FAILED = "evaluation_failed"
 
 
 class Requirement(BaseModel):
@@ -43,6 +46,9 @@ class Requirement(BaseModel):
     canonical_value: str | None = None
     required: bool = True
     hard_constraint: bool = False
+    importance: str = "important"
+    importance_reasoning: str | None = None
+    is_likely_boilerplate: bool = False
 
 
 class Evidence(BaseModel):
@@ -62,11 +68,21 @@ class MatchVerdict(BaseModel):
     reasoning: str = ""
     method: MatchMethod | None = None
     coverage: float = Field(default=1.0, ge=0, le=1)
+    coverage_score: float = Field(default=1.0, ge=0, le=1)
+    importance: str = Field(default="important")
+    sub_claims: list[str] = Field(default_factory=list)
+    sub_claim_evidence: list[dict[str, Any]] = Field(default_factory=list)
     matched_concepts: list[str] = Field(default_factory=list)
     missing_concepts: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_method(self) -> "MatchVerdict":
+        # Keep coverage and coverage_score synchronized
+        if self.coverage_score is not None and self.coverage == 1.0 and self.coverage_score != 1.0:
+            self.coverage = self.coverage_score
+        elif self.coverage is not None and self.coverage != 1.0 and self.coverage_score == 1.0:
+            self.coverage_score = self.coverage
+
         if self.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and self.method is None:
             raise ValueError("Method is required for matched verdicts")
         if self.method == MatchMethod.LLM_CONFIRMED and self.status not in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED}:
@@ -75,17 +91,23 @@ class MatchVerdict(BaseModel):
             raise ValueError("llm_rejected is valid only for no_match verdicts")
         if self.method == MatchMethod.LLM_UNRESOLVED and self.status != MatchStatus.UNRESOLVED:
             raise ValueError("llm_unresolved is valid only for unresolved verdicts")
+        if self.method == MatchMethod.EVALUATION_FAILED and self.status != MatchStatus.EVALUATION_FAILED:
+            raise ValueError("evaluation_failed method is valid only for evaluation_failed status")
         return self
 
 
 class LLMVerdict(BaseModel):
     model_config = ConfigDict(extra="ignore")
     requirement_id: str = Field(min_length=1)
-    status: MatchStatus
-    confidence: float = Field(ge=0, le=1)
+    status: MatchStatus | None = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
     reasoning: str = ""
     coverage: float | None = None
+    coverage_score: float | None = None
+    importance: str = Field(default="important")
+    sub_claims: list[str] = Field(default_factory=list)
+    sub_claim_evidence: list[dict[str, Any]] = Field(default_factory=list)
     matched_concepts: list[str] | None = None
     missing_concepts: list[str] | None = None
 
