@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   Award,
   CheckCircle2,
@@ -19,9 +19,11 @@ import { api } from '@/api'
 
 export default function Assessment() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const { state, dispatch } = usePipeline()
 
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isCompleting, setIsCompleting] = useState(false)
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
@@ -96,6 +98,43 @@ export default function Assessment() {
     }
   }, [projectId])
 
+  const handleComplete = async () => {
+    if (!projectId) {
+      navigate('/dashboard')
+      return
+    }
+    setIsCompleting(true)
+    try {
+      await api.updateProject(projectId, {
+        status: 'COMPLETED',
+        metadata_json: {
+          ...(typeof state.selectedProject?.metadata_json === 'object' ? state.selectedProject.metadata_json : {}),
+          is_completed: true,
+          completed_at: new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      console.warn('Failed to update project status via API:', err)
+    }
+
+    if (state.selectedProject) {
+      dispatch({
+        type: 'SELECT_PROJECT',
+        payload: {
+          ...state.selectedProject,
+          status: 'COMPLETED',
+          metadata_json: {
+            ...(typeof state.selectedProject.metadata_json === 'object' ? state.selectedProject.metadata_json : {}),
+            is_completed: true,
+            completed_at: new Date().toISOString(),
+          },
+        },
+      })
+    }
+
+    navigate('/dashboard')
+  }
+
   const handleCopyLink = (id: string, link: string) => {
     navigator.clipboard.writeText(link)
     setCopiedId(id)
@@ -144,15 +183,24 @@ export default function Assessment() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={handleSyncResults}
-            disabled={isSyncing}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
+            disabled={isSyncing || isCompleting}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold shadow-xs border border-slate-200 transition-colors disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? 'Syncing Results...' : 'Sync Results'}
+            {isSyncing ? 'Syncing...' : 'Sync Results'}
+          </button>
+          <button
+            type="button"
+            onClick={handleComplete}
+            disabled={isCompleting}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <CheckCircle2 size={14} />
+            {isCompleting ? 'Completing...' : 'Complete'}
           </button>
         </div>
       </div>
