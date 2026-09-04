@@ -364,3 +364,53 @@ def test_required_skill_protection_safeguard():
     # With safeguard: score is capped to 35.0
     assert total <= 35.0
     assert total == 35.0
+
+
+def test_legacy_project_weights_safe_fallback_without_error():
+    """
+    Test legacy project weights from DB:
+    Old DB records containing {'skills': 40.0, 'projects': 40.0, 'education': 10.0, 'languages': 5.0, 'certifications': 5.0}
+    must safely fall back to DEFAULT_WEIGHTS (45/40/15) without raising ValueError or 500 error.
+    """
+    comp = _build_test_components(req_score=100.0, resp_score=100.0, pref_score=100.0)
+    legacy_cfg = SimpleNamespace(weights={
+        "skills": 40.0,
+        "projects": 40.0,
+        "education": 10.0,
+        "languages": 5.0,
+        "certifications": 5.0,
+    })
+    weighted, raw, total, eff = WeightCalculationService.calculate(
+        comp, config=legacy_cfg,
+        applicable_categories={"required_skills", "responsibilities", "preferred_skills"},
+    )
+    assert eff["required_skills"] == 45.0
+    assert eff["responsibilities"] == 40.0
+    assert eff["preferred_skills"] == 15.0
+    assert total == 100.0
+
+
+def test_unnormalized_custom_weights_normalized_to_100():
+    """
+    Test unnormalized custom weights:
+    Recruiter enters or DB has {'required_skills': 40.0, 'responsibilities': 40.0, 'preferred_skills': 15.0} (sum = 95.0%).
+    System must normalize proportionally to 100.0% without error:
+    Required: 40/95 * 100 = 42.1053%
+    Resp: 40/95 * 100 = 42.1053%
+    Pref: 15/95 * 100 = 15.7895%
+    """
+    comp = _build_test_components(req_score=100.0, resp_score=100.0, pref_score=100.0)
+    custom_cfg = SimpleNamespace(weights={
+        "required_skills": 40.0,
+        "responsibilities": 40.0,
+        "preferred_skills": 15.0,
+    })
+    weighted, raw, total, eff = WeightCalculationService.calculate(
+        comp, config=custom_cfg,
+        applicable_categories={"required_skills", "responsibilities", "preferred_skills"},
+    )
+    assert eff["required_skills"] == pytest.approx(40.0 / 95.0 * 100.0, abs=1e-3)
+    assert eff["responsibilities"] == pytest.approx(40.0 / 95.0 * 100.0, abs=1e-3)
+    assert eff["preferred_skills"] == pytest.approx(15.0 / 95.0 * 100.0, abs=1e-3)
+    assert sum(eff.values()) == pytest.approx(100.0, abs=1e-3)
+    assert total == 100.0

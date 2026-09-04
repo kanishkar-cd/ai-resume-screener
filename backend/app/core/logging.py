@@ -22,6 +22,17 @@ def scrub_sensitive_data(
 
 def setup_logging(settings: Settings) -> None:
     """Configure stdlib and structlog for the active environment."""
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True, key="timestamp")
     shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,

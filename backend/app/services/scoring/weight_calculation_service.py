@@ -87,34 +87,69 @@ class WeightCalculationService:
             if hasattr(cfg_weights, "model_dump"):
                 cfg_weights = cfg_weights.model_dump()
             if isinstance(cfg_weights, dict):
-                mapped = {}
-                for k in ("required_skills", "responsibilities", "preferred_skills"):
-                    alt_k = "skills" if k == "required_skills" else k
-                    if k in cfg_weights:
-                        mapped[k] = float(cfg_weights[k])
-                    elif alt_k in cfg_weights:
-                        mapped[k] = float(cfg_weights[alt_k])
+                # Detect obsolete legacy configs with non-zero weights in deleted/0% categories
+                # (projects, education, languages, certifications, experience) where responsibilities wasn't configured
+                has_legacy_weights = any(float(cfg_weights.get(k, 0.0) or 0.0) > 0 for k in ("projects", "education", "languages", "certifications", "experience"))
+                resp_in_cfg = "responsibilities" in cfg_weights
+
+                if has_legacy_weights and not resp_in_cfg:
+                    # Obsolete legacy project configuration: safely fall back to authoritative default 45/40/15
+                    weights = dict(DEFAULT_WEIGHTS)
+                else:
+                    req_val = cfg_weights.get("required_skills", cfg_weights.get("skills"))
+                    resp_val = cfg_weights.get("responsibilities")
+                    pref_val = cfg_weights.get("preferred_skills")
+
+                    req = float(req_val if req_val is not None else DEFAULT_WEIGHTS["required_skills"])
+                    resp = float(resp_val if resp_val is not None else DEFAULT_WEIGHTS["responsibilities"])
+                    pref = float(pref_val if pref_val is not None else DEFAULT_WEIGHTS["preferred_skills"])
+
+                    req, resp, pref = max(0.0, req), max(0.0, resp), max(0.0, pref)
+                    total_custom = req + resp + pref
+
+                    if total_custom > 0.0:
+                        if abs(total_custom - 100.0) > 1e-4:
+                            # Normalize custom weights to sum to exactly 100.0%
+                            req = (req / total_custom) * 100.0
+                            resp = (resp / total_custom) * 100.0
+                            pref = (pref / total_custom) * 100.0
+                        weights = {
+                            "required_skills": req,
+                            "responsibilities": resp,
+                            "preferred_skills": pref,
+                            "projects": 0.0,
+                            "experience": 0.0,
+                            "education": 0.0,
+                            "certifications": 0.0,
+                            "languages": 0.0,
+                        }
                     else:
-                        mapped[k] = weights[k]
-                for k in ("projects", "experience", "education", "certifications", "languages"):
-                    mapped[k] = 0.0
-                validate_weights(mapped)
-                weights = mapped
+                        weights = dict(DEFAULT_WEIGHTS)
+                validate_weights(weights)
         elif any(hasattr(config, attr) for attr in ("skills_weight", "required_skills_weight", "responsibilities_weight", "preferred_skills_weight")):
-            mapped = dict(DEFAULT_WEIGHTS)
-            if hasattr(config, "required_skills_weight"):
-                mapped["required_skills"] = float(config.required_skills_weight)
-            elif hasattr(config, "skills_weight"):
-                mapped["required_skills"] = float(config.skills_weight)
-            if hasattr(config, "responsibilities_weight"):
-                mapped["responsibilities"] = float(config.responsibilities_weight)
-            if hasattr(config, "preferred_skills_weight"):
-                mapped["preferred_skills"] = float(config.preferred_skills_weight)
-            for k in ("projects", "experience", "education", "certifications", "languages"):
-                mapped[k] = 0.0
-            total_cfg = sum(mapped.values())
-            if abs(total_cfg - 100.0) <= 1e-4:
-                weights = mapped
+            req = float(getattr(config, "required_skills_weight", getattr(config, "skills_weight", DEFAULT_WEIGHTS["required_skills"])))
+            resp = float(getattr(config, "responsibilities_weight", DEFAULT_WEIGHTS["responsibilities"]))
+            pref = float(getattr(config, "preferred_skills_weight", DEFAULT_WEIGHTS["preferred_skills"]))
+            req, resp, pref = max(0.0, req), max(0.0, resp), max(0.0, pref)
+            total_custom = req + resp + pref
+            if total_custom > 0.0:
+                if abs(total_custom - 100.0) > 1e-4:
+                    req = (req / total_custom) * 100.0
+                    resp = (resp / total_custom) * 100.0
+                    pref = (pref / total_custom) * 100.0
+                weights = {
+                    "required_skills": req,
+                    "responsibilities": resp,
+                    "preferred_skills": pref,
+                    "projects": 0.0,
+                    "experience": 0.0,
+                    "education": 0.0,
+                    "certifications": 0.0,
+                    "languages": 0.0,
+                }
+            else:
+                weights = dict(DEFAULT_WEIGHTS)
+            validate_weights(weights)
 
         core_categories = ("required_skills", "responsibilities", "projects", "preferred_skills", "experience", "certifications", "education", "languages")
 
