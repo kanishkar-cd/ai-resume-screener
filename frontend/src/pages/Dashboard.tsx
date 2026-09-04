@@ -429,6 +429,57 @@ export default function Dashboard() {
     }
   }, [projects, availableDepartments])
 
+  // Department-specific analytics computation when scoped to a department
+  const isDeptScoped = selectedDeptFilter !== 'ALL'
+
+  const activeDepartmentObj = useMemo(() => {
+    if (!isDeptScoped) return null
+    return (
+      DEPARTMENTS.find(
+        (d) =>
+          d.name.toLowerCase() === selectedDeptFilter.toLowerCase() ||
+          d.id.toLowerCase() === selectedDeptFilter.toLowerCase() ||
+          d.code.toLowerCase() === selectedDeptFilter.toLowerCase()
+      ) || null
+    )
+  }, [isDeptScoped, selectedDeptFilter])
+
+  const deptProjects = useMemo(() => {
+    if (!isDeptScoped) return projects
+    return projects.filter(
+      (p) => (p.department || 'General').trim().toLowerCase() === selectedDeptFilter.trim().toLowerCase()
+    )
+  }, [projects, isDeptScoped, selectedDeptFilter])
+
+  const deptAnalytics = useMemo(() => {
+    const total = deptProjects.length
+    let activeCount = 0
+    let completedCount = 0
+    let fresherCount = 0
+    let experiencedCount = 0
+
+    for (const p of deptProjects) {
+      const status = getRequisitionStatus(p)
+      if (status === 'Completed') completedCount++
+      else activeCount++
+
+      const exp = getExperienceLevel(p)
+      if (exp === 'Fresher') fresherCount++
+      else experiencedCount++
+    }
+
+    const activeRate = total > 0 ? Math.round((activeCount / total) * 100) : 0
+
+    return {
+      total,
+      activeCount,
+      completedCount,
+      fresherCount,
+      experiencedCount,
+      activeRate,
+    }
+  }, [deptProjects])
+
   // Filtered requisitions list
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
@@ -521,22 +572,55 @@ export default function Dashboard() {
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header with Concise Dynamic Insight */}
       <div className="pb-4 border-b border-slate-200/70 flex flex-col md:flex-row md:items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Talent Analytics
-          </h1>
-          <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
-            <span>{analytics.total} total requisitions across {analytics.activeDepts} hiring departments.</span>
-            <span className="text-slate-300">•</span>
-            <span>
-              Top hiring demand in <strong className="text-slate-900 font-bold">{analytics.topDeptName}</strong> ({analytics.topDeptCount} requisitions).
-            </span>
-          </p>
-        </div>
+        {isDeptScoped ? (
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-400 mb-1">
+              <button
+                type="button"
+                onClick={() => updateUrlParams({ dept: 'ALL', page: 1 })}
+                className="hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                Overview
+              </button>
+              <ChevronRight size={12} />
+              <span className="text-slate-700 font-bold">{selectedDeptFilter}</span>
+            </div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
+              <Building2 size={24} className="text-blue-600" />
+              {selectedDeptFilter} Dashboard
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
+              <span>{deptAnalytics.total} total requisitions in {selectedDeptFilter}.</span>
+              <span className="text-slate-300">•</span>
+              <span>
+                {deptAnalytics.activeCount} active ({deptAnalytics.activeRate}%) · {deptAnalytics.completedCount} completed
+              </span>
+            </p>
+          </div>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+              Talent Analytics
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 font-medium flex items-center gap-1.5 flex-wrap">
+              <span>{analytics.total} total requisitions across {analytics.activeDepts} hiring departments.</span>
+              <span className="text-slate-300">•</span>
+              <span>
+                Top hiring demand in <strong className="text-slate-900 font-bold">{analytics.topDeptName}</strong> ({analytics.topDeptCount} requisitions).
+              </span>
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => navigate('/departments')}
+            onClick={() => {
+              if (isDeptScoped && activeDepartmentObj) {
+                navigate(`/departments/${activeDepartmentObj.id}/requisitions/new`)
+              } else {
+                navigate('/departments')
+              }
+            }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer"
           >
             <Plus size={14} />
@@ -557,16 +641,19 @@ export default function Dashboard() {
 
       {/* Modern KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {/* Active Requisitions */}
+        {/* Total Requisitions */}
         <div className="group bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Requisitions</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Total Requisitions'}
+            </p>
             <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
-              {loading ? '...' : analytics.total}
+              {loading ? '...' : isDeptScoped ? deptAnalytics.total : analytics.total}
             </p>
             <div className="mt-2.5">
               <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold">
-                {analytics.fresherCount} Fresher · {analytics.experiencedCount} Exp
+                {isDeptScoped ? deptAnalytics.fresherCount : analytics.fresherCount} Fresher ·{' '}
+                {isDeptScoped ? deptAnalytics.experiencedCount : analytics.experiencedCount} Exp
               </span>
             </div>
           </div>
@@ -578,14 +665,20 @@ export default function Dashboard() {
         {/* Active Requisitions */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Requisitions</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {isDeptScoped ? `${selectedDeptFilter} Active Requisitions` : 'Active Requisitions'}
+            </p>
             <p className="text-3xl font-extrabold text-slate-900 mt-1 tracking-tight">
-              {loading ? '...' : `${analytics.activeCount} of ${analytics.total}`}
+              {loading
+                ? '...'
+                : isDeptScoped
+                ? `${deptAnalytics.activeCount} of ${deptAnalytics.total}`
+                : `${analytics.activeCount} of ${analytics.total}`}
             </p>
             <div className="mt-2.5">
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[11px] font-semibold">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                {analytics.activeRate}% Active
+                {isDeptScoped ? deptAnalytics.activeRate : analytics.activeRate}% Active
               </span>
             </div>
           </div>
@@ -681,7 +774,7 @@ export default function Dashboard() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Requisitions Workspace
+              {isDeptScoped ? `${selectedDeptFilter} Requisitions` : 'Requisitions Workspace'}
             </h2>
             {!loading && !error && (
               <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-100/80">
@@ -702,7 +795,7 @@ export default function Dashboard() {
                     : 'hover:text-slate-900'
                 }`}
               >
-                All ({analytics.total})
+                All ({isDeptScoped ? deptAnalytics.total : analytics.total})
               </button>
               <button
                 type="button"
@@ -713,7 +806,7 @@ export default function Dashboard() {
                     : 'hover:text-slate-900'
                 }`}
               >
-                Active ({analytics.activeCount})
+                Active ({isDeptScoped ? deptAnalytics.activeCount : analytics.activeCount})
               </button>
               <button
                 type="button"
@@ -724,7 +817,7 @@ export default function Dashboard() {
                     : 'hover:text-slate-900'
                 }`}
               >
-                Completed ({analytics.completedCount})
+                Completed ({isDeptScoped ? deptAnalytics.completedCount : analytics.completedCount})
               </button>
             </div>
 
