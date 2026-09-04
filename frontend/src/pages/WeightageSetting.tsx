@@ -85,8 +85,10 @@ export default function WeightageSetting() {
     const preset = ROLE_PRESETS.find((item) => item.id === presetId)
     if (!preset) return
     markDirty()
-    setSelectedPreset(presetId)
-    localWeights.forEach((criterion) => dispatch({ type: 'UPDATE_WEIGHT', payload: { id: criterion.id, weight: preset.weights[criterion.id] ?? criterion.weight } }))
+    localWeights.forEach((criterion) => {
+      const presetWeight = (preset.weights as Record<string, number | undefined>)[criterion.id] ?? (criterion.id === 'skills' ? (preset.weights as any).required_skills : undefined)
+      dispatch({ type: 'UPDATE_WEIGHT', payload: { id: criterion.id, weight: presetWeight ?? criterion.weight } })
+    })
   }
 
   const saveConfiguration = async (continueAfterSave = false) => {

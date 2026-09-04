@@ -1374,11 +1374,17 @@ class GroqTokenBudgetGate:
 
     @property
     def tpm_limit(self) -> int:
-        return getattr(self.settings, "GROQ_TPM_LIMIT", 8000)
+        val = getattr(self.settings, "GROQ_TPM_LIMIT", 8000)
+        if not isinstance(val, (int, float)):
+            return 8000
+        return int(val)
 
     @property
     def safety_margin(self) -> float:
-        return getattr(self.settings, "GROQ_TPM_SAFETY_MARGIN", 0.10)
+        val = getattr(self.settings, "GROQ_TPM_SAFETY_MARGIN", 0.10)
+        if not isinstance(val, (int, float)):
+            return 0.10
+        return float(val)
 
     @property
     def usable_tpm(self) -> int:
@@ -1451,72 +1457,13 @@ class GroqTokenBudgetGate:
                 return True
             return False
 
-    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> None:
+    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> bool:
         """
-        Check token budget. If insufficient capacity, wait until reset/capacity available.
-        Once capacity exists, reserve estimated_tokens and return.
+        Non-blocking token budget check and reservation.
+        Returns True if reservation was secured immediately, False if budget is exhausted.
+        Does NOT block or sleep.
         """
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-
-        while True:
-            async with self._lock:
-                now = time.monotonic()
-
-                self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
-                local_window_used = sum(tok for _, tok in self.usage_history)
-
-                if self.header_reset_timestamp is not None:
-                    if now >= self.header_reset_timestamp or self.reserved_in_flight == 0:
-                        self.header_remaining_tokens = None
-                        self.header_reset_timestamp = None
-
-                if self.header_remaining_tokens is not None:
-                    avail_from_header = max(0, self.header_remaining_tokens - self.reserved_in_flight)
-                    avail_from_local = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
-                    available_tokens = min(avail_from_header, avail_from_local)
-                else:
-                    available_tokens = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
-
-                if available_tokens >= estimated_tokens:
-                    self.reserved_in_flight += estimated_tokens
-                    self._last_wait_ts = None
-                    logger.info(
-                        "llm_request_allowed",
-                        reserved_tokens=estimated_tokens,
-                        available_tokens_before=available_tokens,
-                        usable_limit=self.usable_tpm,
-                        correlation_id=correlation_id,
-                    )
-                    return
-
-                wait_seconds = 1.0
-                if self.header_reset_timestamp is not None and self.header_reset_timestamp > now:
-                    wait_seconds = max(0.05, self.header_reset_timestamp - now + 0.05)
-                elif self.usage_history:
-                    needed_release = estimated_tokens - available_tokens
-                    accumulated = 0
-                    target_ts = self.usage_history[0][0]
-                    for ts, tok in self.usage_history:
-                        accumulated += tok
-                        if accumulated >= needed_release:
-                            target_ts = ts
-                            break
-                    wait_seconds = max(0.05, (target_ts + self.window_seconds) - now + 0.05)
-
-                wait_seconds = min(wait_seconds, 60.0)
-                self._last_wait_ts = now
-
-                logger.info(
-                    "llm_token_budget_wait",
-                    required_tokens=estimated_tokens,
-                    available_tokens=available_tokens,
-                    wait_seconds=round(wait_seconds, 2),
-                    usable_limit=self.usable_tpm,
-                    correlation_id=correlation_id,
-                )
-
-            await asyncio.sleep(wait_seconds)
+        return await self.try_reserve(estimated_tokens)
 
     async def release_reservation(self, estimated_tokens: int) -> None:
         """Release in-flight reservation."""
@@ -1617,6 +1564,7 @@ class GroqMatchEvaluator:
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
         pre_reserved: bool = False,
+        allow_retries: bool = True,
     ) -> tuple[list[MatchVerdict], dict[str, int]]:
         usage_stats = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         if not self.enabled or not requirements:
@@ -1634,7 +1582,9 @@ class GroqMatchEvaluator:
                 } if allowed_evidence else None
                 chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
                 chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(req_chunk, chunk_ev, chunk_allowed, pre_reserved=(pre_reserved if i == 0 else False))
+                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
+                    req_chunk, chunk_ev, chunk_allowed, pre_reserved=(pre_reserved if i == 0 else False), allow_retries=allow_retries
+                )
                 all_verdicts.extend(chunk_verdicts)
                 for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
                     usage_stats[k] += chunk_usage.get(k, 0)
@@ -1656,12 +1606,20 @@ class GroqMatchEvaluator:
 
         parsed: LLMVerdictBatch | None = None
         client = self._get_client(self.settings.GROQ_TIMEOUT_SECONDS)
-        max_retries = max(1, getattr(self.settings, "GROQ_MAX_RETRIES", 2))
+        max_retries = max(1, getattr(self.settings, "GROQ_MAX_RETRIES", 2)) if allow_retries else 0
         total_attempts = max_retries + 1
 
         for attempt in range(total_attempts):
             if not (attempt == 0 and pre_reserved):
-                await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
+                has_budget = await gate.try_reserve(estimated_tokens)
+                if not has_budget:
+                    logger.warning(
+                        "groq_budget_exhausted_during_evaluation",
+                        estimated_tokens=estimated_tokens,
+                        available_tokens=gate.available_tokens(),
+                        correlation_id=digest[:8],
+                    )
+                    return [], usage_stats
             try:
                 response = await client.post(
                     f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
@@ -1709,13 +1667,25 @@ class GroqMatchEvaluator:
                 else:
                     await gate.release_reservation(estimated_tokens)
 
+                is_last_attempt = (attempt == total_attempts - 1)
+
+                if not allow_retries:
+                    logger.warning(
+                        "groq_attempt_failed_fast",
+                        attempt=attempt + 1,
+                        status_code=status_code,
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                        correlation_id=digest[:8],
+                    )
+                    raise exc
+
                 resp_body = None
                 if resp_obj is not None:
                     try:
                         resp_body = resp_obj.text
                     except Exception:
                         pass
-                is_last_attempt = (attempt == total_attempts - 1)
 
                 if status_code in {400, 401, 403, 404}:
                     logger.error(
@@ -1778,8 +1748,11 @@ class GroqMatchEvaluator:
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
         pre_reserved: bool = False,
+        allow_retries: bool = True,
     ) -> list[MatchVerdict]:
-        verdicts, _ = await self.evaluate_with_usage(requirements, evidence, allowed_evidence, pre_reserved=pre_reserved)
+        verdicts, _ = await self.evaluate_with_usage(
+            requirements, evidence, allowed_evidence, pre_reserved=pre_reserved, allow_retries=allow_retries
+        )
         return verdicts
 
     @staticmethod
@@ -2008,11 +1981,17 @@ class CerebrasTokenBudgetGate:
 
     @property
     def tpm_limit(self) -> int:
-        return getattr(self.settings, "CEREBRAS_TPM_LIMIT", 60000)
+        val = getattr(self.settings, "CEREBRAS_TPM_LIMIT", 60000)
+        if not isinstance(val, (int, float)):
+            return 60000
+        return int(val)
 
     @property
     def safety_margin(self) -> float:
-        return getattr(self.settings, "CEREBRAS_TPM_SAFETY_MARGIN", 0.10)
+        val = getattr(self.settings, "CEREBRAS_TPM_SAFETY_MARGIN", 0.10)
+        if not isinstance(val, (int, float)):
+            return 0.10
+        return float(val)
 
     @property
     def usable_tpm(self) -> int:
@@ -2029,11 +2008,35 @@ class CerebrasTokenBudgetGate:
                 return min(avail_hdr, avail_loc)
         return max(0, self.usable_tpm - local_used - self.reserved_in_flight)
 
-    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> None:
+    async def try_reserve(self, estimated_tokens: int) -> bool:
+        """
+        Atomically check available Cerebras tokens and reserve estimated_tokens if capacity exists.
+        Returns True if capacity exists and reservation succeeded, False otherwise.
+        Does NOT block or sleep.
+        """
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
-            self.reserved_in_flight += estimated_tokens
+            now = time.monotonic()
+            self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+            local_used = sum(tok for _, tok in self.usage_history)
+            if self.header_reset_timestamp is not None and now < self.header_reset_timestamp:
+                if self.header_remaining_tokens is not None:
+                    avail_hdr = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+                    avail_loc = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+                    available = min(avail_hdr, avail_loc)
+                else:
+                    available = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+            else:
+                available = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+
+            if available >= estimated_tokens:
+                self.reserved_in_flight += estimated_tokens
+                return True
+            return False
+
+    async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> bool:
+        return await self.try_reserve(estimated_tokens)
 
     async def release_reservation(self, estimated_tokens: int) -> None:
         if self._lock is None:
@@ -2096,7 +2099,17 @@ class CerebrasMatchEvaluator:
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
         estimated_tokens = groq_gate.estimate_tokens(payload)
 
-        await gate.acquire_reservation(estimated_tokens, correlation_id=digest[:8])
+        can_reserve = await gate.try_reserve(estimated_tokens)
+        if not can_reserve:
+            logger.warning(
+                "cerebras_token_budget_exhausted",
+                provider="cerebras",
+                estimated_tokens=estimated_tokens,
+                available_tokens=gate.available_tokens(),
+                usable_limit=gate.usable_tpm,
+                correlation_id=digest[:8],
+            )
+            return [], usage_stats
         parsed: LLMVerdictBatch | None = None
         client = self._get_client(getattr(self.settings, "CEREBRAS_TIMEOUT_SECONDS", 30.0))
 
@@ -2182,7 +2195,9 @@ class SmartMatchEvaluator:
 
     async def _invoke_evaluator(
         self, evaluator: Any, requirements: list[Requirement], evidence: list[Evidence],
-        allowed_evidence: dict[str, set[str]] | None = None, pre_reserved: bool = False,
+        allowed_evidence: dict[str, set[str]] | None = None,
+        pre_reserved: bool = False,
+        allow_retries: bool = False,
     ) -> tuple[list[MatchVerdict], dict[str, int]]:
         for name in ("evaluate_with_usage", "evaluate"):
             fn = getattr(evaluator, name, None)
@@ -2190,11 +2205,16 @@ class SmartMatchEvaluator:
                 continue
             if type(evaluator).__name__ == "MagicMock" and name == "evaluate_with_usage" and type(fn).__name__ != "AsyncMock" and getattr(fn, "side_effect", None) is None:
                 continue
-            sig = inspect.signature(fn)
-            kwargs = {}
-            if "pre_reserved" in sig.parameters:
-                kwargs["pre_reserved"] = pre_reserved
-            raw = fn(requirements, evidence, allowed_evidence, **kwargs)
+            try:
+                sig = inspect.signature(fn)
+                kwargs = {}
+                if "pre_reserved" in sig.parameters:
+                    kwargs["pre_reserved"] = pre_reserved
+                if "allow_retries" in sig.parameters:
+                    kwargs["allow_retries"] = allow_retries
+                raw = fn(requirements, evidence, allowed_evidence, **kwargs)
+            except (TypeError, ValueError):
+                raw = fn(requirements, evidence, allowed_evidence)
             res = await raw if inspect.isawaitable(raw) else raw
             if isinstance(res, tuple):
                 return res[0], res[1]
@@ -2225,6 +2245,7 @@ class SmartMatchEvaluator:
         groq_available = groq_gate.available_tokens()
 
         provider_selected = "none"
+        selection_reason = "none"
         fallback_reason = "none"
         start_ts = time.monotonic()
         wait_ms = 0.0
@@ -2234,87 +2255,159 @@ class SmartMatchEvaluator:
         verdicts: list[MatchVerdict] = []
         usage: dict[str, int] = {}
 
-        # 1. Primary Attempt: ALWAYS Groq
+        # 1. Primary Attempt: Groq (only if enabled AND budget immediately available)
         if self.groq.enabled:
-            provider_selected = "groq"
-            logger.info(
-                "llm_primary_attempt_started",
-                provider="groq",
-                resume_id=resume_id,
-                estimated_tokens=estimated_tokens,
-                requirements_count=len(requirements),
-            )
-            t0 = time.monotonic()
-            try:
-                verdicts, usage = await self._invoke_evaluator(
-                    self.groq, requirements, evidence, allowed_evidence, pre_reserved=False
-                )
-                wait_ms = (time.monotonic() - t0) * 1000.0
-
-                if verdicts:
-                    logger.info(
-                        "llm_request_handled_by_groq",
-                        provider="groq",
-                        status="success",
-                        resume_id=resume_id,
-                        verdicts_count=len(verdicts),
-                        duration_ms=round(wait_ms, 2),
-                    )
-                else:
-                    raise RuntimeError("Groq returned empty verdicts")
-            except Exception as exc:
-                fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
-                logger.warning(
-                    "groq_primary_failed_initiating_fallback",
-                    provider="groq",
-                    fallback_provider="cerebras" if self.cerebras.enabled else "none",
-                    error=str(exc),
-                    error_type=type(exc).__name__,
+            can_reserve = await groq_gate.try_reserve(estimated_tokens)
+            if can_reserve:
+                provider_selected = "groq"
+                selection_reason = "budget_available"
+                logger.info(
+                    "llm_provider_selected",
+                    provider_selected="groq",
+                    reason="budget_available",
+                    estimated_tokens=estimated_tokens,
                     resume_id=resume_id,
-                    fallback_available=self.cerebras.enabled,
+                    requirements_count=len(requirements),
+                )
+                t0 = time.monotonic()
+                try:
+                    verdicts, usage = await self._invoke_evaluator(
+                        self.groq, requirements, evidence, allowed_evidence, pre_reserved=True, allow_retries=False
+                    )
+                    wait_ms = (time.monotonic() - t0) * 1000.0
+
+                    if verdicts:
+                        logger.info(
+                            "llm_request_handled_by_groq",
+                            provider_selected="groq",
+                            status="success",
+                            resume_id=resume_id,
+                            verdicts_count=len(verdicts),
+                            duration_ms=round(wait_ms, 2),
+                        )
+                    else:
+                        raise RuntimeError("Groq returned empty verdicts")
+                except Exception as exc:
+                    # Clean up in-flight gate reservation if evaluator was a mock and did not release
+                    if not isinstance(self.groq, GroqMatchEvaluator):
+                        await groq_gate.release_reservation(estimated_tokens)
+
+                    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                    err_str = str(exc).lower()
+                    if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)) or "timeout" in err_str:
+                        reason = "groq_timeout"
+                    elif status_code == 429 or "429" in err_str:
+                        reason = "groq_429"
+                    elif (status_code and status_code >= 500) or "500" in err_str:
+                        reason = "groq_500"
+                    elif isinstance(exc, (httpx.NetworkError, httpx.ConnectError)) or "network" in err_str or "connection" in err_str:
+                        reason = "groq_network_error"
+                    elif "empty" in err_str or "invalid" in err_str:
+                        reason = "groq_empty_or_invalid_verdict"
+                    else:
+                        reason = f"groq_error_{type(exc).__name__}"
+
+                    selection_reason = reason
+                    fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
+                    logger.warning(
+                        "llm_provider_fallback",
+                        provider_selected="cerebras",
+                        reason=reason,
+                        fallback_provider="cerebras" if self.cerebras.enabled else "none",
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                        resume_id=resume_id,
+                        fallback_available=self.cerebras.enabled,
+                    )
+                    if self.cerebras.enabled:
+                        provider_selected = "cerebras"
+                        logger.info(
+                            "llm_fallback_to_cerebras_started",
+                            provider_selected="cerebras",
+                            reason=reason,
+                            resume_id=resume_id,
+                        )
+                        t1 = time.monotonic()
+                        try:
+                            verdicts, usage = await self._invoke_evaluator(
+                                self.cerebras, requirements, evidence, allowed_evidence
+                            )
+                            wait_ms += (time.monotonic() - t1) * 1000.0
+                            logger.info(
+                                "llm_request_handled_by_cerebras_fallback",
+                                provider_selected="cerebras",
+                                fallback=True,
+                                status="success",
+                                resume_id=resume_id,
+                                verdicts_count=len(verdicts),
+                                duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
+                            )
+                        except Exception as c_exc:
+                            logger.error(
+                                "cerebras_fallback_also_failed",
+                                provider_selected="cerebras",
+                                error=str(c_exc),
+                                resume_id=resume_id,
+                            )
+                            verdicts = []
+                    else:
+                        verdicts = []
+            else:
+                # Groq budget unavailable -> DO NOT WAIT, immediately invoke Cerebras fallback
+                provider_selected = "cerebras"
+                selection_reason = "groq_budget_exhausted"
+                fallback_reason = "groq_budget_exhausted"
+                logger.warning(
+                    "llm_provider_selected",
+                    provider_selected="cerebras",
+                    reason="groq_budget_exhausted",
+                    estimated_tokens=estimated_tokens,
+                    available_tokens=groq_available,
+                    resume_id=resume_id,
                 )
                 if self.cerebras.enabled:
-                    provider_selected = "cerebras"
                     logger.info(
                         "llm_fallback_to_cerebras_started",
-                        provider="cerebras",
+                        provider_selected="cerebras",
+                        reason="groq_budget_exhausted",
                         resume_id=resume_id,
-                        reason=fallback_reason,
                     )
                     t1 = time.monotonic()
                     try:
                         verdicts, usage = await self._invoke_evaluator(
                             self.cerebras, requirements, evidence, allowed_evidence
                         )
-                        wait_ms += (time.monotonic() - t1) * 1000.0
+                        wait_ms = (time.monotonic() - t1) * 1000.0
                         logger.info(
                             "llm_request_handled_by_cerebras_fallback",
-                            provider="cerebras",
+                            provider_selected="cerebras",
                             fallback=True,
                             status="success",
                             resume_id=resume_id,
                             verdicts_count=len(verdicts),
-                            duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
+                            duration_ms=round(wait_ms, 2),
                         )
                     except Exception as c_exc:
                         logger.error(
                             "cerebras_fallback_also_failed",
-                            provider="cerebras",
+                            provider_selected="cerebras",
                             error=str(c_exc),
                             resume_id=resume_id,
                         )
                         verdicts = []
                 else:
+                    logger.error("groq_budget_exhausted_and_cerebras_disabled", resume_id=resume_id)
                     verdicts = []
         elif self.cerebras.enabled:
             # Groq is not configured/enabled; using Cerebras as fallback
             provider_selected = "cerebras"
+            selection_reason = "groq_not_enabled"
             fallback_reason = "groq_not_enabled"
             logger.info(
-                "llm_groq_disabled_using_cerebras_fallback",
-                provider="cerebras",
+                "llm_provider_selected",
+                provider_selected="cerebras",
+                reason="groq_not_enabled",
                 resume_id=resume_id,
-                fallback=True,
             )
             t0 = time.monotonic()
             try:
@@ -2324,7 +2417,7 @@ class SmartMatchEvaluator:
                 wait_ms = (time.monotonic() - t0) * 1000.0
                 logger.info(
                     "llm_request_handled_by_cerebras_fallback",
-                    provider="cerebras",
+                    provider_selected="cerebras",
                     fallback=True,
                     status="success",
                     resume_id=resume_id,
@@ -2334,7 +2427,7 @@ class SmartMatchEvaluator:
             except Exception as c_exc:
                 logger.error(
                     "cerebras_request_failed",
-                    provider="cerebras",
+                    provider_selected="cerebras",
                     error=str(c_exc),
                     resume_id=resume_id,
                 )
@@ -2350,6 +2443,7 @@ class SmartMatchEvaluator:
             "resume_id": resume_id,
             "estimated_tokens": estimated_tokens,
             "provider_selected": provider_selected,
+            "reason": selection_reason,
             "groq_remaining_before": groq_available,
             "groq_tokens_reserved": estimated_tokens if provider_selected == "groq" else 0,
             "actual_input_tokens": actual_input,

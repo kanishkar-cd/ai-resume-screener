@@ -305,6 +305,67 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
 
 
 
+              {/* Total Match Score Hero Card (100% Backend Weightage Model) */}
+              <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                      Total Match Score
+                    </span>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-3xl font-black tracking-tight text-slate-900">
+                        {Number(candidate.overallScore ?? 0).toFixed(1)}%
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-400">/ 100</span>
+                    </div>
+                  </div>
+
+                  {/* Recommendation Status Badge */}
+                  <div className="text-right">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-xs ${
+                        candidate.isKnockedOut
+                          ? 'bg-red-100 text-red-800 border border-red-200'
+                          : candidate.recommendation === 'SHORTLIST'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : candidate.recommendation === 'REVIEW'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {candidate.isKnockedOut ? 'Knocked Out' : candidate.recommendation || 'Evaluated'}
+                    </span>
+                    <p className="text-[9.5px] font-medium text-slate-400 mt-1">
+                      Pass Threshold: {candidate.passingScore ?? 70}%
+                    </p>
+                  </div>
+                </div>
+
+                {/* Overall Progress Bar */}
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden p-0.5">
+                  <motion.div
+                    className={`h-full rounded-full ${
+                      (candidate.overallScore ?? 0) >= 70
+                        ? 'bg-emerald-500'
+                        : (candidate.overallScore ?? 0) >= 50
+                        ? 'bg-blue-600'
+                        : 'bg-amber-500'
+                    }`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, Math.max(0, candidate.overallScore ?? 0))}%` }}
+                    transition={{ duration: 0.6, ease: 'easeOut' }}
+                  />
+                </div>
+
+                {/* Formula Breakdown Indicator */}
+                <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px] text-slate-500 font-medium">
+                  <span>Backend Weightage: 45% Skills + 40% Resp + 15% Pref</span>
+                  <span className="font-semibold text-slate-700">
+                    Total: {Number(candidate.overallScore ?? 0).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+
               {/* Backend Component Scoring Breakdown (100% Model) */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -326,16 +387,14 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
                   }
 
                   const componentsList = [
-                    { key: 'skills', label: 'Required Skills', defaultWeight: 30 },
-                    { key: 'responsibilities', label: 'Responsibilities', defaultWeight: 25 },
-                    { key: 'projects', label: 'Projects', defaultWeight: 25 },
+                    { key: 'skills', label: 'Required Skills', defaultWeight: 45 },
+                    { key: 'responsibilities', label: 'Responsibilities', defaultWeight: 40 },
                     { key: 'preferred_skills', label: 'Preferred Skills', defaultWeight: 15 },
-                    { key: 'certifications', label: 'Certifications', defaultWeight: 5 },
                   ]
 
                   return (
                     <div className="space-y-2.5">
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {componentsList.map((c) => {
                           const { scoreVal, weightVal, contributionVal } = getDetail(c.key, c.defaultWeight)
                           const roundedScore = Math.round(scoreVal)
@@ -530,7 +589,7 @@ export default function CandidateRanking() {
             const explanation = detail.explanation || ''
             const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
             const weightKey = key === 'skills' ? 'required_skills' : key
-            const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 30 : key === 'responsibilities' ? 25 : key === 'projects' ? 20 : key === 'preferred_skills' ? 15 : key === 'experience' ? 5 : key === 'certifications' ? 3 : key === 'education' ? 2 : 0)
+            const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 45 : key === 'responsibilities' ? 40 : key === 'preferred_skills' ? 15 : 0)
             const finalScore = (effectiveWeight === 0 || !isApplicable) ? 0 : (detail.score ?? 0)
             const weightedScore = (persistedScore.weighted_scores as any)?.[key] ?? (finalScore * effectiveWeight / 100)
             return {
@@ -560,7 +619,7 @@ export default function CandidateRanking() {
     if (!state.projectId) { setRankingsLoading(false); return }
     let active = true
     setRankingsLoading(true)
-    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { skills: 50, experience: 0, projects: 50, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
+    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { required_skills: 45, responsibilities: 40, preferred_skills: 15, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
 
     const loadData = async () => {
       try {
