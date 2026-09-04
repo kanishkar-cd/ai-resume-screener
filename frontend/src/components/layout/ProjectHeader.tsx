@@ -22,10 +22,12 @@ export default function ProjectHeader() {
     location.pathname === `${root}/rankings` ||
     location.pathname === `${root}/resumes` ||
     location.pathname === `${root}/shortlist` ||
+    location.pathname === `${root}/assessment` ||
     location.pathname === root ||
     location.pathname.endsWith('/rankings') ||
     location.pathname.endsWith('/resumes') ||
-    location.pathname.endsWith('/shortlist')
+    location.pathname.endsWith('/shortlist') ||
+    location.pathname.endsWith('/assessment')
 
   if (isWorkflowStep) return null
 

@@ -97,11 +97,18 @@ export default function Shortlist() {
   } selected`
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-6 pb-10">
+    <div className="w-full max-w-5xl mx-auto space-y-5 pb-6">
       {/* ── Page Header & Direct Action ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Shortlisted Candidates</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+              Shortlisted Candidates
+            </h1>
+            <span className="text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-full">
+              {shortlistedCandidates.length}
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
             Select candidates to dispatch for technical assessment.
           </p>
@@ -138,18 +145,19 @@ export default function Shortlist() {
             <span className="text-xs font-bold text-slate-800">
               {countText}
             </span>
-            <div className="h-4 w-[1px] bg-slate-200" />
+            <div className="h-3.5 w-[1px] bg-slate-200" />
             <button
               type="button"
               onClick={handleSelectAll}
-              className="text-xs text-blue-600 font-semibold hover:underline cursor-pointer"
+              className="text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
             >
               Select All
             </button>
+            <span className="text-slate-300 text-xs">·</span>
             <button
               type="button"
               onClick={handleDeselectAll}
-              className="text-xs text-slate-500 font-semibold hover:underline cursor-pointer"
+              className="text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
             >
               Deselect All
             </button>
@@ -163,7 +171,7 @@ export default function Shortlist() {
             <p className="mt-1 text-slate-400 text-xs">Go to Candidate Rankings to shortlist candidates for assessment.</p>
             <button
               type="button"
-              onClick={() => projectId ? navigate(`/projects/${projectId}/rankings`) : navigate('/dashboard')}
+              onClick={() => (projectId ? navigate(`/projects/${projectId}/rankings`) : navigate('/dashboard'))}
               className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
             >
               Back to Candidate Rankings
@@ -187,22 +195,22 @@ export default function Shortlist() {
                       onClick={() => toggleSelect(c.id)}
                       className="hover:bg-slate-50/70 transition-colors cursor-pointer"
                     >
-                      <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-6 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => toggleSelect(c.id)}
                           className="text-slate-400 hover:text-blue-600 transition-colors cursor-pointer flex items-center justify-center mx-auto"
                         >
                           {isChecked ? (
-                            <CheckSquare size={18} className="text-blue-600" />
+                            <CheckSquare size={19} className="text-blue-600" />
                           ) : (
-                            <Square size={18} className="text-slate-300 hover:text-slate-400" />
+                            <Square size={19} className="text-slate-300 hover:text-slate-400" />
                           )}
                         </button>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-3.5">
                         <div className="flex items-center gap-3.5">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 font-bold text-xs shrink-0 shadow-2xs">
+                          <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 font-bold text-xs shrink-0 shadow-2xs">
                             {c.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
                           </div>
                           <div className="min-w-0">
