@@ -133,7 +133,7 @@ def test_llm_evidence_and_confidence_validation() -> None:
         "confidence": 0.79, "evidence_ids": ["project:1"], "reasoning": "Relevant",
     }]), [requirement], evidence, {requirement.requirement_id: {"project:1"}})
     assert invalid[0].status == MatchStatus.UNRESOLVED and not invalid[0].evidence_ids
-    assert low[0].status == MatchStatus.UNRESOLVED
+    assert low[0].status == MatchStatus.NO_MATCH
 
 
 @pytest.mark.asyncio
@@ -216,7 +216,7 @@ async def test_validated_llm_match_enriches_scoring_copy_only() -> None:
     after = ComponentScoringService().score(scoring_resume, job, config, enriched.projects, match_verdicts=verdicts)
     assert before.projects.score == after.projects.score == 100.0
     assert before.skills == after.skills
-    assert after.experience.score == 100.0 # LLM confirmed 1 of 1 responsibilities
+    assert after.responsibilities.score == 100.0 # LLM confirmed 1 of 1 responsibilities
     assert before.education == after.education
 
 

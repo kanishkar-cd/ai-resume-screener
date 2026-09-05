@@ -233,9 +233,19 @@ class WeightCalculationService:
         # Calculate final weighted total using unrounded values to prevent rounding drift
         raw_weighted_total = sum(comp_scores[c] * (effective_weights.get(c, 0.0) / 100.0) for c in active_categories)
 
-        # ── REQUIRED SKILL PROTECTION SAFEGUARD ─────────────────────────────
-        # If required skills are active in the JD, a candidate with critical missing required skills
-        # must not receive an unrealistically high match score purely from responsibilities or preferred skills.
+        # ── REQUIRED SKILL PROTECTION SAFEGUARD & KNOCKOUT RELATIONSHIP ──────
+        # Belt-and-suspenders architecture:
+        # 1. KNOCKOUT (Categorical Rule): If MISSING_MANDATORY_SKILL is active in
+        #    the project's knockout_rules, any missing mandatory skill immediately
+        #    forces RecommendationLevel.REJECT.
+        # 2. SAFEGUARD (Numerical Integrity): Regardless of whether knockout rules
+        #    are enabled or disabled by the recruiter, the Zero/Critical Skill
+        #    Safeguard enforces a strict mathematical ceiling on weighted_total
+        #    (<= 35.0% for 0% skills, or proportional cap for < 50% skills). This
+        #    prevents a candidate lacking core skills from ever displaying an
+        #    inflated match percentage (e.g. 85% from responsibilities alone).
+        # When both trigger, they reinforce each other: the candidate is REJECTED
+        # and their score is kept low, preventing UI badge discrepancies.
         is_req_active = "required_skills" in active_categories
         req_score = comp_scores.get("required_skills", 0.0)
 

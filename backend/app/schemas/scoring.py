@@ -3,6 +3,7 @@ from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.models.weight_config import DEFAULT_PASSING_SCORE
 from app.schemas.matching import MatchVerdict
 
 
@@ -74,7 +75,7 @@ class CandidateScoreCreate(BaseModel):
     knockout_reason: str | None = None
     penalty_summary: list[AdjustmentItem] = Field(default_factory=list)
     bonus_summary: list[AdjustmentItem] = Field(default_factory=list)
-    passing_score: float = Field(default=70.0, ge=0, le=100)
+    passing_score: float = Field(default=DEFAULT_PASSING_SCORE, ge=0, le=100)
     effective_weights: dict[str, float] = Field(default_factory=dict)
     score_breakdown: list[CategoryBreakdownItem] = Field(default_factory=list)
     weight_config_version: int = Field(ge=1)

@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.core.exceptions import AppException, InternalServerException
 from app.models.document import DocumentModel, DocumentTypeEnum
+from app.models.weight_config import DEFAULT_PASSING_SCORE
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.normalization_repository import NormalizationRepository
@@ -278,7 +279,7 @@ class ScoringEngineFacade:
                 config=weight_config,
             )
             confidence = ConfidenceService.calculate(extracted)
-            passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else 70.0
+            passing_score = float(weight_config.passing_score) if (weight_config is not None and getattr(weight_config, "passing_score", None) is not None) else DEFAULT_PASSING_SCORE
             recommendation = RecommendationService.recommend(
                 final_score=final_score,
                 passing_score=passing_score,

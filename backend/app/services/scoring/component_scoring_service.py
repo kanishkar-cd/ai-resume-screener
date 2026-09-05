@@ -94,7 +94,8 @@ class ComponentScoringService:
     def _match_multiword_concept(concept_text: str, candidate_texts: list[str]) -> str | None:
         """
         Deterministically matches a multi-word skill or responsibility concept against candidate evidence.
-        Ensures all required stemmed concept tokens appear in candidate text with concept proximity.
+        Ensures all required stemmed concept tokens appear in candidate text within a single delimited clause
+        with tight concept proximity, preventing false positives across comma-separated skill lists.
         Avoids single-word collisions (e.g. Java vs JavaScript).
         """
         stop_words = {
@@ -109,17 +110,39 @@ class ComponentScoringService:
             return None
 
         stemmed_concept = [_stem_token(t) for t in concept_tokens]
+        clause_delimiter = re.compile(r"[,;\n|•\t/]|(?:\s+-\s+)")
+
+        if isinstance(candidate_texts, str):
+            candidate_texts = [candidate_texts]
 
         for text in candidate_texts:
             if not text:
                 continue
-            text_tokens = [t for t in _TOKEN.findall(text.casefold()) if len(t) > 1]
-            stemmed_text = [_stem_token(t) for t in text_tokens]
 
-            if all(ct in stemmed_text for ct in stemmed_concept):
-                indices = [stemmed_text.index(ct) for ct in stemmed_concept if ct in stemmed_text]
-                if indices and (max(indices) - min(indices)) <= len(concept_tokens) + 8:
-                    return text.strip()
+            # Split text by delimiter boundaries so concepts cannot span across distinct skills
+            clauses = clause_delimiter.split(text)
+            for clause in clauses:
+                clause_clean = clause.strip()
+                if not clause_clean:
+                    continue
+                clause_tokens = [t for t in _TOKEN.findall(clause_clean.casefold()) if len(t) > 1]
+                stemmed_clause = [_stem_token(t) for t in clause_tokens]
+
+                if not all(ct in stemmed_clause for ct in stemmed_concept):
+                    continue
+
+                # Find valid ordered occurrence with tight proximity window
+                # Max allowed span is len(concept_tokens) + 1 (allows at most 1 connective stop word like 'of', 'and')
+                max_allowed_span = len(concept_tokens) + 1
+
+                for start_idx in range(len(stemmed_clause)):
+                    if stemmed_clause[start_idx] == stemmed_concept[0]:
+                        curr_concept_idx = 1
+                        for look_ahead in range(start_idx + 1, min(len(stemmed_clause), start_idx + max_allowed_span + 1)):
+                            if stemmed_clause[look_ahead] == stemmed_concept[curr_concept_idx]:
+                                curr_concept_idx += 1
+                                if curr_concept_idx == len(stemmed_concept):
+                                    return text.strip()
         return None
 
     def score(
@@ -499,7 +522,7 @@ class ComponentScoringService:
         for item in raw_edu:
             if isinstance(item, dict):
                 deg = item.get("degree") or item.get("title") or ""
-                major = item.get("field") or item.get("major") or ""
+                major = item.get("field") or item.get("major") or item.get("field_of_study") or ""
                 inst = item.get("institution") or item.get("school") or ""
                 full_text = " ".join(part for part in [deg, major, inst] if part).strip()
             else:
