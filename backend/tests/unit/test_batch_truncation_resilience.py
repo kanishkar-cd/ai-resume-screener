@@ -199,3 +199,49 @@ async def test_truncation_recovery_evaluates_missing_requirements_in_sub_batch()
         verdict_ids = [v.requirement_id for v in verdicts]
         assert verdict_ids == ["req_1", "req_2", "req_3", "req_4"]
         assert all(v.status != MatchStatus.EVALUATION_FAILED for v in verdicts)
+
+
+@pytest.mark.asyncio
+async def test_cerebras_large_requirement_batch_chunking():
+    """Test that Cerebras evaluator also splits large batches of 16 requirements into chunks of 8."""
+    settings = make_test_settings()
+    settings.LLM_BATCH_CHUNK_SIZE = 8
+
+    reqs = [
+        Requirement(requirement_id=f"req_{i}", kind=RequirementKind.SKILL if i < 10 else RequirementKind.RESPONSIBILITY, text=f"Skill/Duty {i}", required=True)
+        for i in range(1, 17)
+    ]
+    evs = [Evidence(evidence_id="ev1", kind="skills", text="Skill 1", canonical_terms=["skill"])]
+
+    evaluator = CerebrasMatchEvaluator(settings)
+    call_count = 0
+
+    async def mock_post(url, headers=None, json=None, timeout=None):
+        nonlocal call_count
+        call_count += 1
+        chunk_reqs = json["messages"][1]["content"]
+        chunk_data = __import__("json").loads(chunk_reqs)["requirements"]
+        verdicts = [make_verdict_item(r["requirement_id"]) for r in chunk_data]
+
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"finish_reason": "stop", "message": {"content": __import__("json").dumps({"verdicts": verdicts})}}],
+            "usage": {"prompt_tokens": 200, "completion_tokens": 300, "total_tokens": 500},
+        }
+        mock_resp.raise_for_status = MagicMock()
+        return mock_resp
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.post.side_effect = mock_post
+
+    with patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_client):
+        verdicts, usage = await evaluator.evaluate_with_usage(reqs, evs)
+
+        # 16 items / chunk size 8 = exactly 2 LLM calls
+        assert call_count == 2
+        assert len(verdicts) == 16
+        verdict_ids = {v.requirement_id for v in verdicts}
+        for i in range(1, 17):
+            assert f"req_{i}" in verdict_ids
+
