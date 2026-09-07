@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import math
 import re
 import time
 from collections import OrderedDict
@@ -171,6 +172,12 @@ class RequirementBuilder:
         required_skills = list(getattr(job, "required_skills", None) or [])
 
         # 1. Required skills (filtering section headers & meta notes)
+        # ── INTENDED RELATIONSHIP: MANDATORY SKILLS (CONFIG) VS REQUIRED SKILLS (JD) ──
+        # Belt-and-suspenders architecture:
+        # Configured mandatory_skills represent hard recruiter constraints.
+        # They are mapped into RequirementKind.SKILL with required=True, hard=True.
+        # Missing mandatory skills trigger both the categorical MISSING_MANDATORY_SKILL
+        # knockout (REJECT) and contribute to the numerical Zero/Critical Skill Safeguard.
         req_source = required_skills or getattr(job, "skills", None) or []
         for value in req_source:
             if not value or RequirementBuilder._is_section_header(value) or RequirementBuilder._is_meta_instruction(value):
@@ -181,6 +188,14 @@ class RequirementBuilder:
                 rows.append((RequirementKind.CANDIDATE_ATTRIBUTE, value.strip(), False, False))
             elif key not in preferred:
                 rows.append((RequirementKind.SKILL, value.strip(), True, key in mandatory))
+
+        # Ensure any recruiter mandatory skills not present in JD text are included as required hard skills
+        for m_skill in (getattr(config, "mandatory_skills", None) or []):
+            if not m_skill or not str(m_skill).strip():
+                continue
+            m_key = _key(str(m_skill))
+            if not any(r[0] == RequirementKind.SKILL and _key(r[1]) == m_key for r in rows):
+                rows.append((RequirementKind.SKILL, str(m_skill).strip(), True, True))
 
         # 2. Preferred skills (explicitly required=False)
         for value in preferred_skills:
@@ -211,15 +226,6 @@ class RequirementBuilder:
             rows.append((RequirementKind.EXPERIENCE, val.strip(), True, False))
 
         # 4. Education, Certification, Language, Project requirements
-        req_degree = getattr(config, "required_degree", None) or getattr(job, "required_degree", None)
-        if req_degree:
-            if isinstance(req_degree, str) and req_degree.strip() and not RequirementBuilder._is_section_header(req_degree):
-                rows.append((RequirementKind.DEGREE, req_degree.strip(), True, False))
-            elif isinstance(req_degree, list):
-                for deg in req_degree:
-                    if deg and str(deg).strip() and not RequirementBuilder._is_section_header(str(deg)):
-                        rows.append((RequirementKind.DEGREE, str(deg).strip(), True, False))
-
         for value in list(getattr(job, "degree_requirements", None) or getattr(job, "qualifications", None) or []):
             if value and str(value).strip() and not RequirementBuilder._is_section_header(str(value)):
                 val_str = str(value).strip()
@@ -294,14 +300,23 @@ class EvidenceBuilder:
     @staticmethod
     def _projects(extracted: Any) -> list[dict[str, Any]]:
         raw_projs = list(getattr(extracted, "projects", None) or [])
-        if raw_projs:
-            return raw_projs
-        meta = getattr(extracted, "raw_metadata", None) or {}
-        if isinstance(meta, dict):
-            profile_projs = list((meta.get("affinda_normalized_profile") or {}).get("projects") or [])
-            if profile_projs:
-                return profile_projs
-        return []
+        if not raw_projs:
+            meta = getattr(extracted, "raw_metadata", None) or {}
+            if isinstance(meta, dict):
+                raw_projs = list((meta.get("affinda_normalized_profile") or {}).get("projects") or [])
+        projects = [dict(item) if isinstance(item, dict) else item for item in raw_projs]
+        if len(projects) <= 1:
+            return projects
+        first_desc = projects[0].get("description") if isinstance(projects[0], dict) else getattr(projects[0], "description", None)
+        descriptions = (first_desc or "").splitlines()
+        descriptions = [value.strip() for value in descriptions if value.strip()]
+        if len(descriptions) == len(projects) and all(
+            not (p.get("description") if isinstance(p, dict) else getattr(p, "description", None)) for p in projects[1:]
+        ):
+            for project, description in zip(projects, descriptions, strict=True):
+                if isinstance(project, dict):
+                    project["description"] = description
+        return projects
     def build(extracted: Any) -> list[Evidence]:
         result: list[Evidence] = []
         for index, project in enumerate(EvidenceBuilder._projects(extracted), start=1):
@@ -359,7 +374,7 @@ class EvidenceBuilder:
         for index, item in enumerate(raw_edu, start=1):
             if isinstance(item, dict):
                 deg = item.get("degree") or item.get("title") or ""
-                major = item.get("field") or item.get("major") or ""
+                major = item.get("field") or item.get("major") or item.get("field_of_study") or ""
                 inst = item.get("institution") or item.get("school") or ""
                 edu_text = " ".join(part for part in [deg, major, inst] if part).strip()
             else:
@@ -929,7 +944,7 @@ class DeterministicRequirementMatcher:
             edu_texts = [e.text for e in edu_evidence]
             for item in raw_edu:
                 if isinstance(item, dict):
-                    t = f"{item.get('degree', '')} {item.get('title', '')} {item.get('field', '')} {item.get('major', '')} {item.get('institution', '')}".strip()
+                    t = f"{item.get('degree', '')} {item.get('title', '')} {item.get('field', '')} {item.get('major', '')} {item.get('field_of_study', '')} {item.get('institution', '')}".strip()
                     if t and t not in edu_texts:
                         edu_texts.append(t)
                 elif isinstance(item, str) and item.strip() and item.strip() not in edu_texts:
@@ -938,13 +953,20 @@ class DeterministicRequirementMatcher:
             full_edu_str = " ".join(edu_texts).casefold()
             req_cf = req_text.casefold()
 
-            is_bachelor = any(b in req_cf for b in ("bachelor", "b.s", "bs", "b.a", "ba", "b.tech", "btech", "b.e", "be", "undergraduate"))
-            is_master = any(m in req_cf for m in ("master", "m.s", "ms", "m.a", "ma", "m.tech", "mtech", "m.e", "me", "postgraduate", "graduate degree"))
-            is_phd = any(p in req_cf for p in ("phd", "ph.d", "doctorate", "doctoral"))
+            def _has_degree_term(patterns: tuple[str, ...], text: str) -> bool:
+                return any(bool(re.search(r"(?:\b|\A)" + re.escape(p) + r"(?:\b|\Z)", text, re.IGNORECASE)) for p in patterns)
 
-            cand_bachelor = any(b in full_edu_str for b in ("bachelor", "b.s", "bs", "b.a", "ba", "b.tech", "btech", "b.e", "be", "undergraduate"))
-            cand_master = any(m in full_edu_str for m in ("master", "m.s", "ms", "m.a", "ma", "m.tech", "mtech", "m.e", "me", "postgraduate"))
-            cand_phd = any(p in full_edu_str for p in ("phd", "ph.d", "doctorate", "doctoral"))
+            bachelor_terms = ("bachelor", "b.s", "bs", "b.a", "ba", "b.tech", "btech", "b.e", "be", "undergraduate")
+            master_terms = ("master", "m.s", "ms", "m.a", "ma", "m.tech", "mtech", "m.e", "me", "postgraduate", "graduate degree")
+            phd_terms = ("phd", "ph.d", "doctorate", "doctoral")
+
+            is_bachelor = _has_degree_term(bachelor_terms, req_cf)
+            is_master = _has_degree_term(master_terms, req_cf)
+            is_phd = _has_degree_term(phd_terms, req_cf)
+
+            cand_bachelor = _has_degree_term(bachelor_terms, full_edu_str)
+            cand_master = _has_degree_term(master_terms, full_edu_str)
+            cand_phd = _has_degree_term(phd_terms, full_edu_str)
 
             degree_level_matched = False
             if is_bachelor and (cand_bachelor or cand_master or cand_phd):
@@ -964,13 +986,14 @@ class DeterministicRequirementMatcher:
 
             if degree_level_matched and cand_field_matched:
                 ev_ids = [e.evidence_id for e in edu_evidence][:1]
+                deg_method = MatchMethod.TAXONOMY if (is_bachelor and not cand_bachelor and (cand_master or cand_phd)) else MatchMethod.EXACT
                 return MatchVerdict(
                     requirement_id=requirement.requirement_id,
                     status=MatchStatus.MATCHED,
                     confidence=1.0,
                     evidence_ids=ev_ids,
                     reasoning=f"Candidate education degree satisfies requirement ({req_text}).",
-                    method=MatchMethod.EXACT,
+                    method=deg_method,
                     coverage=1.0,
                     matched_concepts=[req_text],
                     missing_concepts=[],
@@ -1211,6 +1234,49 @@ class SemanticEvidenceRetriever:
 
         return 0.0
 
+    @staticmethod
+    def embedding_vector(text: str, dim: int = 256) -> list[float]:
+        """
+        Computes a normalized dense embedding vector for text using subword character n-grams
+        and stemmed word tokens with feature hashing.
+        """
+        if not text:
+            return [0.0] * dim
+        vec = [0.0] * dim
+        cleaned = re.sub(r"\s+", " ", text.casefold()).strip()
+        tokens = [t for t in _TOKEN.findall(cleaned) if len(t) > 1]
+
+        # Word token features with stem projection
+        for t in tokens:
+            st = _stem_token(t)
+            h1 = int(hashlib.md5(t.encode("utf-8")).hexdigest(), 16) % dim
+            h2 = int(hashlib.md5(st.encode("utf-8")).hexdigest(), 16) % dim
+            vec[h1] += 2.0
+            vec[h2] += 2.0
+
+        # Subword character n-gram features (3-gram and 4-gram)
+        for n in (3, 4):
+            if len(cleaned) >= n:
+                for i in range(len(cleaned) - n + 1):
+                    gram = cleaned[i : i + n]
+                    h = int(hashlib.md5(gram.encode("utf-8")).hexdigest(), 16) % dim
+                    vec[h] += 1.0
+
+        norm = math.sqrt(sum(x * x for x in vec))
+        if norm > 0:
+            vec = [x / norm for x in vec]
+        return vec
+
+    @classmethod
+    def cosine_similarity(cls, text1: str, text2: str) -> float:
+        """Computes cosine similarity between dense text embedding vectors."""
+        if not text1 or not text2:
+            return 0.0
+        v1 = cls.embedding_vector(text1)
+        v2 = cls.embedding_vector(text2)
+        dot = sum(a * b for a, b in zip(v1, v2))
+        return round(max(0.0, min(1.0, dot)), 4)
+
     @classmethod
     def retrieve(cls, query: str, evidence: list[Evidence], top_k: int = 5) -> list[Evidence]:
         if not evidence or not query:
@@ -1326,6 +1392,14 @@ class EvidencePrefilter:
             score = overlap + phrase_bonus
             if score > 0:
                 scored.append((score, item.evidence_id, item))
+
+        # Semantic cosine similarity fallback for chunks failing lexical threshold (or having 0 lexical overlap)
+        lexical_passing_ids = {row[1] for row in scored if row[0] >= self.threshold}
+        for item in target_evidence:
+            if item.evidence_id not in lexical_passing_ids:
+                cos_sim = SemanticEvidenceRetriever.cosine_similarity(requirement.text, item.text)
+                if cos_sim >= 0.20:
+                    scored.append((cos_sim, item.evidence_id, item))
 
         if scored:
             scored.sort(key=lambda row: (-row[0], row[1]))
@@ -1802,25 +1876,7 @@ class GroqMatchEvaluator:
             logger.warning("groq_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
-        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
-                    req_chunk, chunk_ev, chunk_allowed, pre_reserved=(pre_reserved if i == 0 else False), allow_retries=allow_retries
-                )
-                all_verdicts.extend(chunk_verdicts)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    usage_stats[k] += chunk_usage.get(k, 0)
-            return all_verdicts, usage_stats
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
             "evidence": [e.model_dump(mode="json") for e in evidence],
@@ -2026,10 +2082,13 @@ class GroqMatchEvaluator:
         pre_reserved: bool = False,
         allow_retries: bool = True,
     ) -> list[MatchVerdict]:
-        verdicts, _ = await self.evaluate_with_usage(
-            requirements, evidence, allowed_evidence, pre_reserved=pre_reserved, allow_retries=allow_retries
-        )
-        return verdicts
+        try:
+            verdicts, _ = await self.evaluate_with_usage(
+                requirements, evidence, allowed_evidence, pre_reserved=pre_reserved, allow_retries=allow_retries
+            )
+            return verdicts
+        except Exception:
+            return []
 
     @staticmethod
     def _normalize_evidence_id(raw_id: str, valid_supplied_ids: set[str]) -> str | None:
@@ -2087,11 +2146,13 @@ class GroqMatchEvaluator:
             # Normalize and validate all cited evidence IDs with strict entity-type compatibility
             raw_cited_ids = list(item.evidence_ids) if item.evidence_ids else []
             valid_cited_ids: list[str] = []
+            has_cross_entity_rejection = False
             for raw_id in raw_cited_ids:
                 norm_id = self._normalize_evidence_id(raw_id, req_supplied_ids)
                 if norm_id and norm_id not in valid_cited_ids:
                     ev_item = evidence_by_id.get(norm_id)
                     if ev_item and not is_entity_compatible(req_obj.kind, ev_item.kind):
+                        has_cross_entity_rejection = True
                         logger.warning(
                             "cross_entity_evidence_rejected",
                             requirement_id=req_id,
@@ -2132,6 +2193,11 @@ class GroqMatchEvaluator:
                 and all(isinstance(sc, dict) and sc.get("evidence_level") == "none" for sc in sub_claim_evidence_val)
             )
 
+            raw_status_str = str(getattr(item.status, "value", item.status) if item.status is not None else "").upper()
+            is_matched_raw = raw_status_str in {"MATCHED", "MATCH"}
+            is_partial_raw = raw_status_str in {"PARTIALLY_MATCHED", "PARTIAL"}
+            is_no_match_raw = raw_status_str in {"NO_MATCH", "UNMATCHED", "REJECTED"}
+
             # Extract coverage score
             raw_cov = getattr(item, "coverage_score", None)
             if raw_cov is None:
@@ -2145,12 +2211,12 @@ class GroqMatchEvaluator:
                 tot = len(sub_claim_evidence_val)
                 coverage_val = (direct_cnt * 1.0 + adj_cnt * 0.5) / tot if tot > 0 else 0.0
             else:
-                coverage_val = 0.0
-
-            raw_status_str = str(getattr(item.status, "value", item.status) if item.status is not None else "").upper()
-            is_matched_raw = raw_status_str in {"MATCHED", "MATCH"}
-            is_partial_raw = raw_status_str in {"PARTIALLY_MATCHED", "PARTIAL"}
-            is_no_match_raw = raw_status_str in {"NO_MATCH", "UNMATCHED", "REJECTED"}
+                if is_matched_raw:
+                    coverage_val = 1.0
+                elif is_partial_raw:
+                    coverage_val = 0.5
+                else:
+                    coverage_val = 0.0
 
             # Contradiction Prevention Rule: If reasoning states no evidence or all subclaims are none,
             # coverage_val MUST be 0.0 and status MUST be NO_MATCH
@@ -2176,15 +2242,41 @@ class GroqMatchEvaluator:
 
             # Determine final status
             confirmed = (coverage_val >= 0.25 or is_matched_raw or is_partial_raw) and not is_no_match_raw
+            item_confidence = float(getattr(item, "confidence", 1.0) if getattr(item, "confidence", None) is not None else 0.0)
 
-            if confirmed and coverage_val > 0.0:
+            # 1. Reject ungrounded matches (no valid evidence IDs cited) to UNRESOLVED
+            if confirmed and not has_valid_evidence:
+                status = MatchStatus.UNRESOLVED
+                method = MatchMethod.LLM_UNRESOLVED
+                if has_cross_entity_rejection:
+                    reasoning = f"(Rejected: cross_entity_evidence_forbidden). {raw_reasoning}".strip()
+                else:
+                    reasoning = f"(Rejected: No valid candidate evidence ID cited for match). {raw_reasoning}".strip()
+                coverage_val = 0.0
+            # 2. Low-confidence LLM verdict handling: Explicitly reject to NO_MATCH if confidence < threshold
+            elif confirmed and item_confidence < threshold:
+                logger.warning(
+                    "llm_verdict_low_confidence_rejected",
+                    requirement_id=req_id,
+                    confidence=item_confidence,
+                    threshold=threshold,
+                    raw_status=raw_status_str,
+                    reason="llm_confidence_below_threshold_fallback_no_match",
+                )
+                status = MatchStatus.NO_MATCH
+                method = MatchMethod.LLM_REJECTED
+                coverage_val = 0.0
+                reasoning = f"LLM match verdict rejected due to low confidence ({item_confidence:.2f} < threshold {threshold:.2f})."
+            # 3. Validated high-confidence match
+            elif confirmed and coverage_val > 0.0:
                 if coverage_val >= 0.7 or (is_matched_raw and coverage_val >= 0.5):
                     status = MatchStatus.MATCHED
                 else:
                     status = MatchStatus.PARTIALLY_MATCHED
                 method = MatchMethod.LLM_CONFIRMED
                 reasoning = raw_reasoning or ("LLM confirmed requirement match from candidate evidence." if status == MatchStatus.MATCHED else "Candidate shows partial / transferable evidence for requirement.")
-            elif is_no_match_raw or coverage_val == 0.0:
+            # 4. Explicit NO_MATCH
+            elif is_no_match_raw:
                 status = MatchStatus.NO_MATCH
                 method = MatchMethod.LLM_REJECTED
                 reasoning = raw_reasoning or "LLM verified requirement is unmet."
@@ -2424,25 +2516,7 @@ class CerebrasMatchEvaluator:
             logger.warning("cerebras_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
-        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
-                    req_chunk, chunk_ev, chunk_allowed, allow_retries=allow_retries
-                )
-                all_verdicts.extend(chunk_verdicts)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    usage_stats[k] += chunk_usage.get(k, 0)
-            return all_verdicts, usage_stats
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
 
         model_name = getattr(self.settings, "CEREBRAS_MODEL", "gpt-oss-120b")
         digest = hashlib.sha256(json.dumps({
@@ -2699,39 +2773,7 @@ class SmartMatchEvaluator:
         if not requirements:
             return [], {}
 
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            combined_telemetry: dict[str, Any] = {
-                "provider_selected": "groq",
-                "reason": "budget_available",
-                "actual_total_tokens": 0,
-                "actual_input_tokens": 0,
-                "actual_output_tokens": 0,
-                "llm_duration_ms": 0.0,
-                "total_resume_duration_ms": 0.0,
-                "circuit_skipped": [],
-            }
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                c_verdicts, c_tele = await self.evaluate(req_chunk, chunk_ev, chunk_allowed, resume_id=resume_id)
-                all_verdicts.extend(c_verdicts)
-                for k in ("actual_total_tokens", "actual_input_tokens", "actual_output_tokens"):
-                    combined_telemetry[k] += c_tele.get(k, 0)
-                combined_telemetry["llm_duration_ms"] += c_tele.get("llm_duration_ms", 0.0)
-                combined_telemetry["total_resume_duration_ms"] += c_tele.get("total_resume_duration_ms", 0.0)
-                if c_tele.get("provider_selected") == "cerebras":
-                    combined_telemetry["provider_selected"] = "cerebras"
-                for p in c_tele.get("circuit_skipped", []):
-                    if p not in combined_telemetry["circuit_skipped"]:
-                        combined_telemetry["circuit_skipped"].append(p)
-            return all_verdicts, combined_telemetry
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
 
         breaker = ProviderCircuitBreaker.get_breaker(self.settings)
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
@@ -2799,7 +2841,7 @@ class SmartMatchEvaluator:
                         raise RuntimeError("Groq returned empty verdicts")
                 except Exception as exc:
                     # Clean up in-flight gate reservation if evaluator was a mock and did not release
-                    if not isinstance(self.groq, GroqMatchEvaluator):
+                    if type(self.groq).__name__ != "GroqMatchEvaluator":
                         await groq_gate.release_reservation(estimated_tokens)
 
                     status_code = getattr(getattr(exc, "response", None), "status_code", None)

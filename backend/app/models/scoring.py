@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin, UUIDMixin
+from app.models.weight_config import DEFAULT_PASSING_SCORE
 
 if TYPE_CHECKING:
     from app.models.ranking import CandidateRankingModel
@@ -63,7 +64,7 @@ class CandidateScoreModel(UUIDMixin, TimestampMixin, Base):
         ),
         nullable=False,
     )
-    passing_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("70.0"), server_default="70.0")
+    passing_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal(str(DEFAULT_PASSING_SCORE)), server_default=str(DEFAULT_PASSING_SCORE))
     effective_weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     is_knocked_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 

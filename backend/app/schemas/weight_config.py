@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.weight_config import DEFAULT_PASSING_SCORE
+
 
 class WeightDistribution(BaseModel):
     required_skills: float = Field(default=50.0, ge=0.0, le=100.0)
@@ -33,7 +35,7 @@ class KnockoutRule(BaseModel):
 
 class WeightConfigCreate(BaseModel):
     weights: WeightDistribution | dict[str, float] = Field(default_factory=WeightDistribution)
-    passing_score: float = Field(default=70.0, ge=0.0, le=100.0)
+    passing_score: float = Field(default=DEFAULT_PASSING_SCORE, ge=0.0, le=100.0)
     min_experience_years: float = Field(default=0.0, ge=0.0, le=50.0)
     required_degree: str | None = None
     required_certifications: list[str] = Field(default_factory=list)

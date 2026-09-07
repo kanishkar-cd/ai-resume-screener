@@ -13,6 +13,10 @@ if TYPE_CHECKING:
     from app.models.project import ProjectModel
 
 
+# Authoritative single source of truth for default project passing threshold
+DEFAULT_PASSING_SCORE: float = 60.0
+
+
 class WeightConfigModel(UUIDMixin, TimestampMixin, Base):
     """Recruiter weight and screening threshold configuration persisted in PostgreSQL."""
 
@@ -29,7 +33,7 @@ class WeightConfigModel(UUIDMixin, TimestampMixin, Base):
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     passing_score: Mapped[float] = mapped_column(
-        Float, nullable=False, default=60.0, server_default="60.0"
+        Float, nullable=False, default=DEFAULT_PASSING_SCORE, server_default=str(DEFAULT_PASSING_SCORE)
     )
     min_experience_years: Mapped[float] = mapped_column(
         Float, nullable=False, default=0.0, server_default="0.0"

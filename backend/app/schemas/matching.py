@@ -77,8 +77,14 @@ class MatchVerdict(BaseModel):
 
     @model_validator(mode="after")
     def validate_method(self) -> "MatchVerdict":
+        if self.status in {MatchStatus.NO_MATCH, MatchStatus.UNMATCHED}:
+            self.coverage = 0.0
+            self.coverage_score = 0.0
+        elif self.status == MatchStatus.UNRESOLVED and self.coverage == 1.0 and self.coverage_score == 1.0:
+            self.coverage = 0.0
+            self.coverage_score = 0.0
         # Keep coverage and coverage_score synchronized
-        if self.coverage_score is not None and self.coverage == 1.0 and self.coverage_score != 1.0:
+        elif self.coverage_score is not None and self.coverage == 1.0 and self.coverage_score != 1.0:
             self.coverage = self.coverage_score
         elif self.coverage is not None and self.coverage != 1.0 and self.coverage_score == 1.0:
             self.coverage_score = self.coverage
