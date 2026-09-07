@@ -44,8 +44,9 @@ export const api = {
     return apiRequest<Project>('/projects', { method: 'POST', body: payload })
   },
 
-  listProjects(): Promise<ProjectList> {
-    return apiRequest<ProjectList>('/projects', {}, { page_size: 100 })
+  listProjects(params?: { page?: number; page_size?: number; search?: string; status?: string }): Promise<ProjectList> {
+    const requestedSize = params?.page_size ? Math.min(params.page_size, 100) : 100
+    return apiRequest<ProjectList>('/projects', {}, { ...params, page_size: requestedSize })
   },
 
   getProject(projectId: string): Promise<Project> {

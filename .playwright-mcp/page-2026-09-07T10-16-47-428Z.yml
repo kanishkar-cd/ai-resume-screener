@@ -1,0 +1,124 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6] [cursor=pointer]:
+        - paragraph [ref=f1e7]: AI Resume Screener
+        - paragraph [ref=f1e8]: Recruiter Portal
+      - button "Collapse Sidebar" [ref=f1e9] [cursor=pointer]
+    - navigation [ref=f1e13]:
+      - button "Dashboard" [ref=f1e14] [cursor=pointer]
+      - generic [ref=f1e21]:
+        - generic [ref=f1e22] [cursor=pointer]:
+          - button "Departments" [active] [ref=f1e23]
+          - button [ref=f1e29]
+        - generic [ref=f1e464]:
+          - button "Software Engineering" [ref=f1e465] [cursor=pointer]
+          - button "Data Engineering" [ref=f1e466] [cursor=pointer]
+          - button "PMO" [ref=f1e467] [cursor=pointer]
+          - button "QA" [ref=f1e468] [cursor=pointer]
+          - button "SysOps" [ref=f1e469] [cursor=pointer]
+          - button "ITOps" [ref=f1e470] [cursor=pointer]
+          - button "SecOps" [ref=f1e471] [cursor=pointer]
+          - button "SRE" [ref=f1e472] [cursor=pointer]
+    - button "Settings" [ref=f1e33] [cursor=pointer]
+  - banner [ref=f1e38]:
+    - generic [ref=f1e39]:
+      - button "Dashboard" [ref=f1e473] [cursor=pointer]
+      - generic "Departments" [ref=f1e477]
+    - generic [ref=f1e47]: Recruiter
+  - main [ref=f1e54]:
+    - generic [ref=f1e478]:
+      - generic [ref=f1e479]:
+        - generic [ref=f1e480]:
+          - generic [ref=f1e481]:
+            - button "Overview" [ref=f1e482] [cursor=pointer]
+            - generic [ref=f1e485]: Departments
+          - heading "Department Directory" [level=1] [ref=f1e486]
+          - paragraph [ref=f1e491]: Manage organization hiring pipelines across the 8 company departments. Select a department to manage active requisitions and candidates.
+        - generic [ref=f1e492]:
+          - generic [ref=f1e493]:
+            - generic [ref=f1e494]: "8"
+            - generic [ref=f1e495]:
+              - paragraph [ref=f1e496]: Departments
+              - paragraph [ref=f1e497]: Active Units
+          - generic [ref=f1e498]:
+            - generic [ref=f1e499]: "100"
+            - generic [ref=f1e500]:
+              - paragraph [ref=f1e501]: Total Reqs
+              - paragraph [ref=f1e502]: Database Records
+      - generic [ref=f1e503]:
+        - textbox "Search by department name or code (e.g., Software Engineering, SWE, QA)..." [ref=f1e508]
+        - generic [ref=f1e509]: Showing 8 of 8 departments
+      - generic [ref=f1e510]:
+        - generic [ref=f1e511] [cursor=pointer]:
+          - generic [ref=f1e518]:
+            - heading "Software Engineering" [level=3] [ref=f1e519]
+            - paragraph [ref=f1e520]: Full-stack development, cloud architecture, microservices, and core platform development.
+          - generic [ref=f1e521]:
+            - generic [ref=f1e523]:
+              - generic [ref=f1e526]: "34"
+              - generic [ref=f1e527]: requisitions
+            - button "Open Department" [ref=f1e528]
+        - generic [ref=f1e532] [cursor=pointer]:
+          - generic [ref=f1e538]:
+            - heading "Data Engineering" [level=3] [ref=f1e539]
+            - paragraph [ref=f1e540]: ETL pipelines, data warehousing, machine learning infrastructure, and analytics engines.
+          - generic [ref=f1e541]:
+            - generic [ref=f1e543]:
+              - generic [ref=f1e546]: "5"
+              - generic [ref=f1e547]: requisitions
+            - button "Open Department" [ref=f1e548]
+        - generic [ref=f1e552] [cursor=pointer]:
+          - generic [ref=f1e561]:
+            - heading "PMO" [level=3] [ref=f1e562]
+            - paragraph [ref=f1e563]: Program management office, agile delivery, technical project governance, and release management.
+          - generic [ref=f1e564]:
+            - generic [ref=f1e566]:
+              - generic [ref=f1e569]: "2"
+              - generic [ref=f1e570]: requisitions
+            - button "Open Department" [ref=f1e571]
+        - generic [ref=f1e575] [cursor=pointer]:
+          - generic [ref=f1e582]:
+            - heading "QA" [level=3] [ref=f1e583]
+            - paragraph [ref=f1e584]: Quality assurance, automated testing frameworks, performance testing, and release validation.
+          - generic [ref=f1e585]:
+            - generic [ref=f1e587]:
+              - generic [ref=f1e590]: "2"
+              - generic [ref=f1e591]: requisitions
+            - button "Open Department" [ref=f1e592]
+        - generic [ref=f1e596] [cursor=pointer]:
+          - generic [ref=f1e603]:
+            - heading "SysOps" [level=3] [ref=f1e604]
+            - paragraph [ref=f1e605]: System administration, server infrastructure management, Linux systems, and hardware ops.
+          - generic [ref=f1e606]:
+            - generic [ref=f1e608]:
+              - generic [ref=f1e611]: "1"
+              - generic [ref=f1e612]: requisition
+            - button "Open Department" [ref=f1e613]
+        - generic [ref=f1e617] [cursor=pointer]:
+          - generic [ref=f1e626]:
+            - heading "ITOps" [level=3] [ref=f1e627]
+            - paragraph [ref=f1e628]: IT service delivery, corporate infrastructure, network administration, and IT helpdesk management.
+          - generic [ref=f1e629]:
+            - generic [ref=f1e631]:
+              - generic [ref=f1e634]: "1"
+              - generic [ref=f1e635]: requisition
+            - button "Open Department" [ref=f1e636]
+        - generic [ref=f1e640] [cursor=pointer]:
+          - generic [ref=f1e646]:
+            - heading "SecOps" [level=3] [ref=f1e647]
+            - paragraph [ref=f1e648]: Cybersecurity engineering, threat detection, vulnerability management, and SOC operations.
+          - generic [ref=f1e649]:
+            - generic [ref=f1e651]:
+              - generic [ref=f1e654]: "1"
+              - generic [ref=f1e655]: requisition
+            - button "Open Department" [ref=f1e656]
+        - generic [ref=f1e660] [cursor=pointer]:
+          - generic [ref=f1e667]:
+            - heading "SRE" [level=3] [ref=f1e668]
+            - paragraph [ref=f1e669]: Site reliability engineering, observability, fault tolerance, and SLO/SLI infrastructure.
+          - generic [ref=f1e670]:
+            - generic [ref=f1e672]:
+              - generic [ref=f1e675]: "1"
+              - generic [ref=f1e676]: requisition
+            - button "Open Department" [ref=f1e677]

@@ -1,0 +1,55 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6] [cursor=pointer]:
+        - paragraph [ref=f1e7]: AI Resume Screener
+        - paragraph [ref=f1e8]: Recruiter Portal
+      - button "Collapse Sidebar" [ref=f1e9] [cursor=pointer]
+    - navigation [ref=f1e13]:
+      - button "Dashboard" [ref=f1e14] [cursor=pointer]
+      - generic [ref=f1e21]:
+        - generic [ref=f1e22] [cursor=pointer]:
+          - button "Departments" [ref=f1e23]
+          - button [ref=f1e29]
+        - generic [ref=f1e464]:
+          - button "Software Engineering" [ref=f1e465] [cursor=pointer]
+          - button "Data Engineering" [ref=f1e466] [cursor=pointer]
+          - button "PMO" [ref=f1e467] [cursor=pointer]
+          - button "QA" [ref=f1e468] [cursor=pointer]
+          - button "SysOps" [ref=f1e469] [cursor=pointer]
+          - button "ITOps" [ref=f1e470] [cursor=pointer]
+          - button "SecOps" [ref=f1e471] [cursor=pointer]
+          - button "SRE" [ref=f1e472] [cursor=pointer]
+    - button "Settings" [ref=f1e33] [cursor=pointer]
+  - banner [ref=f1e38]:
+    - generic [ref=f1e39]:
+      - button "Dashboard" [ref=f1e473] [cursor=pointer]
+      - button "Departments" [ref=f1e681] [cursor=pointer]
+      - button "Software Engineering" [ref=f1e994] [cursor=pointer]
+      - generic "Create Requisition" [ref=f1e998]
+    - generic [ref=f1e47]: Recruiter
+  - main [ref=f1e54]:
+    - generic [ref=f1e999]:
+      - generic [ref=f1e1000]:
+        - button "Software Engineering" [ref=f1e1001] [cursor=pointer]
+        - generic [ref=f1e1002]: /
+        - generic [ref=f1e1003]: New Requisition
+      - generic [ref=f1e1004]:
+        - generic [ref=f1e1005]:
+          - generic [ref=f1e1006]: Software Engineering Requisition
+          - heading "Create Requisition" [level=1] [ref=f1e1011]
+          - paragraph [ref=f1e1012]:
+            - text: Upload JD
+            - generic [ref=f1e1013]: — Step 2 of 3
+        - generic [ref=f1e1014]:
+          - generic [ref=f1e1018]: "2"
+          - generic [ref=f1e1021]: "3"
+      - generic [ref=f1e1051]:
+        - heading "2. Upload Job Description" [level=2] [ref=f1e1052]
+        - generic [ref=f1e1056]:
+          - paragraph [ref=f1e1060]: Upload Job Description Document
+          - paragraph [ref=f1e1061]: Supports PDF, DOCX, TXT formats (Max 10MB)
+          - generic [ref=f1e1062] [cursor=pointer]: Choose File
+        - generic [ref=f1e1063]:
+          - button "Back" [ref=f1e1064] [cursor=pointer]
+          - 'button "Next: Screening Criteria" [disabled] [ref=f1e1067]'

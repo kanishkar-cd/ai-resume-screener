@@ -10,6 +10,7 @@ import Departments from '@/pages/Departments'
 import CreateRequisition from '@/pages/CreateRequisition'
 import Shortlist from '@/pages/Shortlist'
 import Assessment from '@/pages/Assessment'
+import Settings from '@/pages/Settings'
 import ProjectRoute from '@/components/layout/ProjectRoute'
 
 function DepartmentRedirect() {
@@ -58,7 +59,7 @@ function AppRoutes() {
       <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
       <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />
       <Route path="/projects/:projectId/reports" element={<ProjectReportsRedirect />} />
-      <Route path="/settings" element={<div className="card p-8"><h1 className="text-xl font-bold">Settings</h1><p className="text-sm text-slate-500 mt-2">Application settings will appear here.</p></div>} />
+      <Route path="/settings" element={<Settings />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
@@ -66,7 +67,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <PipelineProvider>
         <Layout>
           <AppRoutes />
@@ -75,3 +81,4 @@ export default function App() {
     </BrowserRouter>
   )
 }
+

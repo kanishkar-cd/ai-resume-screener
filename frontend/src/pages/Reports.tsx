@@ -478,7 +478,7 @@ export default function Reports() {
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold font-mono">
-              {project.department || 'General'}
+              {project.department || 'Software Engineering'}
             </span>
             <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-200/70">
               {getExperienceLevel(project)}

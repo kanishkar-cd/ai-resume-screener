@@ -121,7 +121,7 @@ export default function CreateRequisition() {
           const proj = await api.createProject({
             title: safeTitle,
             target_role: safeRole,
-            department: department.name || 'General',
+            department: department.name || 'Software Engineering',
             description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
             metadata_json: { experience_level: expLevel, req_ref: reqRef },
             status: 'DRAFT',
@@ -233,7 +233,7 @@ export default function CreateRequisition() {
         const proj = await api.createProject({
           title: safeTitle,
           target_role: safeRole,
-          department: department.name || 'General',
+          department: department.name || 'Software Engineering',
           description: `Requisition ${reqRef} for ${expLevel} level HR screening`,
           metadata_json: { experience_level: expLevel, req_ref: reqRef },
           status: 'DRAFT',

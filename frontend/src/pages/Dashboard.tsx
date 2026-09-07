@@ -30,6 +30,19 @@ const PAGE_SIZE = 8
 type SortField = 'title' | 'department' | 'target_role' | 'experience' | 'status' | 'created_at'
 const VALID_SORT_FIELDS: SortField[] = ['title', 'department', 'target_role', 'experience', 'status', 'created_at']
 
+function getPaginationItems(currentPage: number, totalPages: number): (number | 'ellipsis')[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1)
+  }
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, 'ellipsis', totalPages]
+  }
+  if (currentPage >= totalPages - 3) {
+    return [1, 'ellipsis', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+  }
+  return [1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', totalPages]
+}
+
 function getExperienceLevel(proj: Project): 'Fresher' | 'Experienced' {
   if (!proj) return 'Fresher'
   const meta = proj.metadata_json && typeof proj.metadata_json === 'object' ? proj.metadata_json : {}
@@ -250,27 +263,10 @@ export default function Dashboard() {
     fetchProjects()
   }, [fetchProjects])
 
-  // Dynamic list of unique department names derived from projects, merged with standard DEPARTMENTS
+  // Strict standard 8 departments from DEPARTMENTS
   const availableDepartments = useMemo(() => {
-    const deptSet = new Map<string, string>()
-
-    // 1. Gather all departments actually used across active projects
-    for (const p of projects) {
-      const name = (p.department || 'General').trim()
-      if (name && !deptSet.has(name.toLowerCase())) {
-        deptSet.set(name.toLowerCase(), name)
-      }
-    }
-
-    // 2. Also register standard departments from constants if not present
-    for (const d of DEPARTMENTS) {
-      if (!deptSet.has(d.name.toLowerCase())) {
-        deptSet.set(d.name.toLowerCase(), d.name)
-      }
-    }
-
-    return Array.from(deptSet.values()).sort((a, b) => a.localeCompare(b))
-  }, [projects])
+    return DEPARTMENTS.map((d) => d.name)
+  }, [])
 
   const handleDepartmentFilterToggle = (deptName: string) => {
     if (selectedDeptFilter.toLowerCase() === deptName.toLowerCase()) {
@@ -282,12 +278,12 @@ export default function Dashboard() {
 
   const handleRequisitionClick = (proj: Project) => {
     const isCompleted = getRequisitionStatus(proj) === 'Completed'
-    const rawDept = (proj.department || 'General').trim()
+    const rawDept = (proj.department || 'Software Engineering').trim()
     const dept = DEPARTMENTS.find((d) => d.name.toLowerCase() === rawDept.toLowerCase())
     if (dept) {
       dispatch({ type: 'SET_DEPARTMENT_ID', payload: dept.id })
     } else {
-      dispatch({ type: 'SET_DEPARTMENT_ID', payload: rawDept.toLowerCase().replace(/\s+/g, '-') })
+      dispatch({ type: 'SET_DEPARTMENT_ID', payload: 'software-engineering' })
     }
     dispatch({
       type: 'SELECT_PROJECT',
@@ -373,9 +369,11 @@ export default function Dashboard() {
       if (exp === 'Fresher') fresherCount++
       else experiencedCount++
 
-      const rawDept = (p.department || 'General').trim()
+      const rawDept = (p.department || '').trim()
       const matchedDept = availableDepartments.find((d) => d.toLowerCase() === rawDept.toLowerCase()) || rawDept
-      deptMap[matchedDept] = (deptMap[matchedDept] || 0) + 1
+      if (matchedDept in deptMap) {
+        deptMap[matchedDept] = (deptMap[matchedDept] || 0) + 1
+      }
     }
 
     const activeDepts = Object.keys(deptMap).filter((k) => (deptMap[k] || 0) > 0).length
@@ -430,7 +428,7 @@ export default function Dashboard() {
   const deptProjects = useMemo(() => {
     if (!isDeptScoped) return projects
     return projects.filter(
-      (p) => (p.department || 'General').trim().toLowerCase() === selectedDeptFilter.trim().toLowerCase()
+      (p) => (p.department || '').trim().toLowerCase() === selectedDeptFilter.trim().toLowerCase()
     )
   }, [projects, isDeptScoped, selectedDeptFilter])
 
@@ -466,7 +464,7 @@ export default function Dashboard() {
   // Filtered requisitions list
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
-      const projDept = (p.department || 'General').trim()
+      const projDept = (p.department || '').trim()
       const matchesSearch =
         p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         projDept.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -495,8 +493,8 @@ export default function Dashboard() {
           cmp = (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
           break
         case 'department': {
-          const deptA = (a.department || 'General').trim()
-          const deptB = (b.department || 'General').trim()
+          const deptA = (a.department || '').trim()
+          const deptB = (b.department || '').trim()
           cmp = deptA.localeCompare(deptB, undefined, { sensitivity: 'base' })
           break
         }
@@ -964,7 +962,7 @@ export default function Dashboard() {
                         </td>
                         <td className="py-3.5 px-4 w-36">
                           <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold font-mono tracking-tight border border-slate-200/60">
-                            {proj.department || 'General'}
+                            {proj.department || 'Software Engineering'}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-slate-600 font-medium min-w-[140px]" title={proj.target_role || undefined}>
@@ -1050,20 +1048,26 @@ export default function Dashboard() {
                     <ChevronLeft size={14} />
                   </button>
 
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                    <button
-                      key={pg}
-                      type="button"
-                      onClick={() => updateUrlParams({ page: pg })}
-                      className={`w-7 h-7 rounded-lg text-xs transition-colors cursor-pointer ${
-                        effectivePage === pg
-                          ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 font-medium'
-                      }`}
-                    >
-                      {pg}
-                    </button>
-                  ))}
+                  {getPaginationItems(effectivePage, totalPages).map((item, idx) =>
+                    item === 'ellipsis' ? (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-slate-400 font-bold select-none text-xs">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => updateUrlParams({ page: item })}
+                        className={`w-7 h-7 rounded-lg text-xs transition-colors cursor-pointer ${
+                          effectivePage === item
+                            ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                            : 'text-slate-600 hover:bg-slate-100 font-medium'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
 
                   <button
                     type="button"
@@ -1128,7 +1132,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Requisition</span>
                 <span className="px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 text-[10px] font-semibold font-mono">
-                  {confirmDeleteProject.department || 'General'}
+                  {confirmDeleteProject.department || 'Software Engineering'}
                 </span>
               </div>
               <p className="text-xs font-bold text-slate-900 leading-snug break-words">
