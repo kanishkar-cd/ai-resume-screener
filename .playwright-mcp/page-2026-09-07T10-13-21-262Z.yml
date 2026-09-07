@@ -1,0 +1,111 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6] [cursor=pointer]:
+        - paragraph [ref=e7]: AI Resume Screener
+        - paragraph [ref=e8]: Recruiter Portal
+      - button "Collapse Sidebar" [ref=e9] [cursor=pointer]
+    - navigation [ref=e13]:
+      - button "Dashboard" [ref=e14] [cursor=pointer]
+      - generic [ref=e22] [cursor=pointer]:
+        - button "Departments" [ref=e23]
+        - button [ref=e29]
+    - button "Settings" [ref=e33] [cursor=pointer]
+  - banner [ref=e38]:
+    - generic "Dashboard" [ref=e46]
+    - generic [ref=e47]: Recruiter
+  - main [ref=e54]:
+    - generic [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - heading "Talent Analytics" [level=1] [ref=e58]
+          - paragraph [ref=e59]:
+            - generic [ref=e60]: 0 total requisitions across 0 hiring departments.
+            - generic [ref=e61]: •
+            - generic [ref=e62]:
+              - text: Top hiring demand in
+              - strong [ref=e63]: Engineering
+              - text: (0 requisitions).
+        - button "New Requisition" [ref=e65] [cursor=pointer]
+      - generic [ref=e68]:
+        - generic [ref=e70]:
+          - paragraph [ref=e71]: Total Requisitions
+          - paragraph [ref=e72]: ...
+          - generic [ref=e73]: 0 Fresher · 0 Exp
+        - generic [ref=e79]:
+          - paragraph [ref=e80]: Active Requisitions
+          - paragraph [ref=e81]: ...
+          - generic [ref=e82]: 0% Active
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - heading "Hiring Demand by Department" [level=2] [ref=e95]
+          - generic [ref=e96]: Click a department to open its dashboard
+        - generic [ref=e97]:
+          - generic "Open Data Engineering Dashboard" [ref=e98] [cursor=pointer]:
+            - generic [ref=e99]: "#1"
+            - paragraph [ref=e101]: Data Engineering
+            - generic [ref=e103]:
+              - strong [ref=e104]: "0"
+              - generic [ref=e105]: (0%)
+          - generic "Open ITOps Dashboard" [ref=e106] [cursor=pointer]:
+            - generic [ref=e107]: "#2"
+            - paragraph [ref=e109]: ITOps
+            - generic [ref=e111]:
+              - strong [ref=e112]: "0"
+              - generic [ref=e113]: (0%)
+          - generic "Open PMO Dashboard" [ref=e114] [cursor=pointer]:
+            - generic [ref=e115]: "#3"
+            - paragraph [ref=e117]: PMO
+            - generic [ref=e119]:
+              - strong [ref=e120]: "0"
+              - generic [ref=e121]: (0%)
+          - generic "Open QA Dashboard" [ref=e122] [cursor=pointer]:
+            - generic [ref=e123]: "#4"
+            - paragraph [ref=e125]: QA
+            - generic [ref=e127]:
+              - strong [ref=e128]: "0"
+              - generic [ref=e129]: (0%)
+          - generic "Open SecOps Dashboard" [ref=e130] [cursor=pointer]:
+            - generic [ref=e131]: "#5"
+            - paragraph [ref=e133]: SecOps
+            - generic [ref=e135]:
+              - strong [ref=e136]: "0"
+              - generic [ref=e137]: (0%)
+          - generic "Open Software Engineering Dashboard" [ref=e138] [cursor=pointer]:
+            - generic [ref=e139]: "#6"
+            - paragraph [ref=e141]: Software Engineering
+            - generic [ref=e143]:
+              - strong [ref=e144]: "0"
+              - generic [ref=e145]: (0%)
+          - generic "Open SRE Dashboard" [ref=e146] [cursor=pointer]:
+            - generic [ref=e147]: "#7"
+            - paragraph [ref=e149]: SRE
+            - generic [ref=e151]:
+              - strong [ref=e152]: "0"
+              - generic [ref=e153]: (0%)
+          - generic "Open SysOps Dashboard" [ref=e154] [cursor=pointer]:
+            - generic [ref=e155]: "#8"
+            - paragraph [ref=e157]: SysOps
+            - generic [ref=e159]:
+              - strong [ref=e160]: "0"
+              - generic [ref=e161]: (0%)
+      - generic [ref=e162]:
+        - generic [ref=e163]:
+          - heading "Requisitions Workspace" [level=2] [ref=e165]
+          - generic [ref=e166]:
+            - generic [ref=e167]:
+              - button "All (0)" [ref=e168] [cursor=pointer]
+              - button "Active (0)" [ref=e169] [cursor=pointer]
+              - button "Completed (0)" [ref=e170] [cursor=pointer]
+            - combobox [ref=e172] [cursor=pointer]:
+              - option "All Departments" [selected]
+              - option "Data Engineering"
+              - option "ITOps"
+              - option "PMO"
+              - option "QA"
+              - option "SecOps"
+              - option "Software Engineering"
+              - option "SRE"
+              - option "SysOps"
+            - textbox "Search requisitions..." [ref=e177]
+        - generic [ref=e178]: Loading requisitions...

@@ -79,7 +79,9 @@ export default function Departments() {
   const departmentMetrics = useMemo(() => {
     const map = new Map<string, { count: number; lastUpdated: string | null }>()
     for (const d of DEPARTMENTS) {
-      const deptProjects = projects.filter((p) => p.department === d.name)
+      const deptProjects = projects.filter(
+        (p) => (p.department || '').trim().toLowerCase() === d.name.toLowerCase()
+      )
       let latest: string | null = null
       if (deptProjects.length > 0) {
         const sorted = [...deptProjects].sort(

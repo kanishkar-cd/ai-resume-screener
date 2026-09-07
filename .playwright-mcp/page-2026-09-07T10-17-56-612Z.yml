@@ -1,0 +1,185 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6] [cursor=pointer]:
+        - paragraph [ref=f1e7]: AI Resume Screener
+        - paragraph [ref=f1e8]: Recruiter Portal
+      - button "Collapse Sidebar" [ref=f1e9] [cursor=pointer]
+    - navigation [ref=f1e13]:
+      - button "Dashboard" [ref=f1e14] [cursor=pointer]
+      - generic [ref=f1e21]:
+        - generic [ref=f1e22] [cursor=pointer]:
+          - button "Departments" [ref=f1e23]
+          - button [ref=f1e29]
+        - generic [ref=f1e464]:
+          - button "Software Engineering" [ref=f1e465] [cursor=pointer]
+          - button "Data Engineering" [ref=f1e466] [cursor=pointer]
+          - button "PMO" [ref=f1e467] [cursor=pointer]
+          - button "QA" [ref=f1e468] [cursor=pointer]
+          - button "SysOps" [ref=f1e469] [cursor=pointer]
+          - button "ITOps" [ref=f1e470] [cursor=pointer]
+          - button "SecOps" [ref=f1e471] [cursor=pointer]
+          - button "SRE" [ref=f1e472] [cursor=pointer]
+    - button "Settings" [ref=f1e33] [cursor=pointer]
+  - banner [ref=f1e38]:
+    - generic [ref=f1e39]:
+      - button "Dashboard" [ref=f1e473] [cursor=pointer]
+      - button "Departments" [ref=f1e681] [cursor=pointer]
+      - generic "Software Engineering" [ref=f1e685]
+    - generic [ref=f1e47]: Recruiter
+  - main [ref=f1e54]:
+    - generic [ref=f1e686]:
+      - generic [ref=f1e687]:
+        - generic [ref=f1e688]:
+          - generic [ref=f1e689]:
+            - button "Overview" [ref=f1e690] [cursor=pointer]
+            - generic [ref=f1e693]: Software Engineering
+          - heading "Software Engineering Dashboard" [level=1] [ref=f1e694]
+          - paragraph [ref=f1e699]:
+            - generic [ref=f1e700]: 32 total requisitions in Software Engineering.
+            - generic [ref=f1e701]: •
+            - generic [ref=f1e702]: 26 active (81%) · 6 completed
+        - button "New Requisition" [ref=f1e704] [cursor=pointer]
+      - generic [ref=f1e707]:
+        - generic [ref=f1e709]:
+          - paragraph [ref=f1e710]: Software Engineering Requisitions
+          - paragraph [ref=f1e711]: "32"
+          - generic [ref=f1e712]: 32 Fresher · 0 Exp
+        - generic [ref=f1e718]:
+          - paragraph [ref=f1e719]: Software Engineering Active Requisitions
+          - paragraph [ref=f1e720]: 26 of 32
+          - generic [ref=f1e721]: 81% Active
+      - generic [ref=f1e729]:
+        - generic [ref=f1e730]:
+          - generic [ref=f1e731]:
+            - heading "Software Engineering Requisitions" [level=2] [ref=f1e732]
+            - generic [ref=f1e733]: 32 requisitions
+          - generic [ref=f1e734]:
+            - generic [ref=f1e735]:
+              - button "All (32)" [ref=f1e736] [cursor=pointer]
+              - button "Active (26)" [ref=f1e737] [cursor=pointer]
+              - button "Completed (6)" [ref=f1e738] [cursor=pointer]
+            - textbox "Search Software Engineering requisitions..." [ref=f1e743]
+            - button "Delete All" [ref=f1e745] [cursor=pointer]
+        - table [ref=f1e751]:
+          - rowgroup [ref=f1e752]:
+            - row [ref=f1e753]:
+              - columnheader "Requisition" [ref=f1e754] [cursor=pointer]
+              - columnheader "Department" [ref=f1e760] [cursor=pointer]
+              - columnheader "Target Role" [ref=f1e766] [cursor=pointer]
+              - columnheader "Experience" [ref=f1e772] [cursor=pointer]
+              - columnheader "Status" [ref=f1e778] [cursor=pointer]
+              - columnheader "Actions" [ref=f1e784]
+          - rowgroup [ref=f1e785]:
+            - row [ref=f1e786] [cursor=pointer]:
+              - cell [ref=f1e787]:
+                - paragraph [ref=f1e788]: REQ-2026-SOFTWARE_ENGINEERING-484 - test-123
+              - cell "Software Engineering" [ref=f1e789]
+              - cell [ref=f1e791]:
+                - paragraph [ref=f1e792]: test-123
+              - cell "Fresher" [ref=f1e793]
+              - cell "Active" [ref=f1e795]
+              - cell [ref=f1e798]:
+                - generic [ref=f1e799]:
+                  - button "View Rankings" [ref=f1e800]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-484 - test-123" [ref=f1e806]
+            - row [ref=f1e810] [cursor=pointer]:
+              - cell [ref=f1e811]:
+                - paragraph [ref=f1e812]: REQ-2026-SOFTWARE_ENGINEERING-287 - test-123
+              - cell "Software Engineering" [ref=f1e813]
+              - cell [ref=f1e815]:
+                - paragraph [ref=f1e816]: test-123
+              - cell "Fresher" [ref=f1e817]
+              - cell "Active" [ref=f1e819]
+              - cell [ref=f1e822]:
+                - generic [ref=f1e823]:
+                  - button "View Rankings" [ref=f1e824]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-287 - test-123" [ref=f1e830]
+            - row [ref=f1e834] [cursor=pointer]:
+              - cell [ref=f1e835]:
+                - paragraph [ref=f1e836]: REQ-2026-SOFTWARE_ENGINEERING-770 - test-2
+              - cell "Software Engineering" [ref=f1e837]
+              - cell [ref=f1e839]:
+                - paragraph [ref=f1e840]: test-2
+              - cell "Fresher" [ref=f1e841]
+              - cell "Active" [ref=f1e843]
+              - cell [ref=f1e846]:
+                - generic [ref=f1e847]:
+                  - button "View Rankings" [ref=f1e848]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-770 - test-2" [ref=f1e854]
+            - row [ref=f1e858] [cursor=pointer]:
+              - cell [ref=f1e859]:
+                - paragraph [ref=f1e860]: REQ-2026-SOFTWARE_ENGINEERING-624 - 123
+              - cell "Software Engineering" [ref=f1e861]
+              - cell [ref=f1e863]:
+                - paragraph [ref=f1e864]: "123"
+              - cell "Fresher" [ref=f1e865]
+              - cell "Active" [ref=f1e867]
+              - cell [ref=f1e870]:
+                - generic [ref=f1e871]:
+                  - button "View Rankings" [ref=f1e872]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-624 - 123" [ref=f1e878]
+            - row [ref=f1e882] [cursor=pointer]:
+              - cell [ref=f1e883]:
+                - paragraph [ref=f1e884]: REQ-2026-SOFTWARE_ENGINEERING-454 - Software
+              - cell "Software Engineering" [ref=f1e885]
+              - cell [ref=f1e887]:
+                - paragraph [ref=f1e888]: Software
+              - cell "Fresher" [ref=f1e889]
+              - cell "Active" [ref=f1e891]
+              - cell [ref=f1e894]:
+                - generic [ref=f1e895]:
+                  - button "View Rankings" [ref=f1e896]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-454 - Software" [ref=f1e902]
+            - row [ref=f1e906] [cursor=pointer]:
+              - cell [ref=f1e907]:
+                - paragraph [ref=f1e908]: REQ-2026-SOFTWARE_ENGINEERING-826 - 123
+              - cell "Software Engineering" [ref=f1e909]
+              - cell [ref=f1e911]:
+                - paragraph [ref=f1e912]: "123"
+              - cell "Fresher" [ref=f1e913]
+              - cell "Active" [ref=f1e915]
+              - cell [ref=f1e918]:
+                - generic [ref=f1e919]:
+                  - button "View Rankings" [ref=f1e920]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-826 - 123" [ref=f1e926]
+            - row [ref=f1e930] [cursor=pointer]:
+              - cell [ref=f1e931]:
+                - paragraph [ref=f1e932]: REQ-2026-SOFTWARE_ENGINEERING-476 - 12345
+              - cell "Software Engineering" [ref=f1e933]
+              - cell [ref=f1e935]:
+                - paragraph [ref=f1e936]: "12345"
+              - cell "Fresher" [ref=f1e937]
+              - cell "Active" [ref=f1e939]
+              - cell [ref=f1e942]:
+                - generic [ref=f1e943]:
+                  - button "View Rankings" [ref=f1e944]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-476 - 12345" [ref=f1e950]
+            - row [ref=f1e954] [cursor=pointer]:
+              - cell [ref=f1e955]:
+                - paragraph [ref=f1e956]: REQ-2026-SOFTWARE_ENGINEERING-147 - check 4
+              - cell "Software Engineering" [ref=f1e957]
+              - cell [ref=f1e959]:
+                - paragraph [ref=f1e960]: check 4
+              - cell "Fresher" [ref=f1e961]
+              - cell "Active" [ref=f1e963]
+              - cell [ref=f1e966]:
+                - generic [ref=f1e967]:
+                  - button "View Rankings" [ref=f1e968]
+                  - button "Delete requisition REQ-2026-SOFTWARE_ENGINEERING-147 - check 4" [ref=f1e974]
+        - generic [ref=f1e978]:
+          - paragraph [ref=f1e979]:
+            - text: Showing
+            - strong [ref=f1e980]: "1"
+            - text: to
+            - strong [ref=f1e981]: "8"
+            - text: of
+            - strong [ref=f1e982]: "32"
+            - text: requisitions
+          - generic [ref=f1e983]:
+            - button [disabled] [ref=f1e984]
+            - button "1" [ref=f1e987] [cursor=pointer]
+            - button "2" [ref=f1e988] [cursor=pointer]
+            - button "3" [ref=f1e989] [cursor=pointer]
+            - button "4" [ref=f1e990] [cursor=pointer]
+            - button [ref=f1e991] [cursor=pointer]
