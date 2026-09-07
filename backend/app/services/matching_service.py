@@ -1876,25 +1876,7 @@ class GroqMatchEvaluator:
             logger.warning("groq_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
-        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
-                    req_chunk, chunk_ev, chunk_allowed, pre_reserved=(pre_reserved if i == 0 else False), allow_retries=allow_retries
-                )
-                all_verdicts.extend(chunk_verdicts)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    usage_stats[k] += chunk_usage.get(k, 0)
-            return all_verdicts, usage_stats
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
             "evidence": [e.model_dump(mode="json") for e in evidence],
@@ -2534,25 +2516,7 @@ class CerebrasMatchEvaluator:
             logger.warning("cerebras_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
-        # Safe batch chunking to avoid LLM token overflow on large inputs (> LLM_BATCH_CHUNK_SIZE requirements)
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
-                    req_chunk, chunk_ev, chunk_allowed, allow_retries=allow_retries
-                )
-                all_verdicts.extend(chunk_verdicts)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    usage_stats[k] += chunk_usage.get(k, 0)
-            return all_verdicts, usage_stats
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
 
         model_name = getattr(self.settings, "CEREBRAS_MODEL", "gpt-oss-120b")
         digest = hashlib.sha256(json.dumps({
@@ -2809,39 +2773,7 @@ class SmartMatchEvaluator:
         if not requirements:
             return [], {}
 
-        chunk_size = int(_get_setting_val(self.settings, "LLM_BATCH_CHUNK_SIZE", 8))
-        if len(requirements) > chunk_size:
-            all_verdicts: list[MatchVerdict] = []
-            combined_telemetry: dict[str, Any] = {
-                "provider_selected": "groq",
-                "reason": "budget_available",
-                "actual_total_tokens": 0,
-                "actual_input_tokens": 0,
-                "actual_output_tokens": 0,
-                "llm_duration_ms": 0.0,
-                "total_resume_duration_ms": 0.0,
-                "circuit_skipped": [],
-            }
-            for i in range(0, len(requirements), chunk_size):
-                req_chunk = requirements[i:i + chunk_size]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in req_chunk
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in req_chunk for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                c_verdicts, c_tele = await self.evaluate(req_chunk, chunk_ev, chunk_allowed, resume_id=resume_id)
-                all_verdicts.extend(c_verdicts)
-                for k in ("actual_total_tokens", "actual_input_tokens", "actual_output_tokens"):
-                    combined_telemetry[k] += c_tele.get(k, 0)
-                combined_telemetry["llm_duration_ms"] += c_tele.get("llm_duration_ms", 0.0)
-                combined_telemetry["total_resume_duration_ms"] += c_tele.get("total_resume_duration_ms", 0.0)
-                if c_tele.get("provider_selected") == "cerebras":
-                    combined_telemetry["provider_selected"] = "cerebras"
-                for p in c_tele.get("circuit_skipped", []):
-                    if p not in combined_telemetry["circuit_skipped"]:
-                        combined_telemetry["circuit_skipped"].append(p)
-            return all_verdicts, combined_telemetry
+        # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
 
         breaker = ProviderCircuitBreaker.get_breaker(self.settings)
         groq_gate = GroqTokenBudgetGate.get_gate(self.settings)
@@ -2909,7 +2841,7 @@ class SmartMatchEvaluator:
                         raise RuntimeError("Groq returned empty verdicts")
                 except Exception as exc:
                     # Clean up in-flight gate reservation if evaluator was a mock and did not release
-                    if not isinstance(self.groq, GroqMatchEvaluator):
+                    if type(self.groq).__name__ != "GroqMatchEvaluator":
                         await groq_gate.release_reservation(estimated_tokens)
 
                     status_code = getattr(getattr(exc, "response", None), "status_code", None)
