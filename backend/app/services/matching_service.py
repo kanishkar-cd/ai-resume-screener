@@ -1260,6 +1260,16 @@ SEMANTIC_SYNONYMS: dict[str, set[str]] = {
     "redis": {"redis", "memcached", "cache", "caching", "in-memory key-value cache", "in-memory", "key-value"},
     "kubernetes": {"kubernetes", "k8s", "container orchestration", "helm", "pods", "kubernetes cluster", "cluster deployments"},
     "k8s": {"kubernetes", "k8s", "container orchestration", "kubernetes cluster"},
+    "sql": {"sql", "mysql", "postgresql", "postgres", "sqlite", "oracle", "mariadb", "pl/sql", "plsql", "t-sql", "tsql", "relational database", "relational databases", "database management", "rdbms"},
+    "html": {"html", "html5", "web", "frontend", "front-end", "web development", "web-based", "markup", "react", "react.js", "vue", "angular", "ui"},
+    "css": {"css", "css3", "style", "styling", "styles", "tailwind", "bootstrap", "sass", "scss", "web", "frontend", "front-end", "responsive", "ui"},
+    "object-oriented programming": {"oop", "object-oriented", "object oriented", "object-oriented programming", "java", "python", "c++", "c#", "typescript", "classes", "inheritance", "polymorphism", "encapsulation", "abstractions"},
+    "oop": {"oop", "object-oriented", "object oriented", "object-oriented programming", "java", "python", "c++", "c#", "typescript", "classes", "inheritance", "polymorphism", "encapsulation", "abstractions"},
+    "data structures and algorithms": {"dsa", "data structures", "algorithms", "algorithm", "data structure", "problem solving", "problem-solving", "leetcode", "trees", "graphs", "sorting"},
+    "dsa": {"dsa", "data structures", "algorithms", "algorithm", "data structure", "problem solving", "problem-solving"},
+    "cloud deployment": {"cloud", "aws", "gcp", "azure", "deployment", "deploy", "devops", "docker", "kubernetes", "k8s", "ci/cd", "pipeline", "infrastructure"},
+    "devops": {"devops", "ci/cd", "docker", "kubernetes", "jenkins", "github actions", "cloud", "aws", "deployment", "pipeline", "infrastructure"},
+    "automation": {"automation", "automate", "automated", "scripting", "selenium", "playwright", "workflows", "tasks", "bot"},
 }
 
 
@@ -1756,6 +1766,7 @@ class EvidencePrefilter:
                 synonym_phrases.add(term)
 
         required_stems = _stem_tokens(requirement.text)
+        req_core_stems = set(required_stems)
         for s in synonym_phrases:
             required_stems.update(_stem_tokens(s))
 
@@ -1763,9 +1774,21 @@ class EvidencePrefilter:
         telemetry_records = []
         for item in target_evidence:
             item_lower = item.text.casefold()
-            phrase_bonus = 0.5 if any(p in item_lower for p in synonym_phrases if len(p.split()) > 1) else 0.0
+            canonical_lower = [c.casefold() for c in (item.canonical_terms or [])]
+            has_synonym = any(
+                (len(p.split()) > 1 and p in item_lower)
+                or (len(p) > 2 and (re.search(rf"\b{re.escape(p)}\b", item_lower) or any(p in c for c in canonical_lower)))
+                for p in synonym_phrases
+            ) if synonym_phrases else False
+            phrase_bonus = 0.5 if has_synonym else 0.0
+
             item_stems = _stem_tokens(item.text)
-            overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
+            for c in canonical_lower:
+                item_stems.update(_stem_tokens(c))
+
+            core_overlap = len(req_core_stems & item_stems) / len(req_core_stems) if req_core_stems else 0.0
+            syn_overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
+            overlap = max(core_overlap, syn_overlap)
             score = overlap + phrase_bonus
 
             cos_sim = SemanticEvidenceRetriever.cosine_similarity(requirement.text, item.text)
@@ -1937,7 +1960,7 @@ class GroqTokenBudgetGate:
             local_window_used = sum(tok for _, tok in self.usage_history)
 
             if self.header_reset_timestamp is not None:
-                if now >= self.header_reset_timestamp or self.reserved_in_flight == 0:
+                if now >= self.header_reset_timestamp:
                     self.header_remaining_tokens = None
                     self.header_reset_timestamp = None
 
@@ -1958,6 +1981,45 @@ class GroqTokenBudgetGate:
                 )
                 return True
             return False
+
+    def get_wait_time_for_budget(self, estimated_tokens: int) -> float:
+        """Calculate minimum seconds to wait until estimated_tokens becomes available."""
+        now = time.monotonic()
+        history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+        if self.reserved_in_flight > 0:
+            return 1.0
+
+        local_window_used = sum(tok for _, tok in history)
+        available = self.usable_tpm - local_window_used
+        if available >= estimated_tokens:
+            return 0.0
+
+        needed_freed = estimated_tokens - available
+        freed = 0
+        wait_seconds = 0.0
+        for ts, tok in sorted(history, key=lambda x: x[0]):
+            freed += tok
+            wait_seconds = max(0.0, (ts + self.window_seconds) - now)
+            if freed >= needed_freed:
+                break
+        return wait_seconds
+
+    async def wait_for_budget(self, estimated_tokens: int, max_wait_seconds: float = 65.0) -> bool:
+        """Wait until estimated_tokens can be reserved, or until max_wait_seconds expires."""
+        deadline = time.monotonic() + max_wait_seconds
+        while time.monotonic() < deadline:
+            reserved = await self.try_reserve(estimated_tokens)
+            if reserved:
+                return True
+            wait_time = self.get_wait_time_for_budget(estimated_tokens)
+            remaining_time = deadline - time.monotonic()
+            if wait_time <= 0:
+                wait_time = 1.0
+            sleep_duration = min(wait_time, remaining_time, 2.0)
+            if sleep_duration <= 0:
+                break
+            await asyncio.sleep(sleep_duration)
+        return await self.try_reserve(estimated_tokens)
 
     async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> bool:
         """
@@ -2172,6 +2234,27 @@ def _parse_llm_batch_response(
                         item_copy["coverage_score"] = 0.0
             elif isinstance(item_copy.get("status"), str):
                 item_copy["status"] = item_copy["status"].strip().upper()
+
+            # Normalize evidence_ids if string or containing delimiters
+            raw_ev_ids = item_copy.get("evidence_ids")
+            if isinstance(raw_ev_ids, str):
+                item_copy["evidence_ids"] = [s.strip(" \t\n\r[](){}<>\"'.,;:") for s in re.split(r"[,;\s]+", raw_ev_ids) if s.strip(" \t\n\r[](){}<>\"'.,;:")]
+            elif isinstance(raw_ev_ids, list):
+                flattened = []
+                for entry in raw_ev_ids:
+                    if isinstance(entry, str):
+                        parts = [s.strip(" \t\n\r[](){}<>\"'.,;:") for s in re.split(r"[,;\s]+", entry) if s.strip(" \t\n\r[](){}<>\"'.,;:")]
+                        flattened.extend(parts)
+                item_copy["evidence_ids"] = flattened
+            elif raw_ev_ids is None:
+                item_copy["evidence_ids"] = []
+
+            # If evidence_ids is empty, check if explicit evidence IDs were cited in reasoning
+            if not item_copy.get("evidence_ids"):
+                raw_rsn = str(item_copy.get("reasoning", "") or "")
+                found_evs = re.findall(r"\b(project|experience|skills|education|certification|summary)[:\s#_-]*(\d+)\b", raw_rsn, re.IGNORECASE)
+                if found_evs:
+                    item_copy["evidence_ids"] = [f"{k.lower()}:{num}" for k, num in found_evs]
             try:
                 validated_verdicts.append(LLMVerdict.model_validate(item_copy))
             except Exception as v_err:
@@ -2342,7 +2425,7 @@ class GroqMatchEvaluator:
         resp_finish_reason: str | None = None
 
         for attempt in range(total_attempts):
-            if not (attempt == 0 and pre_reserved):
+            if attempt == 0 and not pre_reserved:
                 has_budget = await gate.try_reserve(estimated_tokens)
                 if not has_budget:
                     logger.warning(
@@ -2548,7 +2631,7 @@ class GroqMatchEvaluator:
     def _normalize_evidence_id(raw_id: str, valid_supplied_ids: set[str]) -> str | None:
         if not raw_id or not isinstance(raw_id, str):
             return None
-        clean = raw_id.strip()
+        clean = raw_id.strip(" \t\n\r[](){}<>\"'.,;:")
         if clean in valid_supplied_ids:
             return clean
 
@@ -2599,10 +2682,19 @@ class GroqMatchEvaluator:
 
             # Normalize and validate all cited evidence IDs with strict entity-type compatibility
             raw_cited_ids = list(item.evidence_ids) if item.evidence_ids else []
+            if not raw_cited_ids:
+                raw_rsn = str(getattr(item, "reasoning", "") or "")
+                found_evs = re.findall(r"\b(project|experience|skills|education|certification|summary)[:\s#_-]*(\d+)\b", raw_rsn, re.IGNORECASE)
+                if found_evs:
+                    raw_cited_ids = [f"{k.lower()}:{num}" for k, num in found_evs]
+
             valid_cited_ids: list[str] = []
             has_cross_entity_rejection = False
             for raw_id in raw_cited_ids:
                 norm_id = self._normalize_evidence_id(raw_id, req_supplied_ids)
+                if not norm_id and req_supplied_ids and all_evidence_ids:
+                    norm_id = self._normalize_evidence_id(raw_id, all_evidence_ids)
+
                 if norm_id and norm_id not in valid_cited_ids:
                     ev_item = evidence_by_id.get(norm_id)
                     if ev_item and not is_entity_compatible(req_obj.kind, ev_item.kind):
@@ -2814,7 +2906,7 @@ class GroqMatchEvaluator:
             "   - 'critical' = core to daily function of the role, explicitly required\n"
             "   - 'important' = significant but role is doable without deep strength here\n"
             "   - 'minor' = nice-to-have, tangential, or boilerplate JD language\n\n"
-            "6. Cite matching evidence_ids from candidate evidence in 'evidence_ids' when available.\n\n"
+            "6. In 'evidence_ids', cite ONLY the exact 'evidence_id' values (e.g. ['project:1', 'skills:1']) that actually exist in the provided 'candidate_evidence' set and directly support your verdict. Never invent evidence IDs. When status is 'MATCHED' or 'PARTIALLY_MATCHED', you MUST include at least one valid evidence_id supporting the match.\n\n"
             "OUTPUT FORMAT:\n"
             "Return JSON: {\"verdicts\": ["
             "  {"
@@ -3235,6 +3327,7 @@ class SmartMatchEvaluator:
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
         resume_id: str = "default_resume",
+        allow_retries: bool = True,
     ) -> tuple[list[MatchVerdict], dict[str, Any]]:
         if not requirements:
             return [], {}
@@ -3376,23 +3469,23 @@ class SmartMatchEvaluator:
                 else:
                     verdicts = []
         elif groq_can_call:
-            # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
             cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
             if not cerebras_can_call and self.cerebras.enabled:
                 circuit_skipped.append("cerebras")
 
-            provider_selected = "cerebras" if cerebras_can_call else "none"
-            selection_reason = "groq_budget_exhausted"
-            fallback_reason = "groq_budget_exhausted"
-            logger.warning(
-                "llm_provider_selected",
-                provider_selected=provider_selected,
-                reason="groq_budget_exhausted",
-                estimated_tokens=estimated_tokens,
-                available_tokens=groq_available,
-                resume_id=resume_id,
-            )
             if cerebras_can_call:
+                # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
+                provider_selected = "cerebras"
+                selection_reason = "groq_budget_exhausted"
+                fallback_reason = "groq_budget_exhausted"
+                logger.warning(
+                    "llm_provider_selected",
+                    provider_selected=provider_selected,
+                    reason="groq_budget_exhausted",
+                    estimated_tokens=estimated_tokens,
+                    available_tokens=groq_available,
+                    resume_id=resume_id,
+                )
                 logger.info(
                     "llm_fallback_to_cerebras_started",
                     provider_selected="cerebras",
@@ -3423,7 +3516,57 @@ class SmartMatchEvaluator:
                         resume_id=resume_id,
                     )
                     verdicts = []
+            elif allow_retries:
+                # Cerebras is unavailable / unconfigured -> Groq is the ONLY configured provider.
+                # Wait for Groq rolling window to replenish capacity instead of failing batch evaluations.
+                logger.info(
+                    "groq_budget_waiting_for_replenishment",
+                    estimated_tokens=estimated_tokens,
+                    available_tokens=groq_available,
+                    resume_id=resume_id,
+                )
+                secured = await groq_gate.wait_for_budget(estimated_tokens, max_wait_seconds=65.0)
+                if secured:
+                    provider_selected = "groq"
+                    selection_reason = "budget_replenished_after_wait"
+                    logger.info(
+                        "llm_provider_selected",
+                        provider_selected="groq",
+                        reason="budget_replenished_after_wait",
+                        estimated_tokens=estimated_tokens,
+                        resume_id=resume_id,
+                        requirements_count=len(requirements),
+                    )
+                    t0 = time.monotonic()
+                    try:
+                        verdicts, usage = await self._invoke_evaluator(
+                            self.groq, requirements, evidence, allowed_evidence, pre_reserved=True, allow_retries=True
+                        )
+                        wait_ms = (time.monotonic() - t0) * 1000.0
+                        if verdicts:
+                            logger.info(
+                                "llm_request_handled_by_groq",
+                                provider_selected="groq",
+                                status="success",
+                                resume_id=resume_id,
+                                verdicts_count=len(verdicts),
+                                duration_ms=round(wait_ms, 2),
+                            )
+                        else:
+                            raise RuntimeError("Groq returned empty verdicts after wait")
+                    except Exception as exc:
+                        logger.error("groq_execution_failed_after_budget_wait", error=str(exc), resume_id=resume_id)
+                        verdicts = []
+                else:
+                    provider_selected = "none"
+                    selection_reason = "groq_budget_exhausted"
+                    fallback_reason = "groq_budget_exhausted"
+                    logger.error("groq_budget_exhausted_and_cerebras_unavailable", resume_id=resume_id, circuit_skipped=circuit_skipped)
+                    verdicts = []
             else:
+                provider_selected = "none"
+                selection_reason = "groq_budget_exhausted"
+                fallback_reason = "groq_budget_exhausted"
                 logger.error("groq_budget_exhausted_and_cerebras_unavailable", resume_id=resume_id, circuit_skipped=circuit_skipped)
                 verdicts = []
         elif self.cerebras.enabled and breaker.can_call("cerebras"):
@@ -3482,6 +3625,7 @@ class SmartMatchEvaluator:
             "llm_duration_ms": round(llm_duration_ms, 2),
             "total_resume_duration_ms": round(llm_duration_ms, 2),
             "fallback_reason": fallback_reason,
+            "fallback_used": bool(provider_selected == "cerebras" or (fallback_reason != "none" and fallback_reason != "")),
             "circuit_skipped": circuit_skipped,
         }
 

@@ -5,10 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.schemas.matching import Evidence, MatchMethod, MatchStatus, MatchVerdict, Requirement, RequirementKind
+from app.schemas.matching import (
+    Evidence, LLMVerdict, LLMVerdictBatch, MatchMethod, MatchStatus, MatchVerdict, Requirement, RequirementKind,
+)
 from app.services.matching_service import (
     CerebrasMatchEvaluator,
     CerebrasTokenBudgetGate,
+    EvidencePrefilter,
     GroqMatchEvaluator,
     GroqTokenBudgetGate,
     ProviderCircuitBreaker,
@@ -645,3 +648,144 @@ async def test_successful_groq_evaluation_returns_valid_verdicts_not_evaluation_
             assert v.status != MatchStatus.EVALUATION_FAILED
             assert "AI evaluation could not be completed" not in v.reasoning
             assert len(v.reasoning) > 0
+
+
+# Regression Tests for Evidence-Backed Requirements (SQL, HTML, CSS, OOP)
+def test_prefilter_selects_evidence_for_sql_html_css_oop():
+    """Prefilter selects appropriate evidence for domain skills like SQL, HTML, CSS, OOP."""
+    prefilter = EvidencePrefilter(threshold=0.20, limit=5)
+    evidence = [
+        Evidence(evidence_id="project:1", kind="project", text="Developed web-based collaborative diagramming application using React and PostgreSQL database.", canonical_terms=["PostgreSQL", "React"]),
+        Evidence(evidence_id="project:2", kind="project", text="Built walletless decentralized application on Polygon.", canonical_terms=["Solidity"]),
+        Evidence(evidence_id="skills:1", kind="skills", text="Java, Python, TypeScript, React, PostgreSQL", canonical_terms=["Java", "Python", "TypeScript", "React", "PostgreSQL"]),
+        Evidence(evidence_id="experience:1", kind="experience", text="Frontend styling and responsive web design using modern CSS and HTML markup.", canonical_terms=["CSS", "HTML"]),
+    ]
+
+    # 1. SQL requirement should select project:1 (PostgreSQL) and skills:1
+    req_sql = Requirement(requirement_id="req:sql", kind=RequirementKind.SKILL, text="SQL")
+    sel_sql = prefilter.select(req_sql, evidence)
+    sel_sql_ids = {e.evidence_id for e in sel_sql}
+    assert "project:1" in sel_sql_ids or "skills:1" in sel_sql_ids
+
+    # 2. HTML requirement should select web/frontend evidence
+    req_html = Requirement(requirement_id="req:html", kind=RequirementKind.SKILL, text="HTML")
+    sel_html = prefilter.select(req_html, evidence)
+    sel_html_ids = {e.evidence_id for e in sel_html}
+    assert "project:1" in sel_html_ids or "experience:1" in sel_html_ids
+
+    # 3. CSS requirement should select styling/web evidence
+    req_css = Requirement(requirement_id="req:css", kind=RequirementKind.SKILL, text="CSS")
+    sel_css = prefilter.select(req_css, evidence)
+    sel_css_ids = {e.evidence_id for e in sel_css}
+    assert "experience:1" in sel_css_ids or "project:1" in sel_css_ids
+
+    # 4. OOP requirement should select Java/Python evidence
+    req_oop = Requirement(requirement_id="req:oop", kind=RequirementKind.SKILL, text="Object-Oriented Programming")
+    sel_oop = prefilter.select(req_oop, evidence)
+    sel_oop_ids = {e.evidence_id for e in sel_oop}
+    assert "skills:1" in sel_oop_ids
+
+
+def test_validator_preserves_supported_sql_html_css_oop_verdicts():
+    """Validator preserves evidence-backed verdicts for SQL, HTML, CSS, OOP without rejecting them to UNRESOLVED."""
+    evaluator = GroqMatchEvaluator()
+    reqs = [
+        Requirement(requirement_id="req:sql", kind=RequirementKind.SKILL, text="SQL"),
+        Requirement(requirement_id="req:html", kind=RequirementKind.SKILL, text="HTML"),
+        Requirement(requirement_id="req:css", kind=RequirementKind.SKILL, text="CSS"),
+        Requirement(requirement_id="req:oop", kind=RequirementKind.SKILL, text="Object-Oriented Programming"),
+    ]
+    evidence = [
+        Evidence(evidence_id="project:1", kind="project", text="Built fullstack app using PostgreSQL database.", canonical_terms=["PostgreSQL"]),
+        Evidence(evidence_id="project:2", kind="project", text="Built web frontend interface using HTML and CSS styling.", canonical_terms=["HTML", "CSS"]),
+        Evidence(evidence_id="skills:1", kind="skills", text="Java, Python, C++, TypeScript OOP languages.", canonical_terms=["Java", "Python"]),
+    ]
+    allowed_evidence = {
+        "req:sql": {"project:1"},
+        "req:html": {"project:2"},
+        "req:css": {"project:2"},
+        "req:oop": {"skills:1"},
+    }
+    batch = LLMVerdictBatch(verdicts=[
+        LLMVerdict(requirement_id="req:sql", status=MatchStatus.MATCHED, coverage_score=1.0, evidence_ids=["project:1"], reasoning="Project:1 uses PostgreSQL satisfying SQL."),
+        LLMVerdict(requirement_id="req:html", status=MatchStatus.MATCHED, coverage_score=1.0, evidence_ids=["project:2"], reasoning="Project:2 demonstrates frontend HTML."),
+        LLMVerdict(requirement_id="req:css", status=MatchStatus.MATCHED, coverage_score=1.0, evidence_ids=["project:2"], reasoning="Project:2 demonstrates CSS styling."),
+        LLMVerdict(requirement_id="req:oop", status=MatchStatus.MATCHED, coverage_score=1.0, evidence_ids=["skills:1"], reasoning="Java and Python satisfy OOP requirement."),
+    ])
+
+    validated = evaluator._validate(batch, reqs, evidence, allowed_evidence)
+    assert len(validated) == 4
+    for v in validated:
+        assert v.status == MatchStatus.MATCHED
+        assert v.method == MatchMethod.LLM_CONFIRMED
+        assert "Rejected: No valid candidate evidence ID cited for match" not in v.reasoning
+        assert len(v.evidence_ids) > 0
+
+
+def test_validator_strictly_rejects_hallucinated_or_unsupported_evidence():
+    """Validator strictly demotes unsupported claims to UNRESOLVED when citations are fake or missing."""
+    evaluator = GroqMatchEvaluator()
+    reqs = [
+        Requirement(requirement_id="req:cplusplus", kind=RequirementKind.SKILL, text="C++"),
+        Requirement(requirement_id="req:rust", kind=RequirementKind.SKILL, text="Rust"),
+    ]
+    evidence = [
+        Evidence(evidence_id="project:1", kind="project", text="Python data pipeline.", canonical_terms=["Python"]),
+    ]
+    allowed_evidence = {
+        "req:cplusplus": {"project:1"},
+        "req:rust": {"project:1"},
+    }
+    batch = LLMVerdictBatch(verdicts=[
+        # Fake hallucinated ID
+        LLMVerdict(requirement_id="req:cplusplus", status=MatchStatus.MATCHED, coverage_score=1.0, evidence_ids=["fake:999"], reasoning="Candidate knows C++ from unknown source."),
+        # Empty evidence IDs
+        LLMVerdict(requirement_id="req:rust", status=MatchStatus.MATCHED, coverage_score=0.9, evidence_ids=[], reasoning="Rust is great but no evidence exists."),
+    ])
+
+    validated = evaluator._validate(batch, reqs, evidence, allowed_evidence)
+    assert len(validated) == 2
+    # fake:999 must be rejected to UNRESOLVED because evidence ID is hallucinated
+    assert validated[0].requirement_id == "req:cplusplus"
+    assert validated[0].status == MatchStatus.UNRESOLVED
+    assert validated[0].method == MatchMethod.LLM_UNRESOLVED
+    assert "fake:999" not in validated[0].evidence_ids
+
+    # req:rust must be rejected because reasoning states no evidence exists
+    assert validated[1].requirement_id == "req:rust"
+    assert validated[1].status == MatchStatus.NO_MATCH
+    assert validated[1].method == MatchMethod.LLM_REJECTED
+
+
+@pytest.mark.asyncio
+async def test_groq_budget_wait_when_cerebras_disabled_recovers_and_evaluates():
+    """When Cerebras is disabled and Groq budget is temporarily exhausted, SmartMatchEvaluator waits for replenishment and succeeds with Groq."""
+    settings = make_test_settings()
+    # Cerebras is completely disabled/unconfigured
+    settings.CEREBRAS_API_KEY = None
+
+    smart_eval = SmartMatchEvaluator(settings)
+    gate = GroqTokenBudgetGate.get_gate(settings)
+    # Saturate gate with an entry that expires very soon (0.05s ago from 60s)
+    gate.usage_history = [(time.monotonic() - 59.95, gate.usable_tpm)]
+
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = make_valid_response("req1", "Direct match verified", 120)
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.return_value = mock_resp
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client):
+        reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
+        evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
+
+        verdicts, tele = await smart_eval.evaluate(reqs, evs, resume_id="res_wait_test")
+
+        assert len(verdicts) == 1
+        assert verdicts[0].status == MatchStatus.MATCHED
+        assert tele["provider_selected"] == "groq"
+        assert tele["reason"] == "budget_replenished_after_wait"
+        mock_groq_client.post.assert_called_once()
+

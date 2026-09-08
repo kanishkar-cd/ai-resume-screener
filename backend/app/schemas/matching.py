@@ -45,6 +45,7 @@ class MatchMethod(str, Enum):
     CONCEPT = "concept"               # Controlled concept equivalence (e.g. React.js == React)
     COSINE_DIRECT = "cosine_direct"   # Reserved – cosine alone, never directly decides MATCHED
     TAXONOMY = "taxonomy"
+    LLM = "llm_confirmed"
     LLM_CONFIRMED = "llm_confirmed"
     LLM_REJECTED = "llm_rejected"
     LLM_UNRESOLVED = "llm_unresolved"
