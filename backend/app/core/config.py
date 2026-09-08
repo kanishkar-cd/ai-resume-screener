@@ -127,6 +127,13 @@ class Settings(BaseSettings):
     HYBRID_MATCHING_MAX_EVIDENCE_PER_REQUIREMENT: int = Field(default=5, ge=1, le=50)
     HYBRID_MATCHING_CACHE_SIZE: int = Field(default=512, ge=1, le=10000)
 
+    # Cosine similarity engine token weight configuration
+    COSINE_TECHNICAL_TOKEN_WEIGHT: float = Field(default=3.0, ge=0.1, le=20.0)
+    COSINE_EXACT_TOKEN_WEIGHT: float = Field(default=2.0, ge=0.1, le=20.0)
+    COSINE_STEM_WEIGHT: float = Field(default=1.0, ge=0.1, le=10.0)
+    COSINE_NGRAM_WEIGHT: float = Field(default=0.5, ge=0.0, le=5.0)
+    COSINE_GENERIC_TOKEN_WEIGHT: float = Field(default=0.05, ge=0.0, le=1.0)
+
     AFFINDA_API_KEY: str | None = None
     AFFINDA_API_BASE_URL: str = "https://api.affinda.com"
     AFFINDA_WORKSPACE_ID: str | None = None

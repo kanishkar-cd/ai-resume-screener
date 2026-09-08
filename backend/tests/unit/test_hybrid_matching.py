@@ -22,6 +22,7 @@ def settings(**values):
         ENABLE_HYBRID_MATCHING=True, GROQ_API_KEY="test-key",
         HYBRID_MATCHING_LLM_CONFIDENCE_THRESHOLD=0.8,
         HYBRID_MATCHING_KEYWORD_OVERLAP_THRESHOLD=0.1,
+        GROQ_MAX_RETRIES=values.pop("GROQ_MAX_RETRIES", 1),
         **values,
     )
 

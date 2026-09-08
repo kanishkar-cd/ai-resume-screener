@@ -277,7 +277,8 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
         responsibilities=evidence_detail, preferred_skills=evidence_detail,
     )
 
-    final = WeightCalculationService.final_score(0, 0, 0, components=components)
+    custom_cfg = SimpleNamespace(weights={"required_skills": 45.0, "responsibilities": 40.0, "preferred_skills": 15.0})
+    final = WeightCalculationService.final_score(0, 0, 0, components=components, config=custom_cfg)
     # Skills (50 * 0.45 = 22.5) + Resp (70 * 0.40 = 28.0) + Pref (70 * 0.15 = 10.5) = 61.0
     assert final == 61.0
 
@@ -288,7 +289,7 @@ def test_final_score_is_exact_sum_of_skill_and_ai_relevance_without_fallback_40_
         education=zero_detail, certifications=zero_detail, languages=zero_detail,
         responsibilities=zero_detail, preferred_skills=zero_detail,
     )
-    zero_final = WeightCalculationService.final_score(0, 0, 0, components=zero_components)
+    zero_final = WeightCalculationService.final_score(0, 0, 0, components=zero_components, config=custom_cfg)
     assert zero_final == 0.0
 
 
@@ -471,6 +472,7 @@ def test_preferred_skill_bonus_reaches_final_score_and_caps_at_100() -> None:
     final_80 = WeightCalculationService.final_score(
         weighted_total=80.0, penalty_total=0.0, bonus_total=0.0, components=components,
         applicable_categories={"skills", "responsibilities", "preferred_skills", "experience"},
+        config=SimpleNamespace(weights={"required_skills": 45.0, "responsibilities": 40.0, "preferred_skills": 15.0}),
     )
     assert final_80 == 83.0
 

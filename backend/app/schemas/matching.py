@@ -29,9 +29,21 @@ class MatchStatus(str, Enum):
     EVALUATION_FAILED = "EVALUATION_FAILED"
 
 
+class EvidenceStrength(str, Enum):
+    """Contextual strength level of a candidate evidence item."""
+    OWNERSHIP = "ownership"           # Architected / led / owned production systems
+    PROFESSIONAL_USE = "professional_use"  # Built / deployed in professional setting
+    PROJECT = "project"               # Personal or portfolio project
+    COURSE = "course"                 # Coursework / online course / tutorial
+    TRAINING = "training"             # Bootcamp / early learner / beginner
+    MENTION_ONLY = "mention_only"     # Listed in skills section without context
+
+
 class MatchMethod(str, Enum):
     EXACT = "exact"
     ALIAS = "alias"
+    CONCEPT = "concept"               # Controlled concept equivalence (e.g. React.js == React)
+    COSINE_DIRECT = "cosine_direct"   # Reserved – cosine alone, never directly decides MATCHED
     TAXONOMY = "taxonomy"
     LLM_CONFIRMED = "llm_confirmed"
     LLM_REJECTED = "llm_rejected"
@@ -56,6 +68,7 @@ class Evidence(BaseModel):
     kind: str = Field(min_length=1)
     text: str = Field(min_length=1)
     canonical_terms: list[str] = Field(default_factory=list)
+    evidence_strength: EvidenceStrength | None = None
 
 
 class MatchVerdict(BaseModel):
@@ -74,6 +87,7 @@ class MatchVerdict(BaseModel):
     sub_claim_evidence: list[dict[str, Any]] = Field(default_factory=list)
     matched_concepts: list[str] = Field(default_factory=list)
     missing_concepts: list[str] = Field(default_factory=list)
+    cosine_score: float | None = Field(default=None, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_method(self) -> "MatchVerdict":
@@ -106,7 +120,7 @@ class LLMVerdict(BaseModel):
     model_config = ConfigDict(extra="ignore")
     requirement_id: str = Field(min_length=1)
     status: MatchStatus | None = None
-    confidence: float = Field(default=0.0, ge=0, le=1)
+    confidence: float | None = Field(default=None, ge=0, le=1)
     evidence_ids: list[str] = Field(default_factory=list)
     reasoning: str = ""
     coverage: float | None = None

@@ -388,3 +388,33 @@ LOCATION_ALIASES = {
     "london": {"city": "London", "region": "London", "country": "United Kingdom", "country_code": "GB", "display_name": "London, United Kingdom"},
     "london, uk": {"city": "London", "region": "London", "country": "United Kingdom", "country_code": "GB", "display_name": "London, United Kingdom"},
 }
+
+# Controlled concept equivalences for deterministic CONCEPT-level matching.
+# Maps a canonical requirement term (lower-cased) to a set of equivalent candidate terms.
+# These are strict equivalences (NOT fuzzy): both directions must be safe to treat as the same concept.
+CONTROLLED_CONCEPT_EQUIVALENCES: dict[str, set[str]] = {
+    "react": {"react.js", "reactjs", "react js", "react framework"},
+    "react.js": {"react", "reactjs", "react js", "react framework"},
+    "node.js": {"node", "nodejs", "node js"},
+    "node": {"node.js", "nodejs", "node js"},
+    "postgresql": {"postgres", "postgresql database", "postgresql db"},
+    "postgres": {"postgresql", "postgresql database", "postgresql db"},
+    "javascript": {"js"},
+    "js": {"javascript"},
+    "typescript": {"ts"},
+    "ts": {"typescript"},
+    "kubernetes": {"k8s", "kubernetes orchestration", "kubernetes cluster"},
+    "k8s": {"kubernetes", "kubernetes orchestration"},
+    "rest api": {"rest apis", "restful api", "restful apis", "rest services"},
+    "restful api": {"rest api", "rest apis", "restful apis", "rest services"},
+    "express.js": {"express", "expressjs", "express js"},
+    "express": {"express.js", "expressjs", "express js"},
+    "vue": {"vue.js", "vuejs", "vue js"},
+    "vue.js": {"vue", "vuejs", "vue js"},
+    "next.js": {"nextjs", "next js"},
+    "nextjs": {"next.js", "next js"},
+    "pyspark": {"spark", "apache spark"},
+    "apache spark": {"pyspark", "spark"},
+    "mongodb": {"mongo", "mongo db"},
+    "python": {"python3", "python 3", "py"},
+}

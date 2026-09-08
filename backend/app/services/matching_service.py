@@ -22,7 +22,7 @@ from app.schemas.matching import (
 )
 from app.services.pipeline.canonical_dictionaries import (
     CERTIFICATION_ALIASES, DEGREE_ALIASES, LANGUAGE_ALIASES, SKILL_ALIASES,
-    SKILL_CATEGORIES, CATEGORY_REQUIREMENT_ALIASES,
+    SKILL_CATEGORIES, CATEGORY_REQUIREMENT_ALIASES, CONTROLLED_CONCEPT_EQUIVALENCES,
 )
 from app.services.scoring.component_scoring_service import ComponentScoringService
 
@@ -427,7 +427,21 @@ class DeterministicRequirementMatcher:
         if not alt_clean:
             return None
 
-        variants = list(dict.fromkeys([alt_clean, _clean_req_text(alt_clean)]))
+        # Build variants including cleaned text, technical suffix stripping, and normalization
+        raw_variants = [alt_clean, _clean_req_text(alt_clean)]
+        cleaned_suffix = re.sub(
+            r"\s+(?:backend\s+development|frontend\s+development|api\s+development|development|developer|orchestration|database|db|cluster|framework|engine|platform|tools?)$",
+            "", alt_clean, flags=re.I
+        ).strip()
+        if cleaned_suffix and cleaned_suffix != alt_clean:
+            raw_variants.append(cleaned_suffix)
+            raw_variants.append(_clean_req_text(cleaned_suffix))
+
+        normed_alt = normalize_technical_terms(alt_clean)
+        if normed_alt != alt_clean.casefold():
+            raw_variants.append(normed_alt)
+
+        variants = list(dict.fromkeys([v for v in raw_variants if v]))
 
         for a in variants:
             if not a:
@@ -453,7 +467,10 @@ class DeterministicRequirementMatcher:
             # 2. Direct canonical match
             if a_key in candidate_keys_map:
                 orig_skill, cmeth = candidate_keys_map[a_key]
-                method = MatchMethod.ALIAS if MatchMethod.ALIAS in {a_method, cmeth} else MatchMethod.EXACT
+                if a_cf != alt_clean.casefold():
+                    method = MatchMethod.CONCEPT
+                else:
+                    method = MatchMethod.ALIAS if MatchMethod.ALIAS in {a_method, cmeth} else MatchMethod.EXACT
                 ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
                 return orig_skill, method, ev_ids
 
@@ -465,12 +482,38 @@ class DeterministicRequirementMatcher:
                 ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
                 return orig_skill, MatchMethod.ALIAS, ev_ids
 
+            # 3b. Controlled concept equivalence matching
+            equiv_set: set[str] = set()
+            if a_cf in CONTROLLED_CONCEPT_EQUIVALENCES:
+                equiv_set.update(CONTROLLED_CONCEPT_EQUIVALENCES[a_cf])
+            for ck, cvals in CONTROLLED_CONCEPT_EQUIVALENCES.items():
+                if a_cf == ck or a_cf in cvals:
+                    equiv_set.add(ck)
+                    equiv_set.update(cvals)
+            norm_a = normalize_technical_terms(a_cf)
+            if norm_a != a_cf:
+                equiv_set.add(norm_a)
+                if norm_a in CONTROLLED_CONCEPT_EQUIVALENCES:
+                    equiv_set.update(CONTROLLED_CONCEPT_EQUIVALENCES[norm_a])
+
+            for eq in equiv_set:
+                eq_key = _key(eq)
+                if eq_key in candidate_keys_map:
+                    orig_skill, _ = candidate_keys_map[eq_key]
+                    ev_ids = [e.evidence_id for e in evidence if orig_skill.casefold() in e.text.casefold()][:1]
+                    return orig_skill, MatchMethod.CONCEPT, ev_ids
+                for cp in candidate_pool:
+                    if _key(cp) == eq_key or cp.casefold() == eq:
+                        ev_ids = [e.evidence_id for e in evidence if cp.casefold() in e.text.casefold()][:1]
+                        return cp, MatchMethod.CONCEPT, ev_ids
+
             # 4. Check if a_key or a_cf is mentioned in candidate pool or evidence text with word boundary
             for cp in candidate_pool:
                 cp_cf = cp.casefold()
                 if a_cf == cp_cf or a_key == _key(cp):
                     ev_ids = [e.evidence_id for e in evidence if cp_cf in e.text.casefold()][:1]
-                    return cp, MatchMethod.EXACT if a_cf == cp_cf else MatchMethod.ALIAS, ev_ids
+                    meth = MatchMethod.CONCEPT if a_cf != alt_clean.casefold() else (MatchMethod.EXACT if a_cf == cp_cf else MatchMethod.ALIAS)
+                    return cp, meth, ev_ids
 
             # 5. Multi-word concept proximity matching
             multi_match = ComponentScoringService._match_multiword_concept(a, [e.text for e in evidence] + candidate_pool)
@@ -859,6 +902,7 @@ class DeterministicRequirementMatcher:
                 if len(and_parts) >= 2:
                     matched_all = True
                     matched_skills_list = []
+                    matched_parts_set = set()
                     all_ev_ids = []
                     for part in and_parts:
                         res = self._match_single_alt(part, aliases, candidate_keys_map, evidence, evidence_text, candidate_pool)
@@ -874,9 +918,10 @@ class DeterministicRequirementMatcher:
                             if clean_part in GENERIC_DESCRIPTORS and matched_skills_list:
                                 continue
                             matched_all = False
-                            break
+                            continue
                         orig_s, meth, ev_ids = res
                         matched_skills_list.append(orig_s)
+                        matched_parts_set.add(part)
                         all_ev_ids.extend(ev_ids)
 
                     if matched_all and matched_skills_list:
@@ -888,6 +933,24 @@ class DeterministicRequirementMatcher:
                             evidence_ids=ev_ids_dedup,
                             reasoning=f"Canonical values match all conjunction requirements ({', '.join(matched_skills_list)}).",
                             method=MatchMethod.EXACT,
+                            matched_concepts=matched_skills_list,
+                            missing_concepts=[],
+                        )
+                    elif matched_skills_list:
+                        coverage = round(len(matched_skills_list) / len(and_parts), 2)
+                        missing_concepts = [p for p in and_parts if p not in matched_parts_set and _clean_req_text(p) not in matched_skills_list]
+                        ev_ids_dedup = list(dict.fromkeys(all_ev_ids))[:2]
+                        return MatchVerdict(
+                            requirement_id=requirement.requirement_id,
+                            status=MatchStatus.PARTIALLY_MATCHED,
+                            confidence=coverage,
+                            coverage=coverage,
+                            coverage_score=coverage,
+                            evidence_ids=ev_ids_dedup,
+                            reasoning=f"Candidate partially meets compound requirement ({len(matched_skills_list)} of {len(and_parts)} concepts matched: {', '.join(matched_skills_list)}; missing: {', '.join(missing_concepts)}).",
+                            method=MatchMethod.EXACT,
+                            matched_concepts=matched_skills_list,
+                            missing_concepts=missing_concepts,
                         )
                     else:
                         return MatchVerdict(
@@ -1054,6 +1117,21 @@ class DeterministicRequirementMatcher:
                     matched_concepts=[f"{total_months} months experience"],
                     missing_concepts=[],
                 )
+            elif job_min > 0 and total_months > 0:
+                coverage = round(total_months / job_min, 2)
+                ev_ids = [e.evidence_id for e in evidence if e.kind == "experience"][:1]
+                return MatchVerdict(
+                    requirement_id=requirement.requirement_id,
+                    status=MatchStatus.PARTIALLY_MATCHED,
+                    confidence=coverage,
+                    coverage=coverage,
+                    coverage_score=coverage,
+                    evidence_ids=ev_ids,
+                    reasoning=f"Candidate experience ({total_months} months) partially meets requirement of {job_min} months ({int(coverage * 100)}% coverage).",
+                    method=MatchMethod.EXACT,
+                    matched_concepts=[f"{total_months} months experience"],
+                    missing_concepts=[f"{job_min - total_months} months remaining"],
+                )
             else:
                 return MatchVerdict(
                     requirement_id=requirement.requirement_id,
@@ -1179,7 +1257,285 @@ SEMANTIC_SYNONYMS: dict[str, set[str]] = {
     "mentoring": {"mentor", "mentored", "mentoring", "guidance", "coach", "coaching", "mentorship", "led junior developers"},
     "code review": {"code reviews", "reviewed code", "code quality", "pr reviews", "pull request", "code review"},
     "troubleshooting": {"troubleshooting", "debugging", "fixed defects", "incident triage", "root cause", "resolved issues", "production defects", "production bugs"},
+    "redis": {"redis", "memcached", "cache", "caching", "in-memory key-value cache", "in-memory", "key-value"},
+    "kubernetes": {"kubernetes", "k8s", "container orchestration", "helm", "pods", "kubernetes cluster", "cluster deployments"},
+    "k8s": {"kubernetes", "k8s", "container orchestration", "kubernetes cluster"},
 }
+
+
+# ---------------------------------------------------------------------------
+# Evidence Strength Classification
+# ---------------------------------------------------------------------------
+
+_OWNERSHIP_SIGNALS = re.compile(
+    r"\b(architect(?:ed|ing)?|designed\s+(?:and\s+)?(?:led|owned)|led\s+(?:the\s+)?(?:design|build|development)|"
+    r"owned|founding\s+engineer|principal\s+engineer|chief\s+architect)\b",
+    re.IGNORECASE,
+)
+_PROFESSIONAL_USE_SIGNALS = re.compile(
+    r"\b(deployed\s+(?:to\s+)?production|in\s+production|production[-\s]grade|"
+    r"at\s+\w+\s*(?:inc|ltd|corp|llc|co\.)?|(?:software|backend|frontend|fullstack)\s+(?:engineer|developer|architect)|"
+    r"built\s+and\s+deployed|implemented\s+(?:in|for)\s+production|professional\s+experience|"
+    r"years?\s+of\s+experience)\b",
+    re.IGNORECASE,
+)
+_COURSE_SIGNALS = re.compile(
+    r"\b(course(?:work)?|coursera|udemy|edx|udacity|pluralsight|linkedin\s+learning|"
+    r"introductory|beginner\s+(?:course|tutorial)|tutorial|online\s+learning|"
+    r"certification\s+course|mooc)\b",
+    re.IGNORECASE,
+)
+_TRAINING_SIGNALS = re.compile(
+    r"\b(bootcamp|boot\s*camp|learning\s+\w+\s+and\s+beginner|currently\s+learning|"
+    r"just\s+started|novice|training\s+program|internship|trainee|fresher|"
+    r"self[-\s]taught\s+beginner|basic\s+understanding)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_evidence_strength(text: str, kind: str) -> Any:
+    """
+    Classify the contextual strength of an evidence item.
+    Returns EvidenceStrength enum value.
+    """
+    from app.schemas.matching import EvidenceStrength  # local import to avoid circular
+    if _TRAINING_SIGNALS.search(text):
+        return EvidenceStrength.TRAINING
+    if _COURSE_SIGNALS.search(text):
+        return EvidenceStrength.COURSE
+    if _OWNERSHIP_SIGNALS.search(text):
+        return EvidenceStrength.OWNERSHIP
+    if _PROFESSIONAL_USE_SIGNALS.search(text):
+        return EvidenceStrength.PROFESSIONAL_USE
+    if kind == "project":
+        return EvidenceStrength.PROJECT
+    return EvidenceStrength.MENTION_ONLY
+
+
+# ---------------------------------------------------------------------------
+# Contradiction Detection Gate
+# ---------------------------------------------------------------------------
+
+_DISTINCT_TECH_PAIRS: list[tuple[frozenset[str], str]] = [
+    (frozenset({"docker", "kubernetes"}), "Distinct technology mismatch: Docker vs Kubernetes"),
+    (frozenset({"java", "javascript"}), "Distinct technology mismatch: Java vs JavaScript"),
+    (frozenset({"c++", "c#"}), "Distinct technology mismatch: C++ vs C#"),
+    (frozenset({"ruby", "rust"}), "Distinct technology mismatch: Ruby vs Rust"),
+    (frozenset({"pytorch", "tensorflow"}), "Distinct technology mismatch: PyTorch vs TensorFlow"),
+    (frozenset({"aws", "azure"}), "Distinct technology mismatch: AWS vs Azure"),
+    (frozenset({"mysql", "mongodb"}), "Distinct technology mismatch: MySQL vs MongoDB"),
+    (frozenset({"postgresql", "mongodb"}), "Distinct technology mismatch: PostgreSQL vs MongoDB"),
+]
+
+_EXPLICIT_NEGATIVE_PATTERNS = re.compile(
+    r"\b(?:no\s+experience\s+with|not\s+familiar\s+with|haven['\u2019]t\s+used|"
+    r"no\s+knowledge\s+of|unfamiliar\s+with|never\s+used|lack(?:ing)?\s+experience\s+(?:in|with))\s+(\w[\w\s.#+]*)",
+    re.IGNORECASE,
+)
+_EARLY_LEARNER_PATTERNS = re.compile(
+    r"\b(?:currently\s+learning|just\s+started|learning\s+\w+\s+and\s+beginner|"
+    r"beginner\s+concepts|beginner\s+level|very\s+new\s+to)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_tech_term(text: str, term: str) -> bool:
+    pattern = rf"(?:\b|^){re.escape(term)}(?:\b|$)"
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def detect_contradiction(requirement_text: str, evidence_text: str) -> tuple[bool, str]:
+    """
+    Returns (is_contradiction, reason) for a requirement vs evidence pair.
+    Checks: explicit negation, early-learner signals, distinct tech mismatches.
+    """
+    req_lower = requirement_text.casefold().strip()
+    ev_lower = evidence_text.casefold()
+
+    # 1. Explicit negation ("no experience with X")
+    for m in _EXPLICIT_NEGATIVE_PATTERNS.finditer(ev_lower):
+        negated_term = m.group(1).strip().casefold()
+        req_tokens = {t.strip(".,;:!?") for t in _TOKEN.findall(req_lower) if t.strip(".,;:!?")}
+        neg_tokens = {t.strip(".,;:!?") for t in _TOKEN.findall(negated_term) if t.strip(".,;:!?")}
+        if req_tokens & neg_tokens:
+            return True, f"Explicit negative statement detected: '{m.group(0).strip()}'"
+
+    # 2. Early-learner / beginner signal for this requirement's keyword
+    req_key_tokens = {t.strip(".,;:!?") for t in _TOKEN.findall(req_lower) if t.strip(".,;:!?")}
+    ev_key_tokens = {t.strip(".,;:!?") for t in _TOKEN.findall(ev_lower) if t.strip(".,;:!?")}
+    if req_key_tokens & ev_key_tokens and _EARLY_LEARNER_PATTERNS.search(ev_lower):
+        return True, "Early learner signal detected — evidence indicates beginner proficiency, not production use."
+
+    # 3. Distinct technology mismatch
+    for pair_set, reason in _DISTINCT_TECH_PAIRS:
+        pair_list = list(pair_set)
+        req_has_a = _has_tech_term(req_lower, pair_list[0])
+        req_has_b = _has_tech_term(req_lower, pair_list[1])
+        ev_has_a = _has_tech_term(ev_lower, pair_list[0])
+        ev_has_b = _has_tech_term(ev_lower, pair_list[1])
+        if req_has_a and not req_has_b and ev_has_b and not ev_has_a:
+            return True, reason
+        if req_has_b and not req_has_a and ev_has_a and not ev_has_b:
+            return True, reason
+
+    return False, ""
+
+
+# ---------------------------------------------------------------------------
+# Technical Term Normalization
+# ---------------------------------------------------------------------------
+
+_TECH_NORM_MAP: dict[str, str] = {
+    "python3": "python", "python 3": "python", "py": "python",
+    "react.js": "react", "reactjs": "react", "react js": "react",
+    "node.js": "node", "nodejs": "node", "node js": "node",
+    "postgres": "postgresql", "postgresql db": "postgresql",
+    "k8s": "kubernetes", "kubernetes orchestration": "kubernetes", "kubernetes cluster": "kubernetes",
+    "js": "javascript", "ts": "typescript",
+    "express.js": "express", "expressjs": "express",
+    "vue.js": "vue", "vuejs": "vue",
+    "next.js": "nextjs",
+    "pyspark": "pyspark", "apache spark": "pyspark", "spark": "pyspark",
+    "mongo": "mongodb", "mongo db": "mongodb",
+}
+
+_GENERIC_TECH_TERMS = frozenset({
+    "database", "cloud", "container", "programming", "framework",
+    "service", "system", "platform", "language", "tool", "library",
+    "backend", "frontend", "fullstack", "infrastructure",
+})
+
+
+def normalize_technical_terms(text: str) -> str:
+    """
+    Normalize technical term variations to their canonical form.
+    Generic concepts (database, cloud, etc.) are NOT collapsed to specific technologies.
+    """
+    lower = text.strip().casefold()
+    if lower in _GENERIC_TECH_TERMS:
+        return lower
+    for pattern, canonical in sorted(_TECH_NORM_MAP.items(), key=lambda x: -len(x[0])):
+        if lower == pattern:
+            return canonical
+    normed = re.sub(r"\s*\d+(\.\d+)*$", "", lower).strip()
+    if normed in _TECH_NORM_MAP:
+        return _TECH_NORM_MAP[normed]
+    return lower
+
+
+# ---------------------------------------------------------------------------
+# Genericity Safety Gate
+# ---------------------------------------------------------------------------
+
+_GENERIC_REQUIREMENT_TERMS = frozenset({
+    "database", "databases", "cloud", "container", "containers",
+    "programming", "framework", "frameworks", "service", "services",
+    "system", "systems", "platform", "platforms", "language", "languages",
+    "tool", "tools", "library", "libraries", "data", "analytics", "storage",
+})
+
+_SPECIFIC_TECH_TERMS_SET = frozenset({
+    "postgresql", "postgres", "mysql", "mongodb", "redis", "dynamodb", "sqlite", "oracle",
+    "react", "angular", "vue", "next.js", "svelte",
+    "docker", "kubernetes", "k8s", "terraform", "ansible",
+    "aws", "azure", "gcp",
+    "kafka", "rabbitmq", "elasticsearch",
+    "python", "java", "javascript", "typescript", "golang", "rust",
+    "fastapi", "django", "flask", "spring boot", "express", "node.js",
+    "pytorch", "tensorflow", "pyspark",
+})
+
+
+def is_genericity_safe(requirement_text: str, evidence_text: str) -> tuple[bool, str]:
+    """
+    Returns (safe, reason). Blocks match when:
+    - A generic req (e.g. 'database') would match specific technology evidence, OR
+    - A specific req (e.g. 'PostgreSQL') would be satisfied by a generic category mention.
+    """
+    req_lower = requirement_text.strip().casefold()
+    ev_lower = evidence_text.strip().casefold()
+    req_is_generic = req_lower in _GENERIC_REQUIREMENT_TERMS
+    ev_has_specific = any(t in ev_lower for t in _SPECIFIC_TECH_TERMS_SET)
+    ev_is_generic_only = not ev_has_specific
+    req_is_specific = req_lower in _SPECIFIC_TECH_TERMS_SET
+    if req_is_generic and ev_has_specific and req_lower not in ev_lower:
+        return False, f"Generic requirement '{requirement_text}' must not be satisfied by specific technology evidence"
+    if req_is_specific and ev_is_generic_only and req_lower not in ev_lower:
+        return False, f"Specific requirement '{requirement_text}' cannot be satisfied by generic category mention"
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Semantic Category Compatibility Gate
+# ---------------------------------------------------------------------------
+
+_SEMANTIC_CATEGORY_MAP: dict[str, str] = {
+    "postgresql": "database", "mysql": "database", "mongodb": "database",
+    "redis": "cache", "dynamodb": "database", "sqlite": "database",
+    "relational database": "database", "nosql": "database",
+    "react": "frontend", "angular": "frontend", "vue": "frontend",
+    "next.js": "frontend", "css": "frontend", "html": "frontend",
+    "tailwind": "frontend", "sass": "frontend",
+    "fastapi": "backend", "django": "backend", "flask": "backend",
+    "spring boot": "backend", "express": "backend", "node.js": "backend",
+    "docker": "devops", "kubernetes": "devops", "terraform": "devops",
+    "ansible": "devops", "ci/cd": "devops", "jenkins": "devops",
+    "aws": "cloud", "azure": "cloud", "gcp": "cloud",
+    "pyspark": "data", "airflow": "data", "kafka": "data",
+    "pytorch": "ml", "tensorflow": "ml", "scikit-learn": "ml",
+}
+
+
+def _text_semantic_category(text: str) -> str | None:
+    text_lower = text.casefold()
+    for term, cat in _SEMANTIC_CATEGORY_MAP.items():
+        if term in text_lower:
+            return cat
+    return None
+
+
+def is_semantic_category_compatible(requirement_text: str, evidence_text: str) -> tuple[bool, str]:
+    """
+    Returns (compatible, reason). Blocks cosine direct match when requirement and evidence
+    are clearly from incompatible semantic categories (e.g. database vs frontend).
+    """
+    req_cat = _text_semantic_category(requirement_text)
+    ev_cat = _text_semantic_category(evidence_text)
+    if req_cat is None or ev_cat is None:
+        return True, ""
+    if req_cat != ev_cat:
+        return False, f"Semantic category mismatch: requirement='{req_cat}' vs evidence='{ev_cat}'"
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Cosine Direct Match Gate — Always Disabled
+# ---------------------------------------------------------------------------
+
+def try_semantic_direct_match(
+    requirement: "Requirement",
+    evidence: list["Evidence"],
+    threshold: float = 0.85,
+) -> "MatchVerdict | None":
+    """
+    Cosine similarity is used ONLY for evidence retrieval, NEVER for direct match decisions.
+    This function always returns None — LLM (or deterministic alias/concept) is authoritative.
+
+    Design contract enforced by test suite:
+      try_semantic_direct_match(...) MUST return None for ALL inputs.
+    """
+    return None
+
+
+_GENERIC_BUZZWORDS = frozenset({
+    "experience", "strong", "application", "development", "developer", "system",
+    "management", "technical", "solution", "solutions", "using", "work", "working",
+    "years", "responsible", "knowledge", "proficient", "familiar", "expertise",
+    "skills", "design", "implementation", "building", "software", "engineering",
+    "engineered", "developed", "managed", "created", "maintained", "role",
+    "platform", "platforms", "event", "events", "tool", "tools",
+    "in", "and", "or", "to", "for", "with", "a", "an", "the", "of", "on", "at", "by", "from",
+})
 
 
 class SemanticEvidenceRetriever:
@@ -1235,10 +1591,11 @@ class SemanticEvidenceRetriever:
         return 0.0
 
     @staticmethod
-    def embedding_vector(text: str, dim: int = 256) -> list[float]:
+    def embedding_vector(text: str, dim: int = 256, settings: Any | None = None) -> list[float]:
         """
         Computes a normalized dense embedding vector for text using subword character n-grams
         and stemmed word tokens with feature hashing.
+        Accepts optional Settings for configurable token weights (used in tests).
         """
         if not text:
             return [0.0] * dim
@@ -1246,21 +1603,36 @@ class SemanticEvidenceRetriever:
         cleaned = re.sub(r"\s+", " ", text.casefold()).strip()
         tokens = [t for t in _TOKEN.findall(cleaned) if len(t) > 1]
 
-        # Word token features with stem projection
-        for t in tokens:
-            st = _stem_token(t)
-            h1 = int(hashlib.md5(t.encode("utf-8")).hexdigest(), 16) % dim
-            h2 = int(hashlib.md5(st.encode("utf-8")).hexdigest(), 16) % dim
-            vec[h1] += 2.0
-            vec[h2] += 2.0
+        # Configurable weights (default to sensible values if settings not provided)
+        token_weight = getattr(settings, "COSINE_EXACT_TOKEN_WEIGHT", 2.0)
+        stem_weight = getattr(settings, "COSINE_STEM_WEIGHT", 1.0)
+        ngram_weight = getattr(settings, "COSINE_NGRAM_WEIGHT", 0.5)
+        tech_weight = getattr(settings, "COSINE_TECHNICAL_TOKEN_WEIGHT", 3.0)
+        generic_weight = getattr(settings, "COSINE_GENERIC_TOKEN_WEIGHT", 0.05)
 
-        # Subword character n-gram features (3-gram and 4-gram)
-        for n in (3, 4):
-            if len(cleaned) >= n:
-                for i in range(len(cleaned) - n + 1):
-                    gram = cleaned[i : i + n]
-                    h = int(hashlib.md5(gram.encode("utf-8")).hexdigest(), 16) % dim
-                    vec[h] += 1.0
+        # Word token features with stem projection and technical/generic weighting
+        for t in tokens:
+            t_clean = t.strip(".,;:!?")
+            if not t_clean:
+                continue
+            is_generic = t_clean in _GENERIC_BUZZWORDS
+            w_mult = generic_weight if is_generic else (token_weight + tech_weight)
+            s_mult = generic_weight if is_generic else (stem_weight + tech_weight * 0.5)
+
+            st = _stem_token(t_clean)
+            h1 = int(hashlib.md5(f"tok:{t_clean}".encode("utf-8")).hexdigest(), 16) % dim
+            h2 = int(hashlib.md5(f"st:{st}".encode("utf-8")).hexdigest(), 16) % dim
+            vec[h1] += w_mult
+            vec[h2] += s_mult
+
+            # Only add subword character n-grams for non-generic tokens, scaled by number of grams
+            if not is_generic and len(t_clean) >= 3:
+                ngs = [t_clean[i : i + 3] for i in range(len(t_clean) - 2)] + [t_clean[i : i + 4] for i in range(len(t_clean) - 3)]
+                if ngs:
+                    w_each = ngram_weight / len(ngs)
+                    for gram in ngs:
+                        h = int(hashlib.md5(f"ng:{gram}".encode("utf-8")).hexdigest(), 16) % dim
+                        vec[h] += w_each
 
         norm = math.sqrt(sum(x * x for x in vec))
         if norm > 0:
@@ -1291,8 +1663,12 @@ class SemanticEvidenceRetriever:
 
 
 class EvidencePrefilter:
-    def __init__(self, threshold: float, limit: int) -> None:
-        self.threshold, self.limit = threshold, limit
+    def __init__(self, threshold: float, limit: int, cosine_evidence_threshold: float = 0.20) -> None:
+        self.threshold = threshold
+        self.limit = limit
+        self.cosine_evidence_threshold = cosine_evidence_threshold
+        # Observability: maps requirement_id -> list of telemetry dicts
+        self.retrieval_telemetry: dict[str, list[dict[str, Any]]] = {}
 
     @staticmethod
     def _select_diverse_evidence(scored_items: list[tuple[float, str, Evidence]], target_limit: int) -> list[Evidence]:
@@ -1384,22 +1760,42 @@ class EvidencePrefilter:
             required_stems.update(_stem_tokens(s))
 
         scored = []
+        telemetry_records = []
         for item in target_evidence:
             item_lower = item.text.casefold()
             phrase_bonus = 0.5 if any(p in item_lower for p in synonym_phrases if len(p.split()) > 1) else 0.0
             item_stems = _stem_tokens(item.text)
             overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
             score = overlap + phrase_bonus
-            if score > 0:
-                scored.append((score, item.evidence_id, item))
 
-        # Semantic cosine similarity fallback for chunks failing lexical threshold (or having 0 lexical overlap)
-        lexical_passing_ids = {row[1] for row in scored if row[0] >= self.threshold}
-        for item in target_evidence:
-            if item.evidence_id not in lexical_passing_ids:
-                cos_sim = SemanticEvidenceRetriever.cosine_similarity(requirement.text, item.text)
-                if cos_sim >= 0.20:
-                    scored.append((cos_sim, item.evidence_id, item))
+            cos_sim = SemanticEvidenceRetriever.cosine_similarity(requirement.text, item.text)
+            sem_sim = SemanticEvidenceRetriever.similarity(requirement.text, item.text)
+
+            if score >= self.threshold and cos_sim >= self.cosine_evidence_threshold:
+                source = "both"
+            elif score >= self.threshold:
+                source = "lexical"
+            elif cos_sim >= self.cosine_evidence_threshold:
+                source = "cosine"
+            else:
+                source = "lexical" if score > 0 else "cosine"
+
+            telemetry_records.append({
+                "requirement_id": requirement.requirement_id,
+                "evidence_id": item.evidence_id,
+                "lexical_score": round(score, 4),
+                "cosine_score": round(cos_sim, 4),
+                "semantic_score": round(sem_sim, 4),
+                "retrieval_source": source,
+                "item": item,
+            })
+
+            if score >= self.threshold:
+                scored.append((score, item.evidence_id, item))
+            elif cos_sim >= self.cosine_evidence_threshold:
+                scored.append((cos_sim, item.evidence_id, item))
+            elif score > 0:
+                scored.append((score, item.evidence_id, item))
 
         if scored:
             scored.sort(key=lambda row: (-row[0], row[1]))
@@ -1414,24 +1810,34 @@ class EvidencePrefilter:
                 adaptive_limit = min(8, max(5, self.limit))
 
             candidates_to_filter = passing if passing else scored
-            return self._select_diverse_evidence(candidates_to_filter, adaptive_limit)
-
-        # 3. Fallback & Ambiguous Evidence Behavior:
-        # Lexical prefilter miss should NOT immediately become NO_MATCH if candidate has evidence.
-        # Check semantic retrieval first, then provide candidate profile evidence for LLM verification.
-        if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
+            selected = self._select_diverse_evidence(candidates_to_filter, adaptive_limit)
+        elif requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
             semantic_selected = SemanticEvidenceRetriever.retrieve(
                 requirement.text, target_evidence, top_k=min(5, self.limit)
             )
             if semantic_selected:
-                return semantic_selected
-            fallback_evidence = [e for e in target_evidence if e.kind in {"skills", "project", "experience", "summary"}]
-            return (fallback_evidence if fallback_evidence else target_evidence)[: min(3, self.limit)]
+                selected = semantic_selected
+            else:
+                selected = []
+        elif requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.PROJECT_RELEVANCE}:
+            selected = target_evidence[: self.limit]
+        else:
+            selected = []
 
-        # For NON-SKILLS: Profile fallback
-        allowed_kinds = {"experience", "project", "summary"} if requirement.kind == RequirementKind.RESPONSIBILITY else {"skills", "project", "experience", "summary", "certification"}
-        fallback_evidence = [e for e in target_evidence if e.kind in allowed_kinds]
-        return (fallback_evidence if fallback_evidence else target_evidence)[: min(5, self.limit)]
+        selected_ids = {e.evidence_id for e in selected}
+        self.retrieval_telemetry[requirement.requirement_id] = [
+            {
+                "requirement_id": r["requirement_id"],
+                "evidence_id": r["evidence_id"],
+                "lexical_score": r["lexical_score"],
+                "cosine_score": r["cosine_score"],
+                "semantic_score": r["semantic_score"],
+                "retrieval_source": r["retrieval_source"],
+                "evidence_selected": r["evidence_id"] in selected_ids,
+            }
+            for r in telemetry_records
+        ]
+        return selected
 
 
 class GroqTokenBudgetGate:
@@ -1647,14 +2053,37 @@ def _parse_llm_batch_response(
     is_truncated = (finish_reason == "length")
     if isinstance(content, str):
         cleaned = content.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+        data = None
+        # 1. Direct parse attempt
         try:
             data = json.loads(cleaned)
-        except Exception as json_err:
+        except Exception:
+            pass
+
+        # 2. Extract ```json ... ``` markdown block
+        if data is None:
+            match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)(?:```|$)", cleaned)
+            if match:
+                candidate_str = match.group(1).strip()
+                try:
+                    data = json.loads(candidate_str)
+                except Exception:
+                    cleaned = candidate_str
+
+        # 3. Extract { ... } outer JSON object
+        if data is None:
+            first_brace = cleaned.find("{")
+            last_brace = cleaned.rfind("}")
+            if first_brace != -1 and last_brace > first_brace:
+                candidate_str = cleaned[first_brace:last_brace + 1]
+                try:
+                    data = json.loads(candidate_str)
+                except Exception:
+                    cleaned = candidate_str
+
+        # 4. Truncated JSON recovery: find the last completed object in array/object
+        if data is None:
             parsed_json = None
-            # Truncated JSON recovery: find the last completed object in array/object
             last_brace_idx = cleaned.rfind("}")
             while last_brace_idx > 0 and parsed_json is None:
                 candidate = cleaned[:last_brace_idx + 1]
@@ -1680,8 +2109,8 @@ def _parse_llm_batch_response(
             if parsed_json is not None:
                 data = parsed_json
             else:
-                logger.error("llm_response_json_parse_failed", raw_content=content[:500], error=str(json_err))
-                raise json_err
+                logger.error("llm_response_json_parse_failed", raw_content=content[:500])
+                return LLMVerdictBatch(verdicts=[])
     else:
         data = content
 
@@ -1689,7 +2118,7 @@ def _parse_llm_batch_response(
     if isinstance(data, list):
         raw_items = [item for item in data if isinstance(item, dict)]
     elif isinstance(data, dict):
-        for candidate_key in ("verdicts", "evaluations", "results", "requirements", "classifications", "data", "items"):
+        for candidate_key in ("verdicts", "evaluations", "results", "matches", "requirements", "classifications", "data", "items"):
             if candidate_key in data and isinstance(data[candidate_key], list):
                 raw_items = [item for item in data[candidate_key] if isinstance(item, dict)]
                 break
@@ -1730,6 +2159,17 @@ def _parse_llm_batch_response(
         if matched_id:
             item_copy = dict(item)
             item_copy["requirement_id"] = matched_id
+            # Normalize boolean 'matched' field (used by some models like gpt-oss-20b) to 'status' string
+            if "status" not in item_copy or not item_copy["status"]:
+                matched_bool = item_copy.get("matched")
+                if matched_bool is True:
+                    item_copy["status"] = "matched"
+                    if not item_copy.get("coverage_score"):
+                        item_copy["coverage_score"] = 1.0
+                elif matched_bool is False:
+                    item_copy["status"] = "no_match"
+                    if not item_copy.get("coverage_score"):
+                        item_copy["coverage_score"] = 0.0
             try:
                 validated_verdicts.append(LLMVerdict.model_validate(item_copy))
             except Exception as v_err:
@@ -1876,6 +2316,27 @@ class GroqMatchEvaluator:
             logger.warning("groq_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
+        MAX_BATCH_SIZE = 5
+        if len(requirements) > MAX_BATCH_SIZE:
+            all_verdicts: list[MatchVerdict] = []
+            for idx, i in enumerate(range(0, len(requirements), MAX_BATCH_SIZE)):
+                if idx > 0:
+                    await asyncio.sleep(0.5)
+                chunk_reqs = requirements[i:i + MAX_BATCH_SIZE]
+                chunk_allowed = {
+                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
+                    for r in chunk_reqs
+                } if allowed_evidence else None
+                chunk_ev_ids = {eid for r in chunk_reqs for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
+                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
+                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
+                    chunk_reqs, chunk_ev, chunk_allowed, pre_reserved=False, allow_retries=allow_retries
+                )
+                all_verdicts.extend(chunk_verdicts)
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    usage_stats[k] += chunk_usage.get(k, 0)
+            return all_verdicts, usage_stats
+
         # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
@@ -1944,6 +2405,9 @@ class GroqMatchEvaluator:
                 resp_finish_reason = choice.get("finish_reason")
                 content = choice.get("message", {}).get("content", "")
                 parsed = _parse_llm_batch_response(content, requirements, finish_reason=resp_finish_reason)
+                if (not parsed or not parsed.verdicts) and attempt + 1 < total_attempts:
+                    logger.warning("llm_response_empty_or_unparseable_retrying", attempt=attempt + 1)
+                    continue
                 break
             except Exception as exc:
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -2165,12 +2629,14 @@ class GroqMatchEvaluator:
                         continue
                     valid_cited_ids.append(norm_id)
 
-            # If no valid citations found from raw list, but only 1 evidence item was supplied for this requirement:
-            if not valid_cited_ids and not raw_cited_ids and len(req_supplied_ids) == 1:
-                single_id = list(req_supplied_ids)[0]
-                ev_item = evidence_by_id.get(single_id)
-                if ev_item and is_entity_compatible(req_obj.kind, ev_item.kind):
-                    valid_cited_ids = [single_id]
+            # If no valid citations found from raw list, attach compatible supplied evidence (only if no raw citations were cited):
+            if not valid_cited_ids and not raw_cited_ids and req_supplied_ids:
+                compatible_supplied = [
+                    sid for sid in req_supplied_ids
+                    if (ev := evidence_by_id.get(sid)) and is_entity_compatible(req_obj.kind, ev.kind)
+                ]
+                if compatible_supplied:
+                    valid_cited_ids = compatible_supplied[:3]
 
             has_valid_evidence = bool(valid_cited_ids)
 
@@ -2242,7 +2708,8 @@ class GroqMatchEvaluator:
 
             # Determine final status
             confirmed = (coverage_val >= 0.25 or is_matched_raw or is_partial_raw) and not is_no_match_raw
-            item_confidence = float(getattr(item, "confidence", 1.0) if getattr(item, "confidence", None) is not None else 0.0)
+            raw_conf = getattr(item, "confidence", None)
+            item_confidence = float(raw_conf) if (raw_conf is not None and float(raw_conf) > 0.0) else 1.0
 
             # 1. Reject ungrounded matches (no valid evidence IDs cited) to UNRESOLVED
             if confirmed and not has_valid_evidence:
@@ -2253,8 +2720,8 @@ class GroqMatchEvaluator:
                 else:
                     reasoning = f"(Rejected: No valid candidate evidence ID cited for match). {raw_reasoning}".strip()
                 coverage_val = 0.0
-            # 2. Low-confidence LLM verdict handling: Explicitly reject to NO_MATCH if confidence < threshold
-            elif confirmed and item_confidence < threshold:
+            # 2. Low-confidence LLM verdict handling: Explicitly reject to NO_MATCH only if explicit confidence was emitted and is below threshold
+            elif confirmed and raw_conf is not None and float(raw_conf) > 0.0 and item_confidence < threshold:
                 logger.warning(
                     "llm_verdict_low_confidence_rejected",
                     requirement_id=req_id,
@@ -2318,14 +2785,19 @@ class GroqMatchEvaluator:
             }
             for r in requirements
         ]
+        relevant_ev_ids = set()
+        if allowed_evidence:
+            for ids in allowed_evidence.values():
+                relevant_ev_ids.update(ids)
         ev_list = [
             {
                 "evidence_id": e.evidence_id,
                 "kind": e.kind,
-                "text": e.text,
-                "canonical_terms": e.canonical_terms,
+                "text": e.text[:400] if len(e.text) > 400 else e.text,
+                "canonical_terms": e.canonical_terms[:10] if e.canonical_terms else [],
             }
             for e in evidence
+            if not relevant_ev_ids or e.evidence_id in relevant_ev_ids
         ]
         content = json.dumps({"requirements": req_list, "candidate_evidence": ev_list})
         system_prompt = (
@@ -2339,22 +2811,24 @@ class GroqMatchEvaluator:
             "   - 'adjacent' = similar tool, same domain pattern, related tech stack, or transferable duty\n"
             "   - 'none' = no evidence\n"
             "   Record in 'sub_claim_evidence' as list of objects: {\"claim\": \"...\", \"evidence_level\": \"direct|adjacent|none\", \"note\": \"...\"}.\n\n"
-            "3. Score each requirement 0.0–1.0 as 'coverage_score', not a yes/no:\n"
+            "3. Score each requirement 0.0-1.0 as 'coverage_score', not a yes/no:\n"
             "   - 1.0 = full direct evidence across all sub-claims\n"
-            "   - 0.7–0.9 = most sub-claims directly evidenced, minor gaps\n"
-            "   - 0.4–0.6 = partial — either some sub-claims fully met and others missing, or all sub-claims have adjacent/transferable (not direct) evidence\n"
-            "   - 0.1–0.3 = weak — tangential relevance only, one minor sub-claim touched\n"
+            "   - 0.7-0.9 = most sub-claims directly evidenced, minor gaps\n"
+            "   - 0.4-0.6 = partial -- either some sub-claims fully met and others missing, or all sub-claims have adjacent/transferable (not direct) evidence\n"
+            "   - 0.1-0.3 = weak -- tangential relevance only, one minor sub-claim touched\n"
             "   - 0.0 = no relevant evidence at all\n"
-            "   Do not default to 0 or 1 just because you're uncertain — estimate the most likely coverage given the evidence.\n\n"
-            "4. Rate how critical this requirement is to the role, independent of the candidate:\n"
+            "   Do not default to 0 or 1 just because you're uncertain -- estimate the most likely coverage given the evidence.\n\n"
+            "4. Set 'status' field to one of: 'matched' (coverage>=0.7), 'partially_matched' (coverage 0.25-0.69), 'no_match' (coverage<0.25)\n\n"
+            "5. Rate how critical this requirement is to the role, independent of the candidate:\n"
             "   - 'critical' = core to daily function of the role, explicitly required\n"
             "   - 'important' = significant but role is doable without deep strength here\n"
             "   - 'minor' = nice-to-have, tangential, or boilerplate JD language\n\n"
-            "5. Cite matching evidence_ids from candidate evidence in 'evidence_ids' when available.\n\n"
+            "6. Cite matching evidence_ids from candidate evidence in 'evidence_ids' when available.\n\n"
             "OUTPUT FORMAT:\n"
             "Return JSON: {\"verdicts\": ["
             "  {"
             "    \"requirement_id\": \"string\","
+            "    \"status\": \"matched|partially_matched|no_match\","
             "    \"sub_claims\": [\"string\"],"
             "    \"sub_claim_evidence\": [{\"claim\": \"string\", \"evidence_level\": \"direct|adjacent|none\", \"note\": \"string\"}],"
             "    \"coverage_score\": 0.0,"
@@ -2365,11 +2839,11 @@ class GroqMatchEvaluator:
             "]}"
         )
         max_output_tokens = min(
-            int(_get_setting_val(self.settings, "GROQ_MAX_COMPLETION_TOKENS", 4096)),
-            max(1024, len(requirements) * 350 + 200),
+            int(_get_setting_val(self.settings, "GROQ_MAX_COMPLETION_TOKENS", 2048)),
+            max(512, len(requirements) * 160 + 100),
         )
         return {
-            "model": getattr(self.settings, "GROQ_MODEL", "openai/gpt-oss-20b"),
+            "model": getattr(self.settings, "GROQ_MODEL", "groq/compound"),
             "temperature": 0,
             "max_tokens": max_output_tokens,
             "messages": [
@@ -2809,106 +3283,104 @@ class SmartMatchEvaluator:
             logger.warning("groq_circuit_open_skipping_primary", resume_id=resume_id)
 
         if groq_can_call:
-            can_reserve = await groq_gate.try_reserve(estimated_tokens)
-            if can_reserve:
-                provider_selected = "groq"
-                selection_reason = "budget_available"
-                logger.info(
-                    "llm_provider_selected",
-                    provider_selected="groq",
-                    reason="budget_available",
-                    estimated_tokens=estimated_tokens,
-                    resume_id=resume_id,
-                    requirements_count=len(requirements),
+            provider_selected = "groq"
+            selection_reason = "budget_available"
+            logger.info(
+                "llm_provider_selected",
+                provider_selected="groq",
+                reason="budget_available",
+                estimated_tokens=estimated_tokens,
+                resume_id=resume_id,
+                requirements_count=len(requirements),
+            )
+            t0 = time.monotonic()
+            try:
+                verdicts, usage = await self._invoke_evaluator(
+                    self.groq, requirements, evidence, allowed_evidence, pre_reserved=False, allow_retries=True
                 )
-                t0 = time.monotonic()
-                try:
-                    verdicts, usage = await self._invoke_evaluator(
-                        self.groq, requirements, evidence, allowed_evidence, pre_reserved=True, allow_retries=True
-                    )
-                    wait_ms = (time.monotonic() - t0) * 1000.0
-
-                    if verdicts:
-                        logger.info(
-                            "llm_request_handled_by_groq",
-                            provider_selected="groq",
-                            status="success",
-                            resume_id=resume_id,
-                            verdicts_count=len(verdicts),
-                            duration_ms=round(wait_ms, 2),
-                        )
-                    else:
-                        raise RuntimeError("Groq returned empty verdicts")
-                except Exception as exc:
-                    # Clean up in-flight gate reservation if evaluator was a mock and did not release
-                    if type(self.groq).__name__ != "GroqMatchEvaluator":
-                        await groq_gate.release_reservation(estimated_tokens)
-
-                    status_code = getattr(getattr(exc, "response", None), "status_code", None)
-                    err_str = str(exc).lower()
-                    if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)) or "timeout" in err_str:
-                        reason = "groq_timeout"
-                    elif status_code == 429 or "429" in err_str:
-                        reason = "groq_429"
-                    elif (status_code and status_code >= 500) or "500" in err_str:
-                        reason = "groq_500"
-                    elif isinstance(exc, (httpx.NetworkError, httpx.ConnectError)) or "network" in err_str or "connection" in err_str:
-                        reason = "groq_network_error"
-                    elif "empty" in err_str or "invalid" in err_str:
-                        reason = "groq_empty_or_invalid_verdict"
-                    else:
-                        reason = f"groq_error_{type(exc).__name__}"
-
-                    selection_reason = reason
-                    fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
-                    cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
-                    if not cerebras_can_call and self.cerebras.enabled:
-                        circuit_skipped.append("cerebras")
-
-                    logger.warning(
-                        "llm_provider_fallback",
-                        provider_selected="cerebras" if cerebras_can_call else "none",
-                        reason=reason,
-                        fallback_provider="cerebras" if cerebras_can_call else "none",
-                        error=str(exc),
-                        error_type=type(exc).__name__,
+                wait_ms = (time.monotonic() - t0) * 1000.0
+                if verdicts:
+                    logger.info(
+                        "llm_request_handled_by_groq",
+                        provider_selected="groq",
+                        status="success",
                         resume_id=resume_id,
-                        fallback_available=cerebras_can_call,
+                        verdicts_count=len(verdicts),
+                        duration_ms=round(wait_ms, 2),
                     )
-                    if cerebras_can_call:
-                        provider_selected = "cerebras"
-                        logger.info(
-                            "llm_fallback_to_cerebras_started",
+                else:
+                    raise RuntimeError("Groq returned empty verdicts")
+            except Exception as exc:
+                # For mock evaluators: release gate reservation they may not have managed themselves
+                if type(self.groq).__name__ != "GroqMatchEvaluator":
+                    await groq_gate.release_reservation(estimated_tokens)
+
+                # Classify the error and attempt Cerebras fallback (runs for ALL evaluator types)
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                err_str = str(exc).lower()
+                if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)) or "timeout" in err_str:
+                    reason = "groq_timeout"
+                elif status_code == 429 or "429" in err_str:
+                    reason = "groq_429"
+                elif (status_code and status_code >= 500) or "500" in err_str:
+                    reason = "groq_500"
+                elif isinstance(exc, (httpx.NetworkError, httpx.ConnectError)) or "network" in err_str or "connection" in err_str:
+                    reason = "groq_network_error"
+                elif "empty" in err_str or "invalid" in err_str:
+                    reason = "groq_empty_or_invalid_verdict"
+                else:
+                    reason = f"groq_error_{type(exc).__name__}"
+
+                selection_reason = reason
+                fallback_reason = f"groq_error_{type(exc).__name__}: {str(exc)}"
+                cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
+                if not cerebras_can_call and self.cerebras.enabled:
+                    circuit_skipped.append("cerebras")
+
+                logger.warning(
+                    "llm_provider_fallback",
+                    provider_selected="cerebras" if cerebras_can_call else "none",
+                    reason=reason,
+                    fallback_provider="cerebras" if cerebras_can_call else "none",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    resume_id=resume_id,
+                    fallback_available=cerebras_can_call,
+                )
+                if cerebras_can_call:
+                    provider_selected = "cerebras"
+                    logger.info(
+                        "llm_fallback_to_cerebras_started",
+                        provider_selected="cerebras",
+                        reason=reason,
+                        resume_id=resume_id,
+                    )
+                    t1 = time.monotonic()
+                    try:
+                        verdicts, usage = await self._invoke_evaluator(
+                            self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
+                        )
+                        wait_ms += (time.monotonic() - t1) * 1000.0
+                        if verdicts:
+                            logger.info(
+                                "llm_request_handled_by_cerebras_fallback",
+                                provider_selected="cerebras",
+                                fallback=True,
+                                status="success",
+                                resume_id=resume_id,
+                                verdicts_count=len(verdicts),
+                                duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
+                            )
+                    except Exception as c_exc:
+                        logger.error(
+                            "cerebras_fallback_also_failed",
                             provider_selected="cerebras",
-                            reason=reason,
+                            error=str(c_exc),
                             resume_id=resume_id,
                         )
-                        t1 = time.monotonic()
-                        try:
-                            verdicts, usage = await self._invoke_evaluator(
-                                self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
-                            )
-                            wait_ms += (time.monotonic() - t1) * 1000.0
-                            if verdicts:
-                                logger.info(
-                                    "llm_request_handled_by_cerebras_fallback",
-                                    provider_selected="cerebras",
-                                    fallback=True,
-                                    status="success",
-                                    resume_id=resume_id,
-                                    verdicts_count=len(verdicts),
-                                    duration_ms=round((time.monotonic() - t1) * 1000.0, 2),
-                                )
-                        except Exception as c_exc:
-                            logger.error(
-                                "cerebras_fallback_also_failed",
-                                provider_selected="cerebras",
-                                error=str(c_exc),
-                                resume_id=resume_id,
-                            )
-                            verdicts = []
-                    else:
                         verdicts = []
+                else:
+                    verdicts = []
             else:
                 # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
                 cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
