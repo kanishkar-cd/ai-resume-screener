@@ -33,7 +33,18 @@ class RecommendationService:
 
         # Derive component shortlist threshold proportionally from passing_score
         # Baseline: at passing_score=60.0, component threshold is 50.0%
-        shortlist_threshold = round((passing_score * (SHORTLIST_COMPONENT_THRESHOLD / DEFAULT_PASSING_SCORE)), 2)
+        float_passing = float(passing_score) if passing_score is not None else float(DEFAULT_PASSING_SCORE)
+        shortlist_threshold = round((float_passing * (SHORTLIST_COMPONENT_THRESHOLD / DEFAULT_PASSING_SCORE)), 2)
+
+        # Helper to extract component whether components is an object or dict
+        def _get_comp(name: str) -> Any:
+            if isinstance(components, dict):
+                val = components.get(name)
+                if isinstance(val, dict):
+                    from types import SimpleNamespace
+                    return SimpleNamespace(**val)
+                return val
+            return getattr(components, name, None)
 
         # Helper to check if a component is active (applicable for the current JD with effective weight > 0)
         def is_active(cat_key: str, comp_obj: Any = None) -> bool:
@@ -61,23 +72,23 @@ class RecommendationService:
             return False
 
         # Extract core component objects and scores
-        skills_obj = getattr(components, "skills", None)
+        skills_obj = _get_comp("skills")
         skills_score = float(getattr(skills_obj, "score", 0.0) or 0.0)
 
-        resp_obj = getattr(components, "responsibilities", None)
+        resp_obj = _get_comp("responsibilities")
         resp_score = float(getattr(resp_obj, "score", 0.0) or 0.0) if resp_obj is not None else 0.0
 
-        proj_obj = getattr(components, "projects", None)
+        proj_obj = _get_comp("projects")
         proj_score = float(getattr(proj_obj, "score", 0.0) or 0.0)
 
         # Extract supporting component objects and scores
-        pref_obj = getattr(components, "preferred_skills", None)
+        pref_obj = _get_comp("preferred_skills")
         pref_score = float(getattr(pref_obj, "score", 0.0) or 0.0) if pref_obj is not None else 0.0
 
-        cert_obj = getattr(components, "certifications", None)
+        cert_obj = _get_comp("certifications")
         cert_score = float(getattr(cert_obj, "score", 0.0) or 0.0)
 
-        edu_obj = getattr(components, "education", None)
+        edu_obj = _get_comp("education")
         edu_score = float(getattr(edu_obj, "score", 0.0) or 0.0)
 
         core_scores = {
@@ -113,14 +124,19 @@ class RecommendationService:
             additional_evidence.append(f"Education ({edu_score:.0f}%)")
 
         # 1. AUTO-SHORTLIST Rule:
-        # NO knockout AND at least ONE CORE >= shortlist_threshold AND at least ONE OTHER ACTIVE component has meaningful evidence.
-        if triggered_core_names and additional_evidence:
+        # NO knockout AND (at least TWO core components reached shortlist threshold OR at least ONE CORE reached threshold with additional evidence).
+        if triggered_core_names and (len(triggered_core_names) >= 2 or additional_evidence):
             core_desc = ", ".join(f"{name} ({core_scores[name]:.0f}%)" for name in triggered_core_names)
-            add_desc = ", ".join(additional_evidence)
-            reason = (
-                f"SHORTLIST because {core_desc} coverage reached or exceeded the {shortlist_threshold:.0f}% "
-                f"component threshold, with additional matching evidence in {add_desc}."
-            )
+            if len(triggered_core_names) >= 2:
+                reason = (
+                    f"SHORTLIST because multiple core components ({core_desc}) reached or exceeded the {shortlist_threshold:.0f}% component threshold."
+                )
+            else:
+                add_desc = ", ".join(additional_evidence)
+                reason = (
+                    f"SHORTLIST because {core_desc} coverage reached or exceeded the {shortlist_threshold:.0f}% "
+                    f"component threshold, with additional matching evidence in {add_desc}."
+                )
             return RecommendationLevel.SHORTLIST, reason
 
         # 2. REVIEW Rule:

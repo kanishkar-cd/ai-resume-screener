@@ -1,0 +1,2558 @@
+[
+  {
+    "resume_id": "1b77e075-6186-46c9-a8a4-c41e76f663dc",
+    "candidate_name": "23cs196_Yogeshwar_R_1390.pdf",
+    "filename": "23cs196_Yogeshwar_R_1390.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (C++).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (REST APIs).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Git).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "Learn Java Programming (Master) | Mastering Data Structures & Algorithms Using C and C++",
+        "evidence_ids": [
+          "certification:1",
+          "certification:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Learn Java Programming (Master)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Data Structures and Algorithms).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "exact",
+        "reasoning": "Candidate partially meets compound requirement (1 of 2 concepts matched: Debugging; missing: Software development).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (React.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Node.js / Express.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, Jav).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "Database Management Systems Excellence | Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platfo...",
+        "evidence_ids": [
+          "certification:5",
+          "project:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Database Management Systems Excellence).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "Learn Java Programming (Master) | Fundamentals of Deep Learning",
+        "evidence_ids": [
+          "certification:1",
+          "certification:7"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Learn Java Programming (Master)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1",
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on exper).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on exper).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.54,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "1b573704-c800-41c5-8f66-3bfa913496d5",
+    "candidate_name": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+    "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (C++).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "PhisScan Developed a cybersecurity-focused web app to detect scam URLs, phishing links, and unsafe redirections using...",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (REST APIs).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Git).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (OOP).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "2024 2024 Developed a web platform to track and reduce carbon footprint through eco-friendly activities. Integrated w...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Data Structures and Algorithms).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "Intern CISCO Networking Academy 2025 Completed the Cisco AICTE Virtual Internship Program, gaining hands-on experienc...",
+        "evidence_ids": [
+          "experience:3"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "exact",
+        "reasoning": "Candidate partially meets compound requirement (1 of 2 concepts matched: Troubleshooting; missing: Software development).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (React.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Node.js / Express.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "evidence_ids": [
+          "experience:1",
+          "experience:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.57,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack i).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "evidence_ids": [
+          "skills:1",
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "Cybersecurity Intern – Prompt InfoTech Prompt InfoTech 2025 Completed a hands-on cybersecurity internship, gaining pr...",
+        "evidence_ids": [
+          "experience:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Linux).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "evidence_ids": [
+          "experience:1",
+          "experience:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack i).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "evidence_ids": [
+          "experience:1",
+          "experience:3"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack i).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack i).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "Intern CISCO Networking Academy 2025 Completed the Cisco AICTE Virtual Internship Program, gaining hands-on experienc...",
+        "evidence_ids": [
+          "experience:3",
+          "project:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Intern CISCO Networking Academy 2025 Completed the Cisco AICTE Virtual Internship Program,).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "f17f8519-5368-4a98-9481-355140a45fca",
+    "candidate_name": "NAVEENA_N_RESUME.pdf",
+    "filename": "NAVEENA_N_RESUME.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, in).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (REST APIs).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Git).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Object-Oriented Programming).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Data Structures & Algorithms).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "Data Structures and Algorithms – Udemy",
+        "evidence_ids": [
+          "certification:3"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Data Structures and Algorithms – Udemy).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (React).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Node).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (AWS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, in).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (IoT).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, in).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, in).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Secondary School (10th) control, and foundational cloud concepts.).",
+        "logical_correct": false
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, in).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "a106bc69-6576-468b-81a5-cb5ac3b1fe73",
+    "candidate_name": "Karthik_Srinivasan_Resume_Tailored (2).pdf",
+    "filename": "Karthik_Srinivasan_Resume_Tailored (2).pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "Stack Stack — Python · PyTorch · Scikit-learn · NumPy · Pandas · SciPy · Diffusion Models · Savitzky-Golay Smoothing ...",
+        "evidence_ids": [
+          "project:4"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (REST API).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Git).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "AWS Certified Cloud Practitioner  ·  MAAS INFO Certified Python Programming — Foundations | across a dual-stream comp...",
+        "evidence_ids": [
+          "certification:1",
+          "experience:10"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AWS Certified Cloud Practitioner  ·  MAAS INFO Certified Python Programming — Foundations).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "autonomous-perception validation. Built a structured observability and logging layer capturing prediction metadata, c...",
+        "evidence_ids": [
+          "experience:11"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Bachelor of Technology Artificial Intelligence and Data Science Jun Kumaraguru College of ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~30% by parallelising I/O and...",
+        "evidence_ids": [
+          "experience:9",
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~3).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (AWS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Docker).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "evidence_ids": [
+          "skills:1",
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Prac).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~30% by parallelising I/O and...",
+        "evidence_ids": [
+          "experience:9"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~3).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "Stack Stack — Python · PyTorch · Scikit-learn · NumPy · Pandas · SciPy · Diffusion Models · Savitzky-Golay Smoothing ...",
+        "evidence_ids": [
+          "project:4",
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Stack Stack — Python · PyTorch · Scikit-learn · NumPy · Pandas · SciPy · Diffusion Models ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "across the team. Stack — Python · CARLA · ZED 2i SDK · YOLOv8 · LaneNet · OpenCV · Socket Programming · NumPy · Panda...",
+        "evidence_ids": [
+          "experience:13"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Linux).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "across a dual-stream computer-vision system. Engineered a concurrent client-server backend using Python socket progra...",
+        "evidence_ids": [
+          "experience:10"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (across a dual-stream computer-vision system. Engineered a concurrent client-server backend).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "AWS Certified Cloud Practitioner  ·  MAAS INFO Certified Python Programming — Foundations | AI/ML Engineering Intern ...",
+        "evidence_ids": [
+          "certification:1",
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AWS Certified Cloud Practitioner  ·  MAAS INFO Certified Python Programming — Foundations).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Built an ASR pre-processing pip...",
+        "evidence_ids": [
+          "experience:1",
+          "experience:9"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Buil).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "0221322d-3ca5-46b0-9e69-11bf6cb25faf",
+    "candidate_name": "Harshini_resume.pdf",
+    "filename": "Harshini_resume.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "Frontend E-commerce Platform Frontend E-commerce Platform Developed a responsive e-commerce frontend website using HT...",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (C++).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (HTML5).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "Frontend E-commerce Platform Frontend E-commerce Platform Developed a responsive e-commerce frontend website using HT...",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1",
+          "project:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, A).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Software Development Training Website Software Development Training Website\nDeveloped a so).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match all conjunction requirements (Software development).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.62,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, A).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Frontend E-commerce Platform Frontend E-commerce Platform Developed a responsive e-commerce frontend website using HT...",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Frontend E-commerce Platform Frontend E-commerce Platform\nDeveloped a responsive e-commerc).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "PLC based Smart Parking system with loT PLC based Smart Parking system with loT Developed a PLC based Smart Parking S...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (PLC based Smart Parking system with loT PLC based Smart Parking system with loT\nDeveloped ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Embedded Systems).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "PLC based Smart Parking system with loT PLC based Smart Parking system with loT Developed a PLC based Smart Parking S...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (PLC).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Software Development Training Website Software Development Training Website\nDeveloped a so).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "Frontend E-commerce Platform Frontend E-commerce Platform Developed a responsive e-commerce frontend website using HT...",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Frontend E-commerce Platform Frontend E-commerce Platform\nDeveloped a responsive e-commerc).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "PLC based Smart Parking system with loT PLC based Smart Parking system with loT Developed a PLC based Smart Parking S...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (PLC based Smart Parking system with loT PLC based Smart Parking system with loT\nDeveloped ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "3347484f-6523-48a4-9927-46e1ba9d6df4",
+    "candidate_name": "23cs196_Yogeshwar_R_1390 1.pdf",
+    "filename": "23cs196_Yogeshwar_R_1390 1.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (C++).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (REST APIs).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Git).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "Learn Java Programming (Master) | Mastering Data Structures & Algorithms Using C and C++",
+        "evidence_ids": [
+          "certification:1",
+          "certification:3"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Learn Java Programming (Master)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Data Structures and Algorithms).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "exact",
+        "reasoning": "Candidate partially meets compound requirement (1 of 2 concepts matched: Debugging; missing: Software development).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (React.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Node.js / Express.js).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, JavaScript, Git, Node.js, Node...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Collaboration, Problem-solving, Creative Thinking, Communication, Python, React, Java, Jav).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "Database Management Systems Excellence | Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platfo...",
+        "evidence_ids": [
+          "certification:5",
+          "project:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Database Management Systems Excellence).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "Learn Java Programming (Master) | Fundamentals of Deep Learning",
+        "evidence_ids": [
+          "certification:1",
+          "certification:7"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Learn Java Programming (Master)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1",
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on exper).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on exper).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.54,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Feb 2026 Feb 2026\n\nDeveloped a scalable disaster relief coordination platform to streamli).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "41c829d8-d960-475f-8492-38a28cd9d2db",
+    "candidate_name": "Shri_Harini_Karthika-23102050 1.pdf",
+    "filename": "Shri_Harini_Karthika-23102050 1.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (JavaScript).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Python).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "Database Management Intern Customer Centria Completed a Three Months internship focused on SQL and database managemen...",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (SQL).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (HTML).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (CSS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1",
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud)\nDevelop).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & M).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Bachelor of Technology Artificial Intelligence and Data Science Rathinam Technical Campus,).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud)\nDevelop).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (React).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (MongoDB).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (AWS).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "Devops-Based Ecommerce Website Project: Devops-Based Ecommerce Website Built a full-stack E-Commerce web app with car...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Docker).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "Devops-Based Ecommerce Website Project: Devops-Based Ecommerce Website Built a full-stack E-Commerce web app with car...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (Jenkins).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "Overview Of Geographical Information System (IIRS)",
+        "evidence_ids": [
+          "certification:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Overview Of Geographical Information System (IIRS)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & M).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.43,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud)\nDevelop).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "Devops-Based Ecommerce Website Project: Devops-Based Ecommerce Website Built a full-stack E-Commerce web app with car...",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Devops-Based Ecommerce Website Project: Devops-Based Ecommerce Website\nBuilt a full-stack ).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & Matplotlib (Data Visualizati...",
+        "evidence_ids": [
+          "skills:1",
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Data Preprocessing, Model Training & Evaluation, NumPy, Pandas, Scikit-learn, Power BI & M).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud)\nDevelop).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud) Developed a  event registration ap...",
+        "evidence_ids": [
+          "project:1",
+          "project:2"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Event Registering Portal (AWS Cloud) Project: Event Registering Portal (AWS Cloud)\nDevelop).",
+        "logical_correct": true
+      }
+    ]
+  },
+  {
+    "resume_id": "d70aa6c1-fbbd-4dad-8059-99de10a1890d",
+    "candidate_name": "shri ram resume 1.pdf",
+    "filename": "shri ram resume 1.pdf",
+    "skills_count": 27,
+    "skills": [
+      {
+        "required_skill": "JavaScript",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Python",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "C++",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "SQL",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "HTML",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CSS",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "REST APIs",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Git",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Object-Oriented Programming",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Data Structures and Algorithms",
+        "candidate_evidence": " Industry 4.0 and its impact on Manufacturing Sector (Board Infinity) | Seshasayee Paper and Boards Limited (SPB)  ...",
+        "evidence_ids": [
+          "certification:1",
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill ( Industry 4.0 and its impact on Manufacturing Sector (Board Infinity)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Software development and debugging",
+        "candidate_evidence": " Industry 4.0 and its impact on Manufacturing Sector (Board Infinity) | Seshasayee Paper and Boards Limited (SPB)  ...",
+        "evidence_ids": [
+          "certification:1",
+          "experience:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.35,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill ( Industry 4.0 and its impact on Manufacturing Sector (Board Infinity)).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "React.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Node.js / Express.js",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "MongoDB or PostgreSQL",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AWS or other cloud platforms",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Docker",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "CI/CD / Jenkins / GitHub Actions",
+        "candidate_evidence": "Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementation of Plant Automation in P...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementati).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "IoT",
+        "candidate_evidence": " Process control systems,  IoT,  PLC Programming,  Field Instruments, PLC Programming, PLC, IoT",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "exact",
+        "reasoning": "Canonical values match (IoT).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Embedded Systems",
+        "candidate_evidence": "Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementation of Plant Automation in P...",
+        "evidence_ids": [
+          "project:1",
+          "skills:1"
+        ],
+        "verdict": "PARTIALLY_MATCHED",
+        "coverage_points": 0.5,
+        "method": "concept",
+        "reasoning": "Partial/transferable evidence demonstrated for required skill (Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementati).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "PLC Programming",
+        "candidate_evidence": "Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementation of Plant Automation in P...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (PLC).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Machine Learning",
+        "candidate_evidence": " Machine Learning for All (University of London)",
+        "evidence_ids": [
+          "certification:5"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "alias",
+        "reasoning": "Canonical values match (Machine Learning).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Linux",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience developing full-stack or backend applications",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "Experience building academic or personal software projects",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "Candidate evidence did not meet minimum relevance threshold.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "cloud deployment or DevOps practices",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "automation",
+        "candidate_evidence": "Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementation of Plant Automation in P...",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "verdict": "MATCHED",
+        "coverage_points": 1.0,
+        "method": "concept",
+        "reasoning": "Direct evidence supports required skill (Implementation of Plant Automation in Process Control Lab. using Yokogawa DCS Implementati).",
+        "logical_correct": true
+      },
+      {
+        "required_skill": "AI/ML projects",
+        "candidate_evidence": "None",
+        "evidence_ids": [],
+        "verdict": "NO_MATCH",
+        "coverage_points": 0.0,
+        "method": "none",
+        "reasoning": "No candidate evidence available for required skill.",
+        "logical_correct": true
+      }
+    ]
+  }
+]

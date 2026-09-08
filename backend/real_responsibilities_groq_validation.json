@@ -1,0 +1,692 @@
+[
+  {
+    "index": 1,
+    "resume_id": "1b77e075-6186-46c9-a8a4-c41e76f663dc",
+    "candidate_name": "23cs196_Yogeshwar_R_1390.pdf",
+    "filename": "23cs196_Yogeshwar_R_1390.pdf",
+    "responsibilities_evaluated": [
+      {
+        "requirement": "Develop and maintain software applications and RESTful APIs.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "alias",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "evidence_text": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "is_valid_evidence": true,
+        "reasoning": "Single core responsibility concept satisfied (100% coverage)."
+      },
+      {
+        "requirement": "Design responsive web interfaces using modern web technologies.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "skills:1"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Direct evidence of responsive design and modern web tech usage in experience and skills."
+      },
+      {
+        "requirement": "Write clean, maintainable, and reusable code.",
+        "verdict": "MATCHED",
+        "points": 0.8,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "project:1",
+          "project:2",
+          "project:3"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Most sub‑claims are directly or adjacently supported by project and experience evidence."
+      },
+      {
+        "requirement": "Work with SQL and NoSQL databases for application data management.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "skills:1"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Clear evidence of both SQL and NoSQL database experience."
+      },
+      {
+        "requirement": "Collaborate with engineering teams to design, implement, test, and debug software solutions.",
+        "verdict": "MATCHED",
+        "points": 0.8,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "project:1",
+          "project:2",
+          "project:3",
+          "skills:1"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Majority of sub‑claims are directly evidenced; testing is inferred."
+      },
+      {
+        "requirement": "Use Git-based version control and follow software development best practices.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "skills:1"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Explicit Git usage and best practice references."
+      },
+      {
+        "requirement": "Develop and integrate cloud-based applications and services when required.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.5,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "project:1",
+          "project:2"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence suggests cloud‑style deployment but no explicit cloud provider or integration details."
+      },
+      {
+        "requirement": "Work with containerization and CI/CD pipelines for application deployment.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "project:1",
+          "project:2",
+          "project:3"
+        ],
+        "evidence_text": "Feb 2026 Feb 2026  Developed a scalable disaster relief coordination platform to streamline emergency response opera...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of containerization or CI/CD pipelines."
+      },
+      {
+        "requirement": "Contribute to IoT, embedded-system, automation, or data-driven projects.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.25,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "evidence_text": "Mar 2026 Mar 2026  Created an intelligent mental wellness platform to analyze voice-based emotional patterns, monito...",
+        "is_valid_evidence": true,
+        "reasoning": "Only the data‑driven sub‑claim is directly supported."
+      },
+      {
+        "requirement": "Troubleshoot software issues and improve application performance and reliability.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "evidence_text": "MERN Stack Intern scalable RESTful APIs. 2025 Full-stack web developer with hands-on experience in the MERN stack, bu...",
+        "is_valid_evidence": true,
+        "reasoning": "Clear evidence of troubleshooting and performance work."
+      }
+    ],
+    "eval_failed_count": 0,
+    "hallucinated_evidence_count": 0,
+    "final_responsibility_score": 73.5
+  },
+  {
+    "index": 2,
+    "resume_id": "1b573704-c800-41c5-8f66-3bfa913496d5",
+    "candidate_name": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+    "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+    "responsibilities_evaluated": [
+      {
+        "requirement": "Develop and maintain software applications and RESTful APIs.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "alias",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "evidence_text": "PhisScan Developed a cybersecurity-focused web app to detect scam URLs, phishing links, and unsafe redirections using...",
+        "is_valid_evidence": true,
+        "reasoning": "Single core responsibility concept satisfied (100% coverage)."
+      },
+      {
+        "requirement": "Design responsive web interfaces using modern web technologies.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:2",
+          "skills:1"
+        ],
+        "evidence_text": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "is_valid_evidence": true,
+        "reasoning": "Project:2 demonstrates a responsive React front‑end and modern stack usage, directly satisfying the requirement."
+      },
+      {
+        "requirement": "Write clean, maintainable, and reusable code.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "project:2"
+        ],
+        "evidence_text": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "is_valid_evidence": true,
+        "reasoning": "Experience:1 and project:2 provide explicit evidence of clean, maintainable, reusable code practices."
+      },
+      {
+        "requirement": "Work with SQL and NoSQL databases for application data management.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.6,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:2",
+          "skills:1"
+        ],
+        "evidence_text": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "is_valid_evidence": true,
+        "reasoning": "Direct NoSQL evidence from project:2; SQL evidence is only from skills:1, not project‑level proof."
+      },
+      {
+        "requirement": "Collaborate with engineering teams to design, implement, test, and debug software solutions.",
+        "verdict": "MATCHED",
+        "points": 0.8,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "project:2"
+        ],
+        "evidence_text": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "is_valid_evidence": true,
+        "reasoning": "Experience:1 provides strong evidence of collaboration, design, and implementation; testing/debugging inferred from context."
+      },
+      {
+        "requirement": "Use Git-based version control and follow software development best practices.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "evidence_text": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "is_valid_evidence": true,
+        "reasoning": "Experience:1 explicitly states use of Git and adherence to best practices."
+      },
+      {
+        "requirement": "Develop and integrate cloud-based applications and services when required.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.4,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "experience:3",
+          "project:2"
+        ],
+        "evidence_text": "Mern Stack Intern - Better Tomorrow Better Tomorrow 2024 Completed a hands-on MERN stack internship, building full-st...",
+        "is_valid_evidence": true,
+        "reasoning": "No direct evidence of cloud work; only adjacent MERN stack experience."
+      },
+      {
+        "requirement": "Work with containerization and CI/CD pipelines for application deployment.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.4,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "CodeFiesta - Winner, competing against 50+ teams., CODING PROFILES, Solved 150+ problems, Max Rating : 1, link, Star ...",
+        "is_valid_evidence": true,
+        "reasoning": "Only adjacent references; no concrete project or experience evidence."
+      },
+      {
+        "requirement": "Contribute to IoT, embedded-system, automation, or data-driven projects.",
+        "verdict": "MATCHED",
+        "points": 0.8,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:4"
+        ],
+        "evidence_text": "Aquanta Developed a real-time groundwater monitoring app that visualizes DWLR sensor data, tracks water level fluctua...",
+        "is_valid_evidence": true,
+        "reasoning": "Project:4 provides clear evidence of IoT and data‑driven work."
+      },
+      {
+        "requirement": "Troubleshoot software issues and improve application performance and reliability.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:2"
+        ],
+        "evidence_text": "KeeHome Developed a full-stack home service booking application that allows users to book services like cleaning and ...",
+        "is_valid_evidence": true,
+        "reasoning": "Project:2 explicitly discusses troubleshooting and performance enhancements."
+      }
+    ],
+    "eval_failed_count": 0,
+    "hallucinated_evidence_count": 0,
+    "final_responsibility_score": 80.0
+  },
+  {
+    "index": 3,
+    "resume_id": "f17f8519-5368-4a98-9481-355140a45fca",
+    "candidate_name": "NAVEENA_N_RESUME.pdf",
+    "filename": "NAVEENA_N_RESUME.pdf",
+    "responsibilities_evaluated": [
+      {
+        "requirement": "Develop and maintain software applications and RESTful APIs.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence shows use of FastAPI and Express.js for RESTful APIs, directly matching the requirement."
+      },
+      {
+        "requirement": "Design responsive web interfaces using modern web technologies.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "React and standard web stack demonstrate responsive UI design."
+      },
+      {
+        "requirement": "Write clean, maintainable, and reusable code.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.4,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Framework usage implies good coding practices, but no direct evidence."
+      },
+      {
+        "requirement": "Work with SQL and NoSQL databases for application data management.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Both SQL and NoSQL databases are explicitly mentioned."
+      },
+      {
+        "requirement": "Collaborate with engineering teams to design, implement, test, and debug software solutions.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of team collaboration provided."
+      },
+      {
+        "requirement": "Use Git-based version control and follow software development best practices.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence does not mention Git or development practices."
+      },
+      {
+        "requirement": "Develop and integrate cloud-based applications and services when required.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Cloud services listed directly support the requirement."
+      },
+      {
+        "requirement": "Work with containerization and CI/CD pipelines for application deployment.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of containerization or CI/CD."
+      },
+      {
+        "requirement": "Contribute to IoT, embedded-system, automation, or data-driven projects.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.4,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "Data-driven project evidence is adjacent but not explicitly IoT/embedded."
+      },
+      {
+        "requirement": "Troubleshoot software issues and improve application performance and reliability.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "AI-Enabled Agro-Climate Intelligence & Adaptive Farm, Built an AI-powered agro-climate, intelligence platform for soi...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of troubleshooting or performance optimization."
+      }
+    ],
+    "eval_failed_count": 0,
+    "hallucinated_evidence_count": 0,
+    "final_responsibility_score": 48.0
+  },
+  {
+    "index": 4,
+    "resume_id": "a106bc69-6576-468b-81a5-cb5ac3b1fe73",
+    "candidate_name": "Karthik_Srinivasan_Resume_Tailored (2).pdf",
+    "filename": "Karthik_Srinivasan_Resume_Tailored (2).pdf",
+    "responsibilities_evaluated": [
+      {
+        "requirement": "Develop and maintain software applications and RESTful APIs.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.6,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:9",
+          "skills:1"
+        ],
+        "evidence_text": "Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~30% by parallelising I/O and...",
+        "is_valid_evidence": true,
+        "reasoning": "Skills:1 confirms REST API knowledge; experience:9 demonstrates software engineering work, but no explicit API development evidence."
+      },
+      {
+        "requirement": "Design responsive web interfaces using modern web technologies.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.6,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "is_valid_evidence": true,
+        "reasoning": "Skills:1 includes HTML/CSS, but no explicit responsive design examples."
+      },
+      {
+        "requirement": "Write clean, maintainable, and reusable code.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "evidence_text": "AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Built an ASR pre-processing pip...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence suggests clean, modular code but lacks explicit statements of maintainability or reusability."
+      },
+      {
+        "requirement": "Work with SQL and NoSQL databases for application data management.",
+        "verdict": "MATCHED",
+        "points": 0.8,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "is_valid_evidence": true,
+        "reasoning": "Skills:1 explicitly lists both SQL and NoSQL database technologies."
+      },
+      {
+        "requirement": "Collaborate with engineering teams to design, implement, test, and debug software solutions.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "experience:1"
+        ],
+        "evidence_text": "AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Built an ASR pre-processing pip...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence indicates collaboration and implementation, but lacks explicit testing/debugging details."
+      },
+      {
+        "requirement": "Use Git-based version control and follow software development best practices.",
+        "verdict": "MATCHED",
+        "points": 0.7,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "skills:1"
+        ],
+        "evidence_text": "AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Built an ASR pre-processing pip...",
+        "is_valid_evidence": true,
+        "reasoning": "Skills:1 confirms Git usage; experience suggests adherence to best practices."
+      },
+      {
+        "requirement": "Develop and integrate cloud-based applications and services when required.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.5,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "Speech, ASR, Programming, ML, DL Frameworks, ML Fundamentals, Data & Analytics, Cloud Practitioner), Python, Docker, ...",
+        "is_valid_evidence": true,
+        "reasoning": "Skills:1 lists AWS, but no explicit cloud application development evidence."
+      },
+      {
+        "requirement": "Work with containerization and CI/CD pipelines for application deployment.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.6,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:1",
+          "skills:1"
+        ],
+        "evidence_text": "AI/ML Engineering Intern  —  Cloud Destinations Cloud Destinations Jun 2026 – Present Built an ASR pre-processing pip...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence shows Docker usage; CI/CD evidence is inferred but not explicit."
+      },
+      {
+        "requirement": "Contribute to IoT, embedded-system, automation, or data-driven projects.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.4,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:3"
+        ],
+        "evidence_text": "engineering engineering — to identify energy faults and irregular consumption patterns in building meter data, achiev...",
+        "is_valid_evidence": true,
+        "reasoning": "Project:3 demonstrates data-driven work; IoT relevance is inferred but not explicit."
+      },
+      {
+        "requirement": "Troubleshoot software issues and improve application performance and reliability.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.6,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "experience:9"
+        ],
+        "evidence_text": "Software Engineer Intern AI/ML Systems Dec 2024 – May 2025 Reduced inference latency by ~30% by parallelising I/O and...",
+        "is_valid_evidence": true,
+        "reasoning": "Experience:9 provides evidence of performance improvement and troubleshooting, though reliability is inferred."
+      }
+    ],
+    "eval_failed_count": 0,
+    "hallucinated_evidence_count": 0,
+    "final_responsibility_score": 48.0
+  },
+  {
+    "index": 5,
+    "resume_id": "0221322d-3ca5-46b0-9e69-11bf6cb25faf",
+    "candidate_name": "Harshini_resume.pdf",
+    "filename": "Harshini_resume.pdf",
+    "responsibilities_evaluated": [
+      {
+        "requirement": "Develop and maintain software applications and RESTful APIs.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.5,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "Evidence shows web app development but no REST API implementation."
+      },
+      {
+        "requirement": "Design responsive web interfaces using modern web technologies.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "alias",
+        "evidence_ids": [
+          "project:3",
+          "project:1"
+        ],
+        "evidence_text": "Frontend E-commerce Platform Frontend E-commerce Platform Developed a responsive e-commerce frontend website using HT...",
+        "is_valid_evidence": true,
+        "reasoning": "Contextual evidence satisfies 2 of 2 responsibility concepts (100% coverage, >=2 concepts rule satisfied)."
+      },
+      {
+        "requirement": "Write clean, maintainable, and reusable code.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:1",
+          "project:3"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "All sub-claims directly supported by project descriptions."
+      },
+      {
+        "requirement": "Work with SQL and NoSQL databases for application data management.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "skills:1"
+        ],
+        "evidence_text": "SOFTSKILLS, C++ Programming, Java Script, Teamwork & collabration, SQL, Embedded System, Adaptability, HTML5, CSS, PL...",
+        "is_valid_evidence": true,
+        "reasoning": "Only SQL evidence; NoSQL not mentioned."
+      },
+      {
+        "requirement": "Collaborate with engineering teams to design, implement, test, and debug software solutions.",
+        "verdict": "PARTIALLY_MATCHED",
+        "points": 0.3,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:1",
+          "project:2",
+          "project:3",
+          "skills:1"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "Only implementation and teamwork evident; design, testing, debugging missing."
+      },
+      {
+        "requirement": "Use Git-based version control and follow software development best practices.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:1",
+          "project:2",
+          "project:3"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "Direct evidence of Git usage and best practices."
+      },
+      {
+        "requirement": "Develop and integrate cloud-based applications and services when required.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "project:1",
+          "project:2",
+          "project:3"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of cloud work."
+      },
+      {
+        "requirement": "Work with containerization and CI/CD pipelines for application deployment.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "project:1",
+          "project:2",
+          "project:3"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of containerization or CI/CD."
+      },
+      {
+        "requirement": "Contribute to IoT, embedded-system, automation, or data-driven projects.",
+        "verdict": "MATCHED",
+        "points": 1.0,
+        "method": "llm_confirmed",
+        "evidence_ids": [
+          "project:2",
+          "skills:1"
+        ],
+        "evidence_text": "PLC based Smart Parking system with loT PLC based Smart Parking system with loT Developed a PLC based Smart Parking S...",
+        "is_valid_evidence": true,
+        "reasoning": "All sub-claims directly or adjacently supported."
+      },
+      {
+        "requirement": "Troubleshoot software issues and improve application performance and reliability.",
+        "verdict": "NO_MATCH",
+        "points": 0.0,
+        "method": "llm_rejected",
+        "evidence_ids": [
+          "project:1"
+        ],
+        "evidence_text": "Software Development Training Website Software Development Training Website Developed a software development training...",
+        "is_valid_evidence": true,
+        "reasoning": "No evidence of troubleshooting or performance work."
+      }
+    ],
+    "eval_failed_count": 0,
+    "hallucinated_evidence_count": 0,
+    "final_responsibility_score": 48.0
+  }
+]

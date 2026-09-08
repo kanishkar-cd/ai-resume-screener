@@ -50,7 +50,7 @@ function getRecommendationConfig(candidate: Candidate): {
   iconColor: string
   Icon: typeof CheckCircle2
 } {
-  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
+  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT' || candidate.overallScore < 40) {
     return {
       label: 'Not Relevant',
       shortLabel: 'Reject',
@@ -59,7 +59,7 @@ function getRecommendationConfig(candidate: Candidate): {
       Icon: ThumbsDown,
     }
   }
-  if (candidate.recommendation === 'SHORTLIST') {
+  if (candidate.overallScore >= 60 && (candidate.recommendation === 'SHORTLIST' || candidate.overallScore >= 70)) {
     return {
       label: 'Strong Match',
       shortLabel: 'Shortlist',
@@ -89,8 +89,9 @@ function getScoreBg(score: number) {
   return 'bg-red-50 border-red-200'
 }
 
-function recommendationToStatus(recommendation: string, knockedOut: boolean): ScreeningStatus {
-  if (knockedOut || recommendation === 'REJECT') return 'rejected'
+function recommendationToStatus(recommendation: string, knockedOut: boolean, score?: number): ScreeningStatus {
+  if (knockedOut || recommendation === 'REJECT' || (score !== undefined && score < 40)) return 'rejected'
+  if (score !== undefined && score < 60) return 'pending'
   return 'screened'
 }
 
@@ -720,7 +721,7 @@ export default function CandidateRanking() {
         isKnockedOut: ranking.is_knocked_out,
         knockoutReason: ranking.knockout_reason,
         rejectionReason: ranking.is_knocked_out ? 'knockout' : ranking.recommendation === 'REJECT' ? 'below_recommendation_threshold' : undefined,
-        status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out),
+        status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out, direct5050Score),
         extractedFields: [],
         scores: candidateScores,
         matchVerdicts: persistedScore.match_verdicts || (persistedScore as any).matchVerdicts || [],
@@ -793,7 +794,12 @@ export default function CandidateRanking() {
       const matchStatus = filterStatus === 'all' || c.status === filterStatus
       return matchSearch && matchStatus
     })
-    .sort((a, b) => a.rank - b.rank)
+    .sort((a, b) => {
+      if (b.overallScore !== a.overallScore) {
+        return b.overallScore - a.overallScore
+      }
+      return a.rank - b.rank
+    })
 
   const shortlisted = candidates.filter((c) => c.status === 'screened').length
   const needsReview = candidates.filter((c) => c.status === 'pending').length
@@ -900,6 +906,7 @@ export default function CandidateRanking() {
             >
               <option value="all">All Candidates</option>
               <option value="screened">Shortlisted</option>
+              <option value="pending">Under Review</option>
               <option value="rejected">Not Relevant</option>
             </select>
           </div>
@@ -1008,6 +1015,7 @@ export default function CandidateRanking() {
                               }}
                             >
                               <option value="screened" className="bg-white text-slate-800 font-semibold">Shortlisted</option>
+                              <option value="pending" className="bg-white text-slate-800 font-semibold">Under Review</option>
                               <option value="rejected" className="bg-white text-slate-800 font-semibold">Not Relevant</option>
                             </select>
                           </td>
