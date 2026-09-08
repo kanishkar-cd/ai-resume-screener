@@ -249,7 +249,15 @@ class WeightCalculationService:
         is_req_active = "required_skills" in active_categories
         req_score = comp_scores.get("required_skills", 0.0)
 
-        if WeightCalculationService.SAFEGUARD_ENABLED and is_req_active:
+        is_50_50 = (effective_weights.get("required_skills") == 50.0 and effective_weights.get("responsibilities") == 50.0)
+
+        if is_50_50:
+            # 50 / 50 model: strictly add required skills (/50) and responsibilities (/50)
+            if WeightCalculationService.SAFEGUARD_ENABLED and is_req_active and req_score <= 0.0:
+                guarded_total = min(raw_weighted_total, WeightCalculationService.SAFEGUARD_ZERO_SKILLS_MAX_SCORE)
+            else:
+                guarded_total = weighted_values["required_skills"] + weighted_values["responsibilities"]
+        elif WeightCalculationService.SAFEGUARD_ENABLED and is_req_active:
             if req_score <= 0.0:
                 # 0% required skills matched -> cap score at safe critical ceiling
                 guarded_total = min(raw_weighted_total, WeightCalculationService.SAFEGUARD_ZERO_SKILLS_MAX_SCORE)

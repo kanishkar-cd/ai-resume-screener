@@ -492,3 +492,156 @@ async def test_10_concurrent_resume_evaluations_atomic_safety_and_immediate_fall
         # For requests routed to Cerebras, reason was groq_budget_exhausted
         for _, tele in cerebras_results:
             assert tele["reason"] == "groq_budget_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_22_requirements_estimate_within_budget_and_select_groq():
+    """Regression Test 1: 22 requirements estimate below Groq budget and route to Groq."""
+    settings = make_test_settings()
+    smart_eval = SmartMatchEvaluator(settings)
+
+    reqs = [
+        Requirement(requirement_id=f"skill:{i}", kind=RequirementKind.SKILL, text=f"Technical Skill {i}", required=True)
+        for i in range(1, 23)
+    ]
+    evs = [
+        Evidence(evidence_id=f"ev:{i}", kind="skills", text=f"Demonstrated technical experience {i}", canonical_terms=[f"skill_{i}"])
+        for i in range(1, 10)
+    ]
+
+    gate = GroqTokenBudgetGate.get_gate(settings)
+    payload = GroqMatchEvaluator(settings)._payload(reqs, evs)
+    estimated_tokens = gate.estimate_tokens(payload)
+
+    # 22 requirements MUST estimate within the usable TPM limit (7,000 tokens)
+    assert estimated_tokens <= gate.usable_tpm, f"Estimated tokens {estimated_tokens} exceeded usable TPM {gate.usable_tpm}"
+
+    mock_resp_data = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps({
+                        "verdicts": [
+                            {
+                                "requirement_id": r.requirement_id,
+                                "status": "MATCHED",
+                                "sub_claims": [r.text],
+                                "sub_claim_evidence": [{"claim": r.text, "evidence_level": "direct", "note": "Direct match"}],
+                                "coverage_score": 1.0,
+                                "importance": "important",
+                                "evidence_ids": ["ev:1"],
+                                "reasoning": f"Evidence directly demonstrates {r.text}."
+                            }
+                            for r in reqs
+                        ]
+                    })
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 2000, "completion_tokens": 1200, "total_tokens": 3200}
+    }
+
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_resp_data
+    mock_resp.headers = {"x-ratelimit-remaining-tokens": "5000"}
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.return_value = mock_resp
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client):
+        verdicts, tele = await smart_eval.evaluate(reqs, evs, resume_id="res_22_reqs")
+        assert tele["provider_selected"] == "groq"
+        assert tele["reason"] == "budget_available"
+        assert len(verdicts) == 22
+        assert all(v.status == MatchStatus.MATCHED for v in verdicts)
+        assert not any(v.status == MatchStatus.EVALUATION_FAILED for v in verdicts)
+
+
+@pytest.mark.asyncio
+async def test_cerebras_not_called_when_disabled_or_unavailable():
+    """Regression Test 2: Cerebras is not called when its key is unavailable/disabled."""
+    settings = make_test_settings()
+    settings.CEREBRAS_API_KEY = None  # Disabled / no key configured
+
+    smart_eval = SmartMatchEvaluator(settings)
+    assert not smart_eval.cerebras.enabled
+
+    reqs = [Requirement(requirement_id="req1", kind=RequirementKind.SKILL, text="Python", required=True)]
+    evs = [Evidence(evidence_id="ev1", kind="skills", text="Python", canonical_terms=["python"])]
+
+    # Make Groq fail with an error
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.side_effect = httpx.ConnectError("Groq unreachable")
+
+    mock_cerebras_client = AsyncMock(spec=httpx.AsyncClient)
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client), \
+         patch.object(CerebrasMatchEvaluator, "_get_client", return_value=mock_cerebras_client):
+        verdicts, tele = await smart_eval.evaluate(reqs, evs, resume_id="res_no_cerebras")
+        # Cerebras was NOT called
+        mock_cerebras_client.post.assert_not_called()
+        assert tele.get("fallback_provider", "none") in ("none", "")
+
+
+@pytest.mark.asyncio
+async def test_successful_groq_evaluation_returns_valid_verdicts_not_evaluation_failed():
+    """Regression Test 3: Successful Groq evaluation returns verdicts with valid reasoning, not EVALUATION_FAILED."""
+    settings = make_test_settings()
+    smart_eval = SmartMatchEvaluator(settings)
+
+    reqs = [
+        Requirement(requirement_id="skill:1", kind=RequirementKind.SKILL, text="Python", required=True),
+        Requirement(requirement_id="skill:2", kind=RequirementKind.SKILL, text="FastAPI", required=True),
+    ]
+    evs = [Evidence(evidence_id="ev1", kind="skills", text="Python and FastAPI developer", canonical_terms=["python", "fastapi"])]
+
+    mock_resp_data = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps({
+                        "verdicts": [
+                            {
+                                "requirement_id": "skill:1",
+                                "status": "MATCHED",
+                                "coverage_score": 1.0,
+                                "importance": "important",
+                                "evidence_ids": ["ev1"],
+                                "reasoning": "Strong Python experience evidenced."
+                            },
+                            {
+                                "requirement_id": "skill:2",
+                                "status": "PARTIALLY_MATCHED",
+                                "coverage_score": 0.5,
+                                "importance": "important",
+                                "evidence_ids": ["ev1"],
+                                "reasoning": "FastAPI used in project context."
+                            }
+                        ]
+                    })
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 400, "completion_tokens": 200, "total_tokens": 600}
+    }
+
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_resp_data
+    mock_resp.headers = {"x-ratelimit-remaining-tokens": "7000"}
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_groq_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_groq_client.post.return_value = mock_resp
+
+    with patch.object(GroqMatchEvaluator, "_get_client", return_value=mock_groq_client):
+        verdicts, tele = await smart_eval.evaluate(reqs, evs, resume_id="res_valid")
+        assert tele["provider_selected"] == "groq"
+        assert len(verdicts) == 2
+        for v in verdicts:
+            assert v.status in (MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED)
+            assert v.status != MatchStatus.EVALUATION_FAILED
+            assert "AI evaluation could not be completed" not in v.reasoning
+            assert len(v.reasoning) > 0

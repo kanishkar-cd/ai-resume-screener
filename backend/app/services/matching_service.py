@@ -1913,12 +1913,12 @@ class GroqTokenBudgetGate:
             if msg.get("role") == "user":
                 user_content = content
 
-        input_tokens = int(len(prompt_text) / 2.8 * 1.15) + 20
+        input_tokens = int(len(prompt_text) / 3.4 * 1.1) + 20
         if output_estimate is None:
             try:
                 data = json.loads(user_content)
                 req_count = len(data.get("requirements", []))
-                output_estimate = max(250, req_count * 250)
+                output_estimate = max(200, req_count * 75)
             except Exception:
                 output_estimate = int(_get_setting_val(self.settings, "GROQ_ESTIMATED_OUTPUT_TOKENS", 350))
         return input_tokens + output_estimate + 100
@@ -2163,13 +2163,15 @@ def _parse_llm_batch_response(
             if "status" not in item_copy or not item_copy["status"]:
                 matched_bool = item_copy.get("matched")
                 if matched_bool is True:
-                    item_copy["status"] = "matched"
+                    item_copy["status"] = "MATCHED"
                     if not item_copy.get("coverage_score"):
                         item_copy["coverage_score"] = 1.0
                 elif matched_bool is False:
-                    item_copy["status"] = "no_match"
+                    item_copy["status"] = "NO_MATCH"
                     if not item_copy.get("coverage_score"):
                         item_copy["coverage_score"] = 0.0
+            elif isinstance(item_copy.get("status"), str):
+                item_copy["status"] = item_copy["status"].strip().upper()
             try:
                 validated_verdicts.append(LLMVerdict.model_validate(item_copy))
             except Exception as v_err:
@@ -2316,27 +2318,6 @@ class GroqMatchEvaluator:
             logger.warning("groq_circuit_breaker_open_skipping_call")
             return [], usage_stats
 
-        MAX_BATCH_SIZE = 5
-        if len(requirements) > MAX_BATCH_SIZE:
-            all_verdicts: list[MatchVerdict] = []
-            for idx, i in enumerate(range(0, len(requirements), MAX_BATCH_SIZE)):
-                if idx > 0:
-                    await asyncio.sleep(0.5)
-                chunk_reqs = requirements[i:i + MAX_BATCH_SIZE]
-                chunk_allowed = {
-                    r.requirement_id: allowed_evidence.get(r.requirement_id, set())
-                    for r in chunk_reqs
-                } if allowed_evidence else None
-                chunk_ev_ids = {eid for r in chunk_reqs for eid in (chunk_allowed.get(r.requirement_id, set()) if chunk_allowed else set())}
-                chunk_ev = [e for e in evidence if e.evidence_id in chunk_ev_ids] if chunk_ev_ids else evidence
-                chunk_verdicts, chunk_usage = await self.evaluate_with_usage(
-                    chunk_reqs, chunk_ev, chunk_allowed, pre_reserved=False, allow_retries=allow_retries
-                )
-                all_verdicts.extend(chunk_verdicts)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                    usage_stats[k] += chunk_usage.get(k, 0)
-            return all_verdicts, usage_stats
-
         # Unified single-call evaluation: All unresolved requirements for a resume are evaluated in 1 request.
         digest = hashlib.sha256(json.dumps({
             "requirements": [r.model_dump(mode="json") for r in requirements],
@@ -2404,10 +2385,19 @@ class GroqMatchEvaluator:
                 choice = choices[0] if choices else {}
                 resp_finish_reason = choice.get("finish_reason")
                 content = choice.get("message", {}).get("content", "")
+                is_malformed = False
+                if isinstance(content, str):
+                    try:
+                        json.loads(content.strip())
+                    except Exception:
+                        if "{" not in content or "}" not in content:
+                            is_malformed = True
                 parsed = _parse_llm_batch_response(content, requirements, finish_reason=resp_finish_reason)
-                if (not parsed or not parsed.verdicts) and attempt + 1 < total_attempts:
-                    logger.warning("llm_response_empty_or_unparseable_retrying", attempt=attempt + 1)
+                if (is_malformed or parsed is None) and attempt + 1 < total_attempts:
+                    logger.warning("llm_response_malformed_retrying", attempt=attempt + 1)
                     continue
+                if not parsed or not parsed.verdicts:
+                    logger.warning("llm_response_empty_or_unparseable_triggering_fallback", attempt=attempt + 1)
                 break
             except Exception as exc:
                 status_code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -2752,10 +2742,11 @@ class GroqMatchEvaluator:
                 method = MatchMethod.LLM_UNRESOLVED
                 reasoning = raw_reasoning or "LLM verdict unresolved by evidence validation."
 
+            conf_val = float(item.confidence) if (getattr(item, "confidence", None) is not None) else (1.0 if confirmed else 0.0)
             result.append(MatchVerdict(
                 requirement_id=req_id,
                 status=status,
-                confidence=item.confidence if (confirmed or is_no_match_raw) else 0.0,
+                confidence=conf_val,
                 evidence_ids=sorted(valid_cited_ids) if valid_cited_ids else [],
                 reasoning=reasoning.strip(),
                 method=method,
@@ -2818,7 +2809,7 @@ class GroqMatchEvaluator:
             "   - 0.1-0.3 = weak -- tangential relevance only, one minor sub-claim touched\n"
             "   - 0.0 = no relevant evidence at all\n"
             "   Do not default to 0 or 1 just because you're uncertain -- estimate the most likely coverage given the evidence.\n\n"
-            "4. Set 'status' field to one of: 'matched' (coverage>=0.7), 'partially_matched' (coverage 0.25-0.69), 'no_match' (coverage<0.25)\n\n"
+            "4. Set 'status' field to one of: 'MATCHED' (coverage>=0.7), 'PARTIALLY_MATCHED' (coverage 0.25-0.69), 'NO_MATCH' (coverage<0.25)\n\n"
             "5. Rate how critical this requirement is to the role, independent of the candidate:\n"
             "   - 'critical' = core to daily function of the role, explicitly required\n"
             "   - 'important' = significant but role is doable without deep strength here\n"
@@ -2828,7 +2819,7 @@ class GroqMatchEvaluator:
             "Return JSON: {\"verdicts\": ["
             "  {"
             "    \"requirement_id\": \"string\","
-            "    \"status\": \"matched|partially_matched|no_match\","
+            "    \"status\": \"MATCHED|PARTIALLY_MATCHED|NO_MATCH\","
             "    \"sub_claims\": [\"string\"],"
             "    \"sub_claim_evidence\": [{\"claim\": \"string\", \"evidence_level\": \"direct|adjacent|none\", \"note\": \"string\"}],"
             "    \"coverage_score\": 0.0,"
@@ -2838,12 +2829,10 @@ class GroqMatchEvaluator:
             "  }"
             "]}"
         )
-        max_output_tokens = min(
-            int(_get_setting_val(self.settings, "GROQ_MAX_COMPLETION_TOKENS", 2048)),
-            max(512, len(requirements) * 160 + 100),
-        )
-        return {
-            "model": getattr(self.settings, "GROQ_MODEL", "groq/compound"),
+        model = getattr(self.settings, "GROQ_MODEL", "groq/compound")
+        max_output_tokens = int(_get_setting_val(self.settings, "GROQ_MAX_COMPLETION_TOKENS", 4096))
+        req_payload: dict[str, Any] = {
+            "model": model,
             "temperature": 0,
             "max_tokens": max_output_tokens,
             "messages": [
@@ -2852,6 +2841,9 @@ class GroqMatchEvaluator:
             ],
             "response_format": {"type": "json_object"},
         }
+        if "gpt-oss" in model or "openai" in model:
+            req_payload["reasoning_effort"] = "low"
+        return req_payload
 
 
 class CerebrasTokenBudgetGate:
@@ -3282,7 +3274,9 @@ class SmartMatchEvaluator:
             circuit_skipped.append("groq")
             logger.warning("groq_circuit_open_skipping_primary", resume_id=resume_id)
 
-        if groq_can_call:
+        groq_budget_available = groq_can_call and (groq_available >= estimated_tokens)
+
+        if groq_can_call and groq_budget_available:
             provider_selected = "groq"
             selection_reason = "budget_available"
             logger.info(
@@ -3381,57 +3375,57 @@ class SmartMatchEvaluator:
                         verdicts = []
                 else:
                     verdicts = []
-            else:
-                # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
-                cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
-                if not cerebras_can_call and self.cerebras.enabled:
-                    circuit_skipped.append("cerebras")
+        elif groq_can_call:
+            # Groq budget unavailable -> DO NOT WAIT, invoke Cerebras fallback
+            cerebras_can_call = self.cerebras.enabled and breaker.can_call("cerebras")
+            if not cerebras_can_call and self.cerebras.enabled:
+                circuit_skipped.append("cerebras")
 
-                provider_selected = "cerebras" if cerebras_can_call else "none"
-                selection_reason = "groq_budget_exhausted"
-                fallback_reason = "groq_budget_exhausted"
-                logger.warning(
-                    "llm_provider_selected",
-                    provider_selected=provider_selected,
+            provider_selected = "cerebras" if cerebras_can_call else "none"
+            selection_reason = "groq_budget_exhausted"
+            fallback_reason = "groq_budget_exhausted"
+            logger.warning(
+                "llm_provider_selected",
+                provider_selected=provider_selected,
+                reason="groq_budget_exhausted",
+                estimated_tokens=estimated_tokens,
+                available_tokens=groq_available,
+                resume_id=resume_id,
+            )
+            if cerebras_can_call:
+                logger.info(
+                    "llm_fallback_to_cerebras_started",
+                    provider_selected="cerebras",
                     reason="groq_budget_exhausted",
-                    estimated_tokens=estimated_tokens,
-                    available_tokens=groq_available,
                     resume_id=resume_id,
                 )
-                if cerebras_can_call:
-                    logger.info(
-                        "llm_fallback_to_cerebras_started",
+                t1 = time.monotonic()
+                try:
+                    verdicts, usage = await self._invoke_evaluator(
+                        self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
+                    )
+                    wait_ms = (time.monotonic() - t1) * 1000.0
+                    if verdicts:
+                        logger.info(
+                            "llm_request_handled_by_cerebras_fallback",
+                            provider_selected="cerebras",
+                            fallback=True,
+                            status="success",
+                            resume_id=resume_id,
+                            verdicts_count=len(verdicts),
+                            duration_ms=round(wait_ms, 2),
+                        )
+                except Exception as c_exc:
+                    logger.error(
+                        "cerebras_fallback_also_failed",
                         provider_selected="cerebras",
-                        reason="groq_budget_exhausted",
+                        error=str(c_exc),
                         resume_id=resume_id,
                     )
-                    t1 = time.monotonic()
-                    try:
-                        verdicts, usage = await self._invoke_evaluator(
-                            self.cerebras, requirements, evidence, allowed_evidence, allow_retries=True
-                        )
-                        wait_ms = (time.monotonic() - t1) * 1000.0
-                        if verdicts:
-                            logger.info(
-                                "llm_request_handled_by_cerebras_fallback",
-                                provider_selected="cerebras",
-                                fallback=True,
-                                status="success",
-                                resume_id=resume_id,
-                                verdicts_count=len(verdicts),
-                                duration_ms=round(wait_ms, 2),
-                            )
-                    except Exception as c_exc:
-                        logger.error(
-                            "cerebras_fallback_also_failed",
-                            provider_selected="cerebras",
-                            error=str(c_exc),
-                            resume_id=resume_id,
-                        )
-                        verdicts = []
-                else:
-                    logger.error("groq_budget_exhausted_and_cerebras_unavailable", resume_id=resume_id, circuit_skipped=circuit_skipped)
                     verdicts = []
+            else:
+                logger.error("groq_budget_exhausted_and_cerebras_unavailable", resume_id=resume_id, circuit_skipped=circuit_skipped)
+                verdicts = []
         elif self.cerebras.enabled and breaker.can_call("cerebras"):
             # Groq is not configured or circuit open; using Cerebras
             provider_selected = "cerebras"

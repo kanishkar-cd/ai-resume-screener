@@ -1,0 +1,21 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6] [cursor=pointer]:
+        - paragraph [ref=e7]: AI Resume Screener
+        - paragraph [ref=e8]: Recruiter Portal
+      - button "Collapse Sidebar" [ref=e9] [cursor=pointer]
+    - navigation [ref=e13]:
+      - button "Dashboard" [ref=e14] [cursor=pointer]
+      - generic [ref=e22] [cursor=pointer]:
+        - button "Departments" [ref=e23]
+        - button [ref=e29]
+    - button "Settings" [ref=e33] [cursor=pointer]
+  - banner [ref=e38]:
+    - generic [ref=e39]:
+      - button "Dashboard" [ref=e46] [cursor=pointer]
+      - button "Software Engineering" [ref=e50] [cursor=pointer]
+      - generic "Requisition" [ref=e54]
+    - generic [ref=e55]: Recruiter
+  - main [ref=e62]:
+    - generic [ref=e63]: Loading project…
