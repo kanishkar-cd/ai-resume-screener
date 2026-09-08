@@ -292,7 +292,7 @@ class ScoringEngineFacade:
             component_values = {
                 name: getattr(components, name).score
                 for name in (
-                    "skills", "experience", "projects", "education",
+                    "skills", "responsibilities", "experience", "projects", "education",
                     "certifications", "languages",
                 )
             }
