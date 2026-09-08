@@ -46,6 +46,17 @@ class DocumentRepository:
         await self.session.refresh(model)
         return model
 
+    async def get_documents_by_ids(self, document_ids: list[UUID]) -> list[DocumentModel]:
+        """Fetch multiple active documents in a single query."""
+        if not document_ids:
+            return []
+        statement = select(DocumentModel).where(
+            DocumentModel.id.in_(document_ids),
+            DocumentModel.deleted_at.is_(None),
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
     async def get_by_hash(
         self,
         project_id: UUID,

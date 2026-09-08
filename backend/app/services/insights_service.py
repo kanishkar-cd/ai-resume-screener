@@ -25,14 +25,18 @@ class InsightService:
         self.scores, self.rankings, self.analytics = scores, rankings, analytics
 
     async def get_candidate_insights(self, document_id: UUID) -> CandidateInsightsRead:
+        import asyncio
         try:
-            document = await self.documents.get_document(document_id)
-            if document is None: raise InsightsNotFoundException()
-            extracted = await self.extractions.get_resume_by_document_id(document_id)
-            normalized = await self.normalizations.get_resume_by_document_id(document_id)
-            score = await self.scores.get_document_score(document_id)
-            if extracted is None or normalized is None or score is None: raise InsightsNotFoundException()
-            rank = next((item for item in await self.rankings.get_existing_rankings(document.project_id) if item.document_id == document_id), None)
+            document, extracted, normalized, score = await asyncio.gather(
+                self.documents.get_document(document_id),
+                self.extractions.get_resume_by_document_id(document_id),
+                self.normalizations.get_resume_by_document_id(document_id),
+                self.scores.get_document_score(document_id),
+            )
+            if document is None or extracted is None or normalized is None or score is None:
+                raise InsightsNotFoundException()
+            rankings = await self.rankings.get_existing_rankings(document.project_id)
+            rank = next((item for item in rankings if item.document_id == document_id), None)
             data = InsightBuilder().build(document_id, document.project_id, extracted, normalized, score, rank)
             model = await self.analytics.get_or_create_insight(document_id, data)
         except AppException: raise

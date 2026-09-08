@@ -66,9 +66,121 @@ class Settings(BaseSettings):
             ]
         return v
 
+<<<<<<< Updated upstream
     ENABLE_OCR_FALLBACK: bool = True
     OCR_ENGINE: str = "paddleocr"
     OCR_LANGUAGES: list[str] | str = Field(default_factory=lambda: ["en"])
+=======
+    STORAGE_DIR: Path = BACKEND_ROOT / "storage"
+    MAX_UPLOAD_SIZE_BYTES: int = 25 * 1024 * 1024
+    ALLOWED_RESUME_EXTENSIONS: list[str] = Field(
+        default_factory=lambda: [".pdf", ".docx"]
+    )
+    ALLOWED_RESUME_MIME_TYPES: list[str] = Field(
+        default_factory=lambda: [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ]
+    )
+
+    ENABLE_AI_INSIGHTS: bool = False
+    GROQ_API_KEY: str | None = None
+    GROQ_API_KEY_1: str | None = None
+    GROQ_API_KEY_2: str | None = None
+    GROQ_API_KEY_3: str | None = None
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_TIMEOUT_SECONDS: float = 30.0
+    GROQ_MAX_RETRIES: int = 1
+    GROQ_KEY_COOLDOWN_SECONDS: float = Field(default=60.0, ge=0.01, le=600.0)
+    GROQ_KEY_TOKEN_BUDGET: int = Field(default=7000, ge=100)
+    GROQ_TPM_LIMIT: int = Field(default=8000, ge=100)
+    GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.125, ge=0.0, le=0.5)
+    GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
+    GROQ_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
+    ENABLE_AI_RESUME_EXTRACTION: bool = False
+    AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
+
+    # OpenRouter LLM Provider Fallback Configuration
+    OPENROUTER_API_KEY: str | None = None
+    OPEN_ROUTER: str | None = None  # Backward/alias support for .env Open_router
+    Open_router: str | None = None  # Alias for exact .env casing
+    open_router: str | None = None  # Alias for lowercase .env
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.3-70b-instruct"
+    OPENROUTER_TIMEOUT_SECONDS: float = Field(default=30.0, ge=1.0, le=300.0)
+    OPENROUTER_MAX_RETRIES: int = Field(default=1, ge=0, le=5)
+    OPENROUTER_ENABLED: bool = True
+    OPENROUTER_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
+    OPENROUTER_HTTP_REFERER: str = "https://clouddestinations.com"
+    OPENROUTER_APP_TITLE: str = "AI Resume Screener"
+
+    @property
+    def openrouter_is_configured(self) -> bool:
+        """True if OpenRouter is enabled and has a valid API key."""
+        key = self.OPENROUTER_API_KEY or self.OPEN_ROUTER or self.Open_router or self.open_router
+        return bool(self.OPENROUTER_ENABLED and key and key.strip())
+
+    @property
+    def groq_keys(self) -> list[str]:
+        """
+        Normalized list of configured Groq API keys with deterministic ordering,
+        empty/whitespace removed, and duplicates removed.
+        Order: GROQ_API_KEY_1, GROQ_API_KEY_2, GROQ_API_KEY_3, GROQ_API_KEY.
+        """
+        raw_candidates = [
+            self.GROQ_API_KEY_1,
+            self.GROQ_API_KEY_2,
+            self.GROQ_API_KEY_3,
+            self.GROQ_API_KEY,
+        ]
+        keys: list[str] = []
+        for key in raw_candidates:
+            if key and isinstance(key, str):
+                cleaned = key.strip()
+                if cleaned and cleaned not in keys:
+                    keys.append(cleaned)
+        return keys
+
+    @property
+    def primary_groq_api_key(self) -> str | None:
+        """First available valid Groq API key, or None if none configured."""
+        keys = self.groq_keys
+        return keys[0] if keys else None
+
+    @property
+    def groq_is_configured(self) -> bool:
+        """True if at least one valid Groq API key is configured."""
+        return bool(self.groq_keys)
+
+    def model_post_init(self, __context: object) -> None:
+        """Ensure backward-compatibility: populate GROQ_API_KEY and OPENROUTER_API_KEY if aliases are set."""
+        if not self.GROQ_API_KEY and self.groq_keys:
+            self.GROQ_API_KEY = self.groq_keys[0]
+        if not self.OPENROUTER_API_KEY:
+            alias = self.OPEN_ROUTER or self.Open_router or self.open_router
+            if alias:
+                self.OPENROUTER_API_KEY = alias.strip()
+
+    CEREBRAS_API_KEY: str | None = None
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+    CEREBRAS_MODEL: str = "gpt-oss-120b"
+    CEREBRAS_TIMEOUT_SECONDS: float = 30.0
+    CEREBRAS_MAX_RETRIES: int = 1
+    CEREBRAS_TPM_LIMIT: int = Field(default=60000, ge=100)
+    CEREBRAS_TPM_SAFETY_MARGIN: float = Field(default=0.10, ge=0.0, le=0.5)
+    CEREBRAS_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
+
+    MAX_CONCURRENT_RESUMES: int = Field(default=3, ge=1, le=10)
+    LLM_BATCH_THROTTLE_SECONDS: float = Field(default=0.25, ge=0.0, le=5.0)
+    LLM_BATCH_CHUNK_SIZE: int = Field(default=8, ge=1, le=20)
+    PROVIDER_CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = Field(default=60.0, ge=0.01, le=600.0)
+    PROVIDER_CIRCUIT_BREAKER_MAX_FAILURES: int = Field(default=2, ge=1, le=10)
+
+    ENABLE_OCR_FALLBACK: bool = False
+    OCR_ENGINE: str = "easyocr"
+    OCR_LANGUAGES: str | list[str] = Field(default_factory=lambda: ["en"])
+>>>>>>> Stashed changes
     OCR_DPI: int = 200
 
     GROQ_API_KEY: str | None = None

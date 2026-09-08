@@ -119,14 +119,17 @@ class RankingService:
                 except Exception as exc:
                     logger.error("[RANK] auto_scoring_failed", project_id=str(project_id), error=str(exc), exc_info=True)
 
-            if not scores:
-                raise NoScoredCandidatesException("No candidates have been scored for this project yet. Please score candidates before computing rankings.")
-
-            candidates = []
-            for score in scores:
-                document = await self.documents.get_document(score.document_id)
-                if document is not None:
-                    candidates.append((score, document.created_at))
+            doc_ids = [score.document_id for score in scores]
+            if hasattr(self.documents, "get_documents_by_ids"):
+                docs = await self.documents.get_documents_by_ids(doc_ids)
+            else:
+                docs = [await self.documents.get_document(did) for did in doc_ids]
+            doc_map = {d.id: d for d in docs if d is not None}
+            candidates = [
+                (score, doc.created_at)
+                for score in scores
+                if (doc := doc_map.get(score.document_id)) is not None
+            ]
             if not candidates:
                 raise NoScoredCandidatesException("No candidate documents found for scoring records.")
 

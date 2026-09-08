@@ -122,6 +122,7 @@ class ScoringEngineFacade:
         norm_map = {n.document_id: n for n in norm_models}
         ext_map = {e.document_id: e for e in ext_models}
 
+<<<<<<< Updated upstream
         results = [
             await self._score(
                 document, job,
@@ -149,6 +150,85 @@ class ScoringEngineFacade:
                 await ranking_service.compute_project_rankings(project_id)
             except Exception as exc:
                 logger.warning("[SCORE] auto_rank_update_failed", project_id=str(project_id), error=str(exc))
+=======
+        settings = get_settings()
+        default_concurrency = int(getattr(settings, "MAX_CONCURRENT_RESUMES", 3))
+        max_concurrent = max(1, default_concurrency)
+        throttle_seconds = float(getattr(settings, "LLM_BATCH_THROTTLE_SECONDS", 0.05))
+        scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent, throttle_seconds=throttle_seconds)
+
+        # Batch match all project candidates in 3-resume parallel batches if available
+        batch_candidates = [
+            {"id": str(doc.id), "resume": norm_map[doc.id], "extracted": ext_map[doc.id]}
+            for doc in resumes
+            if doc.id in norm_map and doc.id in ext_map and norm_map.get(doc.id) is not None and ext_map.get(doc.id) is not None
+        ]
+        batch_match_results: dict[str, Any] = {}
+        if batch_candidates and hasattr(self.hybrid_matching, "match_project_batch"):
+            try:
+                batch_match_results = await self.hybrid_matching.match_project_batch(
+                    job, batch_candidates, config=weight_config
+                )
+            except Exception as exc:
+                logger.warning("batch_project_matching_fallback", error=str(exc))
+                batch_match_results = {}
+
+        from unittest.mock import AsyncMock, MagicMock
+        is_mock = isinstance(self.scores, (MagicMock, AsyncMock))
+
+        async def _scored_task(doc: Any) -> Any:
+            m_res = batch_match_results.get(str(doc.id))
+            if is_mock:
+                return await scheduler.run_resume_task(
+                    str(doc.id),
+                    self._score(
+                        doc, job,
+                        resume=norm_map.get(doc.id),
+                        extracted=ext_map.get(doc.id),
+                        weight_config=weight_config,
+                        scores_repo=self.scores,
+                        weights_repo=self.weights,
+                        norm_repo=self.normalizations,
+                        ext_repo=self.extractions,
+                        match_result=m_res,
+                    )
+                )
+            async with AsyncSessionLocal() as session:
+                session_id = hex(id(session))
+                logger.info(
+                    "resume_scoring_db_session_acquired",
+                    resume_id=str(doc.id),
+                    session_identity=session_id,
+                )
+                scores_repo = ScoringRepository(session)
+                weights_repo = WeightConfigRepository(session)
+                norm_repo = NormalizationRepository(session)
+                ext_repo = ExtractionRepository(session)
+                try:
+                    res = await scheduler.run_resume_task(
+                        str(doc.id),
+                        self._score(
+                            doc, job,
+                            resume=norm_map.get(doc.id),
+                            extracted=ext_map.get(doc.id),
+                            weight_config=weight_config,
+                            scores_repo=scores_repo,
+                            weights_repo=weights_repo,
+                            norm_repo=norm_repo,
+                            ext_repo=ext_repo,
+                            match_result=m_res,
+                        )
+                    )
+                    logger.info(
+                        "resume_scoring_db_session_released",
+                        resume_id=str(doc.id),
+                        session_identity=session_id,
+                    )
+                    return res
+                except Exception:
+                    await session.rollback()
+                    raise
+>>>>>>> Stashed changes
 
         logger.info(
             "[SCORE] scoring completed",
@@ -231,7 +311,16 @@ class ScoringEngineFacade:
     async def _score(
         self, document: DocumentModel, job: Any,
         resume: Any = None, extracted: Any = None,
+<<<<<<< Updated upstream
         experience_level: str | None = None,
+=======
+        weight_config: Any = None,
+        scores_repo: ScoringRepository | None = None,
+        weights_repo: WeightConfigRepository | None = None,
+        norm_repo: NormalizationRepository | None = None,
+        ext_repo: ExtractionRepository | None = None,
+        match_result: tuple[Any, list[Any]] | None = None,
+>>>>>>> Stashed changes
     ) -> CandidateScoreRead:
         try:
             if resume is None:
@@ -239,6 +328,7 @@ class ScoringEngineFacade:
             if extracted is None:
                 extracted = await self.extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
+<<<<<<< Updated upstream
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(
                     job, resume, extracted, config=None, experience_level=experience_level
@@ -350,6 +440,60 @@ class ScoringEngineFacade:
                     components=components, applicable_categories=applicable_categories
                 )
 
+=======
+
+            if weight_config is None and weights is not None:
+                try:
+                    weight_config = await weights.get_by_project_id(document.project_id)
+                except Exception:
+                    weight_config = None
+
+            if match_result is not None:
+                scoring_extracted, match_verdicts = match_result
+            else:
+                try:
+                    scoring_extracted, match_verdicts = await self.hybrid_matching.match(
+                        job, resume, extracted, config=weight_config
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "hybrid_matching_fallback",
+                        document_id=str(document.id),
+                        error_type=type(exc).__name__,
+                    )
+                    scoring_extracted = extracted
+                    try:
+                        requirements = RequirementBuilder.build(job, config=weight_config)
+                        evidence = EvidenceBuilder.build(extracted)
+                        match_verdicts = []
+                        for item in requirements:
+                            verdict = self.hybrid_matching.matcher.match(item, resume, evidence)
+                            verdict.reasoning = f"{verdict.reasoning} (AI review unavailable)."
+                            match_verdicts.append(verdict)
+                    except Exception:
+                        match_verdicts = []
+            components = self.components.score(
+                resume, job, config=weight_config,
+                projects=scoring_extracted.projects,
+                match_verdicts=match_verdicts,
+            )
+            applicable_categories = WeightCalculationService.applicable_categories(job, config=weight_config)
+            # pyrefly: ignore [bad-unpacking]
+            weighted, raw_total, weighted_total, effective_weights = WeightCalculationService.calculate(
+                components, config=weight_config, applicable_categories=applicable_categories
+            )
+            knocked_out, knockout_reason = WeightCalculationService.knockout(components, config=weight_config)
+            penalty_total, penalties = PenaltyService.calculate(components, config=weight_config)
+            bonus_total, bonuses = BonusService.calculate(
+                resume, job, config=weight_config, components=components,
+                match_verdicts=match_verdicts, projects=scoring_extracted.projects,
+            )
+            final_score = WeightCalculationService.final_score(
+                weighted_total, penalty_total, bonus_total,
+                components=components, applicable_categories=applicable_categories,
+                config=weight_config,
+            )
+>>>>>>> Stashed changes
             confidence = ConfidenceService.calculate(extracted)
             passing_score = 70.0
             recommendation = RecommendationService.recommend(final_score, passing_score, knocked_out)

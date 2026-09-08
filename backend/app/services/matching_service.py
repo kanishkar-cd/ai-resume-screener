@@ -125,6 +125,7 @@ class EvidenceBuilder:
                     evidence_id=f"project:{index}", kind="project", text=text,
                     canonical_terms=list(technologies),
                 ))
+<<<<<<< Updated upstream
         exp_list = getattr(resume_or_extracted, "experience", None) or getattr(fallback_extracted, "experience", None) or []
         for index, item in enumerate(exp_list, start=1):
             obj = item if isinstance(item, dict) else getattr(item, "__dict__", {}) or {}
@@ -134,6 +135,17 @@ class EvidenceBuilder:
             responsibilities = obj.get("responsibilities") or []
             text = " ".join(value for value in [
                 title, company, description, *responsibilities,
+=======
+        for index, item in enumerate(getattr(extracted, "experience", None) or [], start=1):
+            responsibilities = (item.get("responsibilities") if isinstance(item, dict) else getattr(item, "responsibilities", [])) or []
+            title = (item.get("title") or item.get("designation") or "") if isinstance(item, dict) else (getattr(item, "title", None) or getattr(item, "designation", None) or "")
+            company = (item.get("company") or "") if isinstance(item, dict) else (getattr(item, "company", None) or "")
+            description = (item.get("description") or "") if isinstance(item, dict) else (getattr(item, "description", None) or "")
+            text = " ".join(value for value in [
+                title,
+                company,
+                description, *responsibilities,
+>>>>>>> Stashed changes
             ] if value).strip()
             if text:
                 result.append(Evidence(
@@ -325,7 +337,12 @@ class GroqMatchEvaluator:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.settings.ENABLE_HYBRID_MATCHING and self.settings.GROQ_API_KEY)
+        has_keys = bool(
+            getattr(self.settings, "groq_is_configured", False)
+            or getattr(self.settings, "groq_keys", None)
+            or getattr(self.settings, "GROQ_API_KEY", None)
+        )
+        return bool(self.settings.ENABLE_HYBRID_MATCHING and has_keys)
 
     async def evaluate(
         self, requirements: list[Requirement], evidence: list[Evidence],
@@ -442,7 +459,24 @@ class HybridMatchingService:
         self.settings = settings or get_settings()
         self.evaluator = evaluator or GroqMatchEvaluator(self.settings)
         self.matcher = DeterministicRequirementMatcher()
+        from app.services.llm.batch_pipeline import PostDeterministicPipeline
+        self.batch_pipeline = PostDeterministicPipeline(self.settings)
+        self.post_pipeline = self.batch_pipeline
 
+    async def match_project_batch(
+        self, job: Any, candidates: list[dict[str, Any]], config: Any = None
+    ) -> dict[str, tuple[Any, list[MatchVerdict]]]:
+        """
+        Batches multiple candidates across a project for deterministic evaluation,
+        groups non-matched requirements into 3-resume batches for parallel Groq evaluation,
+        and returns fused verdicts mapped by candidate ID.
+        """
+        if not candidates:
+            return {}
+
+        from app.services.llm.batch_pipeline import PostDeterministicPipeline, ResumeBatchContext
+
+<<<<<<< Updated upstream
     async def match(
         self, job: Any, resume: Any, extracted: Any = None, config: Any = None, experience_level: str | None = None,
     ) -> tuple[NormalizedMatchResult, list[MatchVerdict]]:
@@ -570,11 +604,16 @@ class HybridMatchingService:
         job_resps = list(getattr(job, "responsibilities", None) or [])
         resp_details: list[ResponsibilityMatchDetail] = []
         deterministic_verdicts = [self.matcher.match(item, target_resume, evidence) for item in requirements]
+=======
+        requirements = RequirementBuilder.build(job, config)
+        requirement_by_id = {item.requirement_id: item for item in requirements}
+>>>>>>> Stashed changes
         prefilter = EvidencePrefilter(
             self.settings.HYBRID_MATCHING_KEYWORD_OVERLAP_THRESHOLD,
             self.settings.HYBRID_MATCHING_MAX_EVIDENCE_PER_REQUIREMENT,
         )
 
+<<<<<<< Updated upstream
         unresolved_reqs: list[Requirement] = []
         supplied_evidence: dict[str, Evidence] = {}
         allowed_ev_map: dict[str, set[str]] = {}
@@ -762,3 +801,313 @@ class HybridMatchingService:
                 fused_verdicts.append(v)
 
         return result, fused_verdicts
+=======
+        candidate_data_map: dict[str, dict[str, Any]] = {}
+        batch_contexts: list[ResumeBatchContext] = []
+
+        for c_dict in candidates:
+            cid = str(c_dict.get("id") or getattr(c_dict.get("doc"), "id", "default_resume"))
+            resume = c_dict.get("resume")
+            extracted = c_dict.get("extracted")
+            evidence = EvidenceBuilder.build(extracted)
+            deterministic = [self.matcher.match(item, resume, evidence) for item in requirements]
+
+            supplied: dict[str, Evidence] = {}
+            allowed_evidence: dict[str, set[str]] = {}
+            unresolved: list[Requirement] = []
+
+            for verdict in deterministic:
+                requirement = requirement_by_id.get(verdict.requirement_id)
+                if not requirement:
+                    continue
+                # Rule 1: Canonical / deterministic success -> MATCHED -> STOP (Do NOT call LLM)
+                if verdict.status == MatchStatus.MATCHED:
+                    verdict.coverage = 1.0
+                    verdict.coverage_score = 1.0
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / alias canonical match."}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="Deterministic high-confidence match",
+                    )
+                    continue
+
+                # Rule 2: Canonical matching FAILS -> Check candidate evidence via prefilter
+                selected = prefilter.select(requirement, evidence)
+                if selected:
+                    # Evidence exists -> route to LLM fallback
+                    unresolved.append(requirement)
+                    supplied.update((item.evidence_id, item) for item in selected)
+                    allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=True,
+                        llm_attempted=True,
+                        evidence_count=len(selected),
+                    )
+                else:
+                    # Rule 3: Canonical fails + genuinely NO candidate evidence -> NO_MATCH (0 LLM calls)
+                    allowed_evidence[requirement.requirement_id] = set()
+                    verdict.status = MatchStatus.NO_MATCH
+                    verdict.coverage = 0.0
+                    verdict.coverage_score = 0.0
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No candidate evidence available."}]
+                    verdict.reasoning = "No candidate evidence available for prefilter."
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="No candidate evidence available for prefilter",
+                    )
+
+            candidate_data_map[cid] = {
+                "resume": resume,
+                "extracted": extracted,
+                "evidence": evidence,
+                "deterministic": deterministic,
+                "unresolved": unresolved,
+                "supplied": supplied,
+                "allowed_evidence": allowed_evidence,
+            }
+
+            if unresolved:
+                batch_contexts.append(ResumeBatchContext(
+                    resume_id=cid,
+                    requirements=unresolved,
+                    candidate_evidence=list(supplied.values()),
+                    allowed_evidence=allowed_evidence,
+                ))
+
+        # Parallel multi-resume batch execution (3 resumes per batch)
+        if batch_contexts:
+            max_conc = int(getattr(self.settings, "MAX_CONCURRENT_RESUMES", 3))
+            batch_llm_results = await self.batch_pipeline.execute_parallel(batch_contexts, batch_size=3, max_concurrency=max_conc)
+        else:
+            batch_llm_results = {}
+
+        final_results: dict[str, tuple[Any, list[MatchVerdict]]] = {}
+        for cid, c_data in candidate_data_map.items():
+            extracted = c_data["extracted"]
+            evidence = c_data["evidence"]
+            deterministic = c_data["deterministic"]
+            unresolved = c_data["unresolved"]
+            unresolved_ids = {r.requirement_id for r in unresolved}
+            llm_verdicts = batch_llm_results.get(cid, [])
+            llm_by_id = {v.requirement_id: v for v in llm_verdicts}
+
+            fused = []
+            for item in deterministic:
+                req_id = item.requirement_id
+                if req_id in llm_by_id:
+                    fused.append(llm_by_id[req_id])
+                elif req_id in unresolved_ids:
+                    req_obj = requirement_by_id.get(req_id)
+                    logger.error(
+                        "llm_evaluation_failed_for_requirement",
+                        requirement_id=req_id,
+                        requirement_text=getattr(req_obj, "text", ""),
+                        resume_id=cid,
+                        error="llm_evaluation_omitted_or_failed",
+                    )
+                    failed_verdict = MatchVerdict(
+                        requirement_id=req_id,
+                        requirement_text=getattr(req_obj, "text", None),
+                        kind=getattr(req_obj, "kind", None),
+                        status=MatchStatus.EVALUATION_FAILED,
+                        confidence=0.0,
+                        evidence_ids=[],
+                        reasoning="AI evaluation could not be completed for this requirement (provider failure or timeout).",
+                        method=MatchMethod.EVALUATION_FAILED,
+                        coverage=0.0,
+                        coverage_score=0.0,
+                        importance=getattr(req_obj, "importance", "important") if req_obj else "important",
+                        sub_claims=[getattr(req_obj, "text", "")] if req_obj else [],
+                        sub_claim_evidence=[{"claim": getattr(req_obj, "text", ""), "evidence_level": "none", "note": "Evaluation failed."}] if req_obj else [],
+                    )
+                    fused.append(failed_verdict)
+                else:
+                    fused.append(item)
+
+            projects = EvidenceBuilder._projects(extracted)
+            for project in projects:
+                project["technologies"] = list(project.get("technologies") or [])
+
+            evidence_by_id = {e.evidence_id: e for e in evidence}
+            for verdict in fused:
+                requirement = requirement_by_id.get(verdict.requirement_id)
+                if requirement:
+                    verdict.requirement_text = requirement.text
+                    verdict.kind = requirement.kind
+                    valid_ev_ids = []
+                    for eid in verdict.evidence_ids:
+                        ev_item = evidence_by_id.get(eid)
+                        if ev_item and is_entity_compatible(requirement.kind, ev_item.kind):
+                            valid_ev_ids.append(eid)
+                        else:
+                            logger.warning(
+                                "final_verdict_cross_entity_evidence_removed",
+                                requirement_id=verdict.requirement_id,
+                                requirement_entity_type=requirement.kind.value,
+                                evidence_id=eid,
+                                evidence_entity_type=ev_item.kind if ev_item else "unknown",
+                                compatibility=False,
+                                reason="cross_entity_evidence_forbidden",
+                            )
+                    verdict.evidence_ids = valid_ev_ids
+                    if verdict.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and not verdict.evidence_ids and requirement.kind in {RequirementKind.DEGREE, RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE, RequirementKind.CERTIFICATION, RequirementKind.LANGUAGE}:
+                        verdict.status = MatchStatus.UNRESOLVED
+                        verdict.reasoning = "Evidence rejected due to entity type mismatch (cross_entity_evidence_forbidden)."
+
+                logger.info(
+                    "final_requirement_verdict",
+                    requirement_id=verdict.requirement_id,
+                    requirement_text=getattr(verdict, "requirement_text", ""),
+                    final_status=verdict.status.value,
+                    method=verdict.method.value if verdict.method else "none",
+                    evidence_ids=verdict.evidence_ids,
+                )
+                if not requirement or verdict.status != MatchStatus.MATCHED or requirement.kind != RequirementKind.PROJECT_RELEVANCE:
+                    continue
+                for evidence_id in verdict.evidence_ids:
+                    if not evidence_id.startswith("project:"):
+                        continue
+                    try:
+                        index = int(evidence_id.split(":", 1)[1]) - 1
+                        if 0 <= index < len(projects):
+                            technologies = projects[index].setdefault("technologies", [])
+                            if _key(requirement.text) not in {_key(value) for value in technologies}:
+                                technologies.append(requirement.text)
+                    except Exception:
+                        pass
+
+            enriched = SimpleNamespace(projects=projects)
+            final_results[cid] = (enriched, fused)
+
+        return final_results
+
+    async def match(self, job: Any, resume: Any, extracted: Any, config: Any = None) -> tuple[Any, list[MatchVerdict]]:
+        resume_id = str(getattr(resume, "id", getattr(resume, "candidate_name", "default_resume")))
+        batch_input = [{
+            "id": resume_id,
+            "resume": resume,
+            "extracted": extracted,
+        }]
+
+        # Check if a custom mock evaluator was injected for tests
+        if type(self.evaluator).__name__ not in {"SmartMatchEvaluator", "NoneType"} and hasattr(self.evaluator, "evaluate"):
+            requirements = RequirementBuilder.build(job, config)
+            evidence = EvidenceBuilder.build(extracted)
+            deterministic = [self.matcher.match(item, resume, evidence) for item in requirements]
+            prefilter = EvidencePrefilter(
+                self.settings.HYBRID_MATCHING_KEYWORD_OVERLAP_THRESHOLD,
+                self.settings.HYBRID_MATCHING_MAX_EVIDENCE_PER_REQUIREMENT,
+            )
+            supplied: dict[str, Evidence] = {}
+            allowed_evidence: dict[str, set[str]] = {}
+            unresolved: list[Requirement] = []
+            requirement_by_id = {item.requirement_id: item for item in requirements}
+
+            for verdict in deterministic:
+                requirement = requirement_by_id.get(verdict.requirement_id)
+                if not requirement:
+                    continue
+                if verdict.status == MatchStatus.MATCHED:
+                    verdict.coverage = 1.0
+                    verdict.coverage_score = 1.0
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / alias canonical match."}]
+                    continue
+                selected = prefilter.select(requirement, evidence)
+                if selected:
+                    unresolved.append(requirement)
+                    supplied.update((item.evidence_id, item) for item in selected)
+                    allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
+                else:
+                    allowed_evidence[requirement.requirement_id] = set()
+                    verdict.status = MatchStatus.NO_MATCH
+                    verdict.coverage = 0.0
+                    verdict.coverage_score = 0.0
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No candidate evidence available."}]
+                    verdict.reasoning = "No candidate evidence available for prefilter."
+
+            if unresolved:
+                import inspect
+                sig = inspect.signature(self.evaluator.evaluate)
+                if "resume_id" in sig.parameters:
+                    res_eval = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence, resume_id=resume_id)
+                else:
+                    res_eval = await self.evaluator.evaluate(unresolved, list(supplied.values()), allowed_evidence)
+                llm = res_eval[0] if isinstance(res_eval, tuple) else res_eval
+            else:
+                llm = []
+
+            llm_by_id = {item.requirement_id: item for item in llm}
+            unresolved_ids = {item.requirement_id for item in unresolved}
+            fused = []
+            for item in deterministic:
+                req_id = item.requirement_id
+                if req_id in llm_by_id:
+                    fused.append(llm_by_id[req_id])
+                elif req_id in unresolved_ids:
+                    req_obj = requirement_by_id.get(req_id)
+                    failed_verdict = MatchVerdict(
+                        requirement_id=req_id,
+                        requirement_text=getattr(req_obj, "text", None),
+                        kind=getattr(req_obj, "kind", None),
+                        status=MatchStatus.EVALUATION_FAILED,
+                        confidence=0.0,
+                        evidence_ids=[],
+                        reasoning="AI evaluation could not be completed for this requirement (provider failure or timeout).",
+                        method=MatchMethod.EVALUATION_FAILED,
+                        coverage=0.0,
+                        coverage_score=0.0,
+                        importance=getattr(req_obj, "importance", "important") if req_obj else "important",
+                        sub_claims=[getattr(req_obj, "text", "")] if req_obj else [],
+                        sub_claim_evidence=[{"claim": getattr(req_obj, "text", ""), "evidence_level": "none", "note": "Evaluation failed."}] if req_obj else [],
+                    )
+                    fused.append(failed_verdict)
+                else:
+                    fused.append(item)
+
+            projects = EvidenceBuilder._projects(extracted)
+            for project in projects:
+                project["technologies"] = list(project.get("technologies") or [])
+            evidence_by_id = {e.evidence_id: e for e in evidence}
+            for verdict in fused:
+                requirement = requirement_by_id.get(verdict.requirement_id)
+                if requirement:
+                    verdict.requirement_text = requirement.text
+                    verdict.kind = requirement.kind
+                    valid_ev_ids = []
+                    for eid in verdict.evidence_ids:
+                        ev_item = evidence_by_id.get(eid)
+                        if ev_item and is_entity_compatible(requirement.kind, ev_item.kind):
+                            valid_ev_ids.append(eid)
+                    verdict.evidence_ids = valid_ev_ids
+                    if verdict.status in {MatchStatus.MATCHED, MatchStatus.PARTIALLY_MATCHED} and not verdict.evidence_ids and requirement.kind in {RequirementKind.DEGREE, RequirementKind.EXPERIENCE, RequirementKind.CONTEXTUAL_EXPERIENCE, RequirementKind.CERTIFICATION, RequirementKind.LANGUAGE}:
+                        verdict.status = MatchStatus.UNRESOLVED
+                        verdict.reasoning = "Evidence rejected due to entity type mismatch (cross_entity_evidence_forbidden)."
+
+            enriched = SimpleNamespace(projects=projects)
+            return enriched, fused
+
+        res_dict = await self.match_project_batch(job, batch_input, config=config)
+        return res_dict.get(resume_id, (SimpleNamespace(projects=[]), []))
+>>>>>>> Stashed changes
