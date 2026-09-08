@@ -33,7 +33,7 @@ class AIResumeExtractor:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.ENABLE_AI_RESUME_EXTRACTION and bool(self.settings.GROQ_API_KEY)
+        return bool(getattr(self.settings, "ENABLE_AI_RESUME_EXTRACTION", False)) and bool(getattr(self.settings, "GROQ_API_KEY", None))
 
     async def extract(self, resume_text: str) -> dict[str, Any] | None:
         if not self.enabled:
@@ -60,7 +60,8 @@ class AIResumeExtractor:
             },
         }
         headers = {"Authorization": f"Bearer {self.settings.GROQ_API_KEY}"}
-        async with httpx.AsyncClient(timeout=self.settings.AI_EXTRACTION_TIMEOUT_SECONDS) as client:
+        timeout = float(getattr(self.settings, "AI_EXTRACTION_TIMEOUT_SECONDS", 30.0))
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 f"{self.settings.GROQ_BASE_URL.rstrip('/')}/chat/completions",
                 headers=headers,

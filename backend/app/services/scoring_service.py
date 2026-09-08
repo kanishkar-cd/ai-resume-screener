@@ -23,7 +23,13 @@ from app.services.scoring import (
     BonusService, ComponentScoringService, ConfidenceService, PenaltyService,
     RecommendationService, WeightCalculationService,
 )
-from app.services.matching_service import EvidenceBuilder, HybridMatchingService, RequirementBuilder, ResumeQueueScheduler
+from app.services.matching_service import (
+    EvidenceBuilder,
+    HybridMatchingService,
+    ProviderCircuitBreaker,
+    RequirementBuilder,
+    ResumeQueueScheduler,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -106,7 +112,10 @@ class ScoringEngineFacade:
         ext_map = {e.document_id: e for e in ext_models}
 
         settings = get_settings()
-        max_concurrent = getattr(settings, "MAX_CONCURRENT_RESUMES", 3)
+        breaker = ProviderCircuitBreaker.get_breaker(settings)
+        cerebras_enabled = bool(getattr(settings, "CEREBRAS_API_KEY", None)) and breaker.can_call("cerebras")
+        default_concurrency = getattr(settings, "MAX_CONCURRENT_RESUMES", 3)
+        max_concurrent = default_concurrency if cerebras_enabled else 1
         throttle_seconds = getattr(settings, "LLM_BATCH_THROTTLE_SECONDS", 0.25)
         scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent, throttle_seconds=throttle_seconds)
 
