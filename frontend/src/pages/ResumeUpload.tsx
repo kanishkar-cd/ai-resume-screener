@@ -6,6 +6,7 @@ import {
   ArrowRight,
   FileCheck,
   Users,
+  Loader2,
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
@@ -490,52 +491,21 @@ export default function ResumeUpload() {
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
 
-  const [isScoringAndRanking, setIsScoringAndRanking] = useState(false)
+  const [isPreparingShortlist, setIsPreparingShortlist] = useState(false)
 
-  const handleContinue = async () => {
-    if (!canProceedResumes || !state.projectId || busy || isScoringAndRanking) return
-    setIsScoringAndRanking(true)
-    try {
-      setUploadError(null)
-      const projectId = state.projectId
+  const handleMoveToShortlisting = () => {
+    if (!canProceedResumes || !state.projectId || busy || isPreparingShortlist) return
+    setIsPreparingShortlist(true)
+    setUploadError(null)
+    const projectId = state.projectId
 
-      const normalizedCount = state.resumeDocumentIds.filter(
-        (id) => state.resumeProcessing[id]?.normalized
-      ).length
-
-      let needsInitialization = true
-
-      if (normalizedCount > 0) {
-        try {
-          const [scores, rankingsRes] = await Promise.all([
-            api.getProjectScores(projectId).catch(() => []),
-            api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
-          ])
-
-          const scoreCount = Array.isArray(scores) ? scores.length : 0
-          const rankingsItems = rankingsRes && Array.isArray(rankingsRes.items) ? rankingsRes.items : []
-          const rankingCount = rankingsItems.length
-
-          if (scoreCount >= normalizedCount && rankingCount >= normalizedCount) {
-            needsInitialization = false
-          }
-        } catch {
-          needsInitialization = true
-        }
-      }
-
-      if (needsInitialization) {
-        await api.scoreProject(projectId)
-        await api.rankProject(projectId)
-      }
-
-      completeAndAdvance()
-      navigate(`/projects/${projectId}/rankings`)
-    } catch (err) {
-      setUploadError(errorMessage(err, 'Failed to advance to candidate rankings'))
-    } finally {
-      setIsScoringAndRanking(false)
-    }
+    completeAndAdvance()
+    // Immediate responsive transition to Candidate Shortlisting
+    setTimeout(() => {
+      navigate(`/projects/${projectId}/rankings`, {
+        state: { triggerScoring: true },
+      })
+    }, 150)
   }
 
   const handleBack = () => {
@@ -739,18 +709,27 @@ export default function ResumeUpload() {
           </motion.button>
 
           <motion.button
-            onClick={() => void handleContinue()}
-            disabled={!canProceedResumes || busy || isScoringAndRanking}
-            whileHover={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 1.02 } : undefined}
-            whileTap={canProceedResumes && !busy && !isScoringAndRanking ? { scale: 0.98 } : undefined}
+            onClick={handleMoveToShortlisting}
+            disabled={!canProceedResumes || busy || isPreparingShortlist}
+            whileHover={canProceedResumes && !busy && !isPreparingShortlist ? { scale: 1.02 } : undefined}
+            whileTap={canProceedResumes && !busy && !isPreparingShortlist ? { scale: 0.98 } : undefined}
             className={`flex-1 sm:flex-initial py-2.5 px-6 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sky-sm ${
-              canProceedResumes && !busy && !isScoringAndRanking
+              canProceedResumes && !busy && !isPreparingShortlist
                 ? 'bg-sky-600 hover:bg-sky-700 text-white cursor-pointer'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
             }`}
           >
-            {isScoringAndRanking ? 'Scoring & Ranking Candidate Resumes…' : 'Continue to Candidate Ranking'}
-            <ArrowRight size={15} />
+            {isPreparingShortlist ? (
+              <>
+                <Loader2 size={15} className="animate-spin" />
+                <span>Preparing Candidate Shortlisting…</span>
+              </>
+            ) : (
+              <>
+                <span>Move to Candidate Shortlisting</span>
+                <ArrowRight size={15} />
+              </>
+            )}
           </motion.button>
         </div>
       </motion.div>
