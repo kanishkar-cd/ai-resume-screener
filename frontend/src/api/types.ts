@@ -340,6 +340,17 @@ export interface NormalizeResult {
   message: string
 }
 
+export interface JobDescriptionProcessResponse {
+  document_id: string
+  project_id: string
+  document_type: DocumentType
+  filename: string
+  processing_stage: ProcessingStage
+  processing_status: ProcessingStatus
+  extracted: ExtractedJobDescription | null
+  normalized: NormalizedJobDescription | null
+}
+
 // ─── Weight config ────────────────────────────────────────────
 
 export interface WeightDistribution {

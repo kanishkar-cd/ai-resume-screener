@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -724,34 +724,13 @@ function buildCandidateFromScore(
   }
 }
 
-function buildPendingCandidate(
-  docId: string,
-  fallbackName: string,
-  fallbackEmail: string,
-  filename: string,
-): Candidate {
-  return {
-    id: docId,
-    documentId: docId,
-    name: fallbackName || filename || 'Candidate',
-    email: fallbackEmail || '',
-    resumeFile: filename || docId,
-    overallScore: -1,
-    rank: 999,
-    recommendation: 'PENDING',
-    isKnockedOut: false,
-    status: 'pending',
-    extractedFields: [],
-    scores: [],
-    isProcessing: true,
-  }
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function CandidateRanking() {
   const { state, dispatch } = usePipeline()
   const navigate = useNavigate()
   const location = useLocation()
+  const { projectId: routeProjectId } = useParams<{ projectId: string }>()
+  const projectId = routeProjectId || state.projectId
 
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<ScreeningStatus | 'all'>('all')
@@ -760,11 +739,9 @@ export default function CandidateRanking() {
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [requestedDocumentId] = useState(() => (location.state as { selectedDocumentId?: string } | null)?.selectedDocumentId)
 
-  // Live scoring state
+  // State
   const [isScoringInProgress, setIsScoringInProgress] = useState(false)
-  const [scoringProgress, setScoringProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 })
   const [scoringError, setScoringError] = useState<string | null>(null)
-  const pollIntervalRef = React.useRef<NodeJS.Timeout | null>(null)
 
   const candidates: Candidate[] = state.candidates
 
@@ -777,7 +754,7 @@ export default function CandidateRanking() {
 
   const dummyConfig = React.useMemo<WeightConfig>(() => ({
     id: '',
-    project_id: state.projectId || '',
+    project_id: projectId || '',
     weights: { required_skills: 50, responsibilities: 50, preferred_skills: 0, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 },
     passing_score: 60,
     min_experience_years: 0,
@@ -790,7 +767,7 @@ export default function CandidateRanking() {
     version: 1,
     created_at: '',
     updated_at: '',
-  }), [state.projectId])
+  }), [projectId])
 
   const buildCandidateMap = useCallback((
     documents: ApiDocument[],
@@ -814,44 +791,34 @@ export default function CandidateRanking() {
 
       if (s) {
         result.push(buildCandidateFromScore(s, r, dummyConfig, fallbackName, fallbackEmail, filename))
-      } else {
-        result.push(buildPendingCandidate(doc.id, fallbackName, fallbackEmail, filename))
       }
     }
 
-    // Sort: scored candidates by rank or score descending, then pending candidates
+    // Sort: scored candidates by rank or score descending
     return result.sort((a, b) => {
-      if (a.isProcessing && !b.isProcessing) return 1
-      if (!a.isProcessing && b.isProcessing) return -1
-      if (!a.isProcessing && !b.isProcessing) {
-        if (a.rank && b.rank && a.rank !== b.rank && rankings.length > 0) return a.rank - b.rank
-        return b.overallScore - a.overallScore
-      }
-      return 0
+      if (a.rank && b.rank && a.rank !== b.rank && rankings.length > 0) return a.rank - b.rank
+      return b.overallScore - a.overallScore
     })
   }, [dummyConfig])
 
-  // Orchestrate progressive scoring and ranking
+  // Load, score, and rank candidates; keeping loading symbol alone until finished
   const startScoringFlow = useCallback(async (forceRetry = false) => {
-    if (!state.projectId) {
+    const targetProjectId = projectId
+    if (!targetProjectId) {
       setRankingsLoading(false)
+      setIsScoringInProgress(false)
       return
     }
 
-    const projectId = state.projectId
     setScoringError(null)
-
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-      pollIntervalRef.current = null
-    }
+    setRankingsLoading(true)
 
     try {
       // 1. Fetch current documents, scores, and rankings
       const [resumesRes, initialScoresRes, initialRankingsRes] = await Promise.all([
-        api.listProjectResumes(projectId).catch(() => ({ items: [], total: 0 })),
-        api.getProjectScores(projectId).catch(() => []),
-        api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+        api.listProjectResumes(targetProjectId).catch(() => ({ items: [], total: 0 })),
+        api.getProjectScores(targetProjectId).catch(() => []),
+        api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
       ])
 
       const docList: ApiDocument[] = resumesRes.items || []
@@ -859,6 +826,7 @@ export default function CandidateRanking() {
       const initialRankings: ApiCandidateRanking[] = Array.isArray(initialRankingsRes.items) ? initialRankingsRes.items : []
 
       if (docList.length === 0) {
+        dispatch({ type: 'SET_RANKED_CANDIDATES', payload: [] })
         setRankingsLoading(false)
         setIsScoringInProgress(false)
         return
@@ -900,10 +868,11 @@ export default function CandidateRanking() {
         // Fallback to filenames
       }
 
-      // Check if scoring is already 100% complete
+      // Check if scoring and ranking are already 100% complete
       const isComplete = !forceRetry &&
         initialScores.length >= docList.length &&
-        initialRankings.length >= docList.length
+        initialRankings.length >= docList.length &&
+        docList.length > 0
 
       if (isComplete) {
         const mapped = buildCandidateMap(docList, initialScores, initialRankings, metaMap)
@@ -915,109 +884,52 @@ export default function CandidateRanking() {
         dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
         setRankingsLoading(false)
         setIsScoringInProgress(false)
-        setScoringProgress({ completed: initialScores.length, total: docList.length })
         return
       }
 
-      // Scoring is needed or in progress!
-      // Immediately render candidates with existing scores or pending state
-      const initialMapped = buildCandidateMap(docList, initialScores, initialRankings, metaMap)
+      // Scoring needed: keep loading symbol alone, NO live/partial data
+      setIsScoringInProgress(true)
+
+      if (!inFlightScoringProjects.has(targetProjectId) || forceRetry) {
+        inFlightScoringProjects.add(targetProjectId)
+        try {
+          await api.scoreProject(targetProjectId)
+          await api.rankProject(targetProjectId)
+        } finally {
+          inFlightScoringProjects.delete(targetProjectId)
+        }
+      }
+
+      // Fetch final complete scores & rankings
+      const [finalScores, finalRankings] = await Promise.all([
+        api.getProjectScores(targetProjectId).catch(() => []),
+        api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+      ])
+
+      const finalMapped = buildCandidateMap(
+        docList,
+        Array.isArray(finalScores) ? finalScores : [],
+        Array.isArray(finalRankings.items) ? finalRankings.items : [],
+        metaMap
+      )
       const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
-      const initialMerged = initialMapped.map((c) => {
+      const finalMerged = finalMapped.map((c) => {
         const overrideStatus = existingStatusMap.get(c.id)
         return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
       })
-      dispatch({ type: 'SET_RANKED_CANDIDATES', payload: initialMerged })
-      setRankingsLoading(false)
-      setIsScoringInProgress(true)
-      setScoringProgress({ completed: initialScores.length, total: docList.length })
-
-      // Trigger background scoring if not already running for this project
-      if (!inFlightScoringProjects.has(projectId) || forceRetry) {
-        inFlightScoringProjects.add(projectId)
-        api.scoreProject(projectId)
-          .then(async () => {
-            await api.rankProject(projectId)
-          })
-          .catch((err) => {
-            console.error('Backend scoring error:', err)
-            setScoringError(err instanceof Error ? err.message : 'Candidate scoring failed. Please retry.')
-          })
-          .finally(() => {
-            inFlightScoringProjects.delete(projectId)
-          })
-      }
-
-      // Start polling getProjectScores every 2500ms
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const [currentScores, currentRankings] = await Promise.all([
-            api.getProjectScores(projectId).catch(() => []),
-            api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
-          ])
-
-          const activeScores: ApiCandidateScore[] = Array.isArray(currentScores) ? currentScores : []
-          const activeRankings: ApiCandidateRanking[] = Array.isArray(currentRankings.items) ? currentRankings.items : []
-
-          setScoringProgress({ completed: activeScores.length, total: docList.length })
-
-          // Progressively update candidates in UI
-          const updatedMapped = buildCandidateMap(docList, activeScores, activeRankings, metaMap)
-          const currentStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
-          const updatedMerged = updatedMapped.map((c) => {
-            const overrideStatus = currentStatusMap.get(c.id)
-            return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
-          })
-          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: updatedMerged })
-
-          // Check completion
-          const isDone = (!inFlightScoringProjects.has(projectId) && activeScores.length >= docList.length)
-          if (isDone) {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-              pollIntervalRef.current = null
-            }
-            // Ensure rank is computed
-            try {
-              await api.rankProject(projectId)
-              const [finalRanks, finalScs] = await Promise.all([
-                api.getRankings(projectId, { page_size: 100 }),
-                api.getProjectScores(projectId),
-              ])
-              const finalMapped = buildCandidateMap(docList, finalScs || [], finalRanks.items || [], metaMap)
-              dispatch({ type: 'SET_RANKED_CANDIDATES', payload: finalMapped })
-            } catch {
-              // Ignore ranking fallback error
-            }
-            setIsScoringInProgress(false)
-          } else if (!inFlightScoringProjects.has(projectId) && activeScores.length < docList.length) {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-              pollIntervalRef.current = null
-            }
-            setIsScoringInProgress(false)
-          }
-        } catch (pollErr) {
-          console.warn('Poll error:', pollErr)
-        }
-      }, 2500)
-
+      dispatch({ type: 'SET_RANKED_CANDIDATES', payload: finalMerged })
     } catch (err) {
+      console.error('Failed to load candidate rankings:', err)
+      setScoringError(err instanceof Error ? err.message : 'Failed to score and rank candidates.')
+    } finally {
       setRankingsLoading(false)
       setIsScoringInProgress(false)
-      setScoringError(err instanceof Error ? err.message : 'Failed to initialize candidate shortlisting.')
     }
-  }, [buildCandidateMap, dispatch, state.candidates, state.projectId, state.upload.resumes])
+  }, [buildCandidateMap, dispatch, state.candidates, projectId, state.upload.resumes])
 
   useEffect(() => {
     void startScoringFlow()
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-    }
-  }, [state.projectId])
+  }, [projectId])
 
 
   // Derived data
@@ -1049,6 +961,41 @@ export default function CandidateRanking() {
     } else {
       navigate('/departments')
     }
+  }
+
+  // If loading or scoring is in progress, show clear, user-friendly loading state
+  if (rankingsLoading || isScoringInProgress) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[65vh] gap-4 py-16">
+        <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-blue-600 animate-spin" />
+        <div className="text-center space-y-1">
+          <h3 className="text-base font-bold text-slate-800">
+            Evaluating Candidates
+          </h3>
+          <p className="text-xs text-slate-500 max-w-sm">
+            Scoring resumes against job requirements and calculating rankings…
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // If scoring failed and no candidates are present
+  if (scoringError && (!candidates || candidates.length === 0)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+        <AlertCircle size={36} className="text-red-500" />
+        <p className="text-sm font-semibold text-slate-700">{scoringError}</p>
+        <button
+          type="button"
+          onClick={() => void startScoringFlow(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+        >
+          <RefreshCw size={14} />
+          <span>Retry Scoring</span>
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -1107,50 +1054,6 @@ export default function CandidateRanking() {
             </motion.button>
           </div>
         </motion.div>
-
-        {/* ── AI Evaluation In Progress Banner ── */}
-        {isScoringInProgress && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 via-sky-50/80 to-indigo-50/90 border border-blue-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                <Loader2 size={20} className="animate-spin" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Candidate Scoring & AI Evaluation in Progress
-                  </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold uppercase tracking-wider">
-                    Live
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Evaluating candidate resumes against job requirements and responsibilities. Results update automatically.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-              <div className="text-right">
-                <span className="text-xs font-bold text-slate-900">
-                  {scoringProgress.completed} of {scoringProgress.total}
-                </span>
-                <span className="text-[11px] text-slate-500 ml-1 font-medium">completed</span>
-              </div>
-              <div className="w-28 h-2 bg-blue-200/60 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                  style={{
-                    width: `${scoringProgress.total > 0 ? (scoringProgress.completed / scoringProgress.total) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
 
         {/* ── Scoring Error Banner with Retry ── */}
         {scoringError && (

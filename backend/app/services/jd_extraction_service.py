@@ -533,11 +533,11 @@ def _is_valid_skill(skill: str) -> bool:
     words = cleaned.split()
     lower = cleaned.casefold()
 
-    if lower in STOP_WORDS:
+    if lower in STOP_WORDS or lower in _INVALID_STANDALONE_SKILLS:
         return False
 
     # Check if single word is an invalid fragment
-    if len(words) == 1 and lower in STOP_WORDS:
+    if len(words) == 1 and (lower in STOP_WORDS or lower in _INVALID_STANDALONE_SKILLS):
         return False
 
     # Filter meta phrases & prose notes
@@ -899,6 +899,131 @@ class JDExtractionService:
         self.affinda_service = affinda_service or AffindaService()
         self.storage = storage or StorageService()
 
+    async def extract_from_raw_text(
+        self,
+        raw_text: str,
+        document_id: UUID,
+        source_word_count: int | None = None,
+    ) -> ExtractedJDCreate:
+        """Extract structured fields from raw JD text in-memory without database round-trips."""
+        sections = _split_sections(raw_text)
+        skills, skills_conf = _extract_skills(raw_text)
+        extra_resp: list[str] = []
+        required_skills = _canonical_skills(sections.get("required_skills", ""), extra_responsibilities=extra_resp)
+        preferred_skills = _canonical_skills(sections.get("preferred_skills", ""), extra_responsibilities=extra_resp)
+
+        # If required_skills is empty because the JD has no explicit "Required Skills:" heading,
+        # extract skills from header / unsectioned lines with list or delimiter structures
+        if not required_skills:
+            header_text = sections.get("header", "")
+            candidate_lines = []
+            for line in header_text.splitlines():
+                l_str = line.strip()
+                if ";" in l_str or ("," in l_str and not l_str.startswith("http") and len(l_str.split(",")) >= 2):
+                    candidate_lines.append(l_str)
+            if candidate_lines:
+                required_skills = _canonical_skills("\n".join(candidate_lines), extra_responsibilities=extra_resp)
+
+        combined_skill_keys = {value.casefold() for value in skills}
+        for value in [*required_skills, *preferred_skills]:
+            if value.casefold() not in combined_skill_keys:
+                skills.append(value)
+                combined_skill_keys.add(value.casefold())
+        responsibility_source = sections.get("responsibilities", "")
+        responsibilities, resp_conf = _extract_responsibilities(responsibility_source) if responsibility_source else ([], 0.0)
+        for r in extra_resp:
+            if r not in responsibilities and len(r) > 15:
+                responsibilities.append(r)
+        education_source = sections.get("education", "") or raw_text
+        education, edu_conf = _extract_education(education_source)
+        education_disciplines = _extract_disciplines(education_source)
+        experience, exp_conf = _extract_experience(raw_text)
+        certifications, cert_conf = _extract_certifications(raw_text)
+        job_title = _extract_job_title(raw_text, sections)
+        keywords = list(dict.fromkeys([*([job_title] if job_title else []), *required_skills, *preferred_skills]))
+        domain = _classify_domain(raw_text)
+        ai_recovered = False
+        important = (job_title, required_skills, education, experience, responsibilities)
+        if any(not value for value in important):
+            try:
+                recovery = await self.ai_extractor.extract(raw_text)
+            except Exception as exc:
+                recovery = None
+                logger.warning("ai_jd_extraction_skipped", document_id=str(document_id), error_type=type(exc).__name__)
+            if recovery:
+                recovered_fields = {
+                    "job_title": recovery.get("job_title"), "domain": recovery.get("domain"),
+                    "required_skills": recovery.get("required_skills", []),
+                    "preferred_skills": recovery.get("preferred_skills", []),
+                    "responsibilities": recovery.get("responsibilities", []),
+                    "education": recovery.get("education", []),
+                    "education_disciplines": recovery.get("education_disciplines", []),
+                    "experience": recovery.get("experience", []),
+                    "certifications": recovery.get("certifications", []),
+                    "keywords": recovery.get("keywords", []),
+                }
+                if not job_title and recovered_fields["job_title"]: job_title = recovered_fields["job_title"]
+                if not domain and recovered_fields["domain"]: domain = recovered_fields["domain"]
+                if not required_skills and recovered_fields["required_skills"]: required_skills = recovered_fields["required_skills"]
+                if not preferred_skills and recovered_fields["preferred_skills"]: preferred_skills = recovered_fields["preferred_skills"]
+                if not responsibilities and recovered_fields["responsibilities"]: responsibilities = recovered_fields["responsibilities"]
+                if not education and recovered_fields["education"]: education = recovered_fields["education"]
+                if not education_disciplines and recovered_fields["education_disciplines"]: education_disciplines = recovered_fields["education_disciplines"]
+                if not experience and recovered_fields["experience"]: experience = recovered_fields["experience"]
+                if not certifications and recovered_fields["certifications"]: certifications = recovered_fields["certifications"]
+                if not keywords and recovered_fields["keywords"]: keywords = recovered_fields["keywords"]
+                ai_recovered = True
+                combined_skill_keys = {value.casefold() for value in skills}
+                for value in [*required_skills, *preferred_skills]:
+                    if value.casefold() not in combined_skill_keys:
+                        skills.append(value)
+                        combined_skill_keys.add(value.casefold())
+
+        confidence_scores = {
+            "skills": skills_conf,
+            "responsibilities": resp_conf,
+            "education": edu_conf,
+            "experience": exp_conf,
+            "certifications": cert_conf,
+            "overall": round(
+                (skills_conf + resp_conf + edu_conf + exp_conf + cert_conf) / 5, 2
+            ),
+        }
+
+        required_skills = [s for s in required_skills if _is_valid_skill(s)]
+        preferred_skills = [s for s in preferred_skills if _is_valid_skill(s)]
+        skills = [s for s in skills if _is_valid_skill(s)]
+
+        payload = ExtractedJDCreate(
+            document_id=document_id,
+            domain=domain,
+            job_title=job_title,
+            skills=skills,
+            required_skills=required_skills,
+            preferred_skills=preferred_skills,
+            responsibilities=responsibilities,
+            education=education,
+            education_disciplines=education_disciplines,
+            experience=experience,
+            certifications=certifications,
+            keywords=keywords,
+            confidence_scores=confidence_scores,
+            raw_metadata={"source_word_count": source_word_count, "ai_recovery": "merged" if ai_recovered else "not_used"},
+        )
+
+        logger.info(
+            "jd_pipeline_trace",
+            document_id=str(document_id),
+            raw_jd_text_snippet=raw_text[:200],
+            affinda_used=False,
+            ai_used=ai_recovered,
+            extracted_skills=skills,
+            extracted_required_skills=required_skills,
+            extracted_responsibilities=responsibilities[:3],
+            extracted_experience=experience,
+        )
+        return payload
+
     async def extract_document(self, document_id: UUID) -> JDExtractResult:
         started_at = perf_counter()
         document = await self._load_document(document_id)
@@ -923,10 +1048,13 @@ class JDExtractionService:
             raise DocumentNotExtractableException()
 
         # Load parsed text
+        t_parsed0 = perf_counter()
         try:
             parsed = await self.parsed_repository.get_by_document_id(document_id)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to retrieve parsed document.") from exc
+        t_get_parsed = (perf_counter() - t_parsed0) * 1000
+        logger.info("[EXTRACT_SUB_TIMING] Parsed document load DB query", duration_ms=round(t_get_parsed, 2))
 
         if parsed is None or not parsed.raw_text:
             raise DocumentNotExtractableException(
@@ -937,6 +1065,7 @@ class JDExtractionService:
 
         # Mark IN_PROGRESS
         metadata = dict(document.metadata_json or {})
+        t_sub0 = perf_counter()
         await self._set_status(
             document_id,
             ProcessingStatus.IN_PROGRESS,
@@ -944,136 +1073,40 @@ class JDExtractionService:
             document=document,
             refresh=False,
         )
+        t_status_in_progress = (perf_counter() - t_sub0) * 1000
+        logger.info("[EXTRACT_SUB_TIMING] Status IN_PROGRESS DB commit", duration_ms=round(t_status_in_progress, 2))
 
+        t_aff0 = perf_counter()
         affinda_result = await self._try_affinda(document, metadata)
+        t_aff = (perf_counter() - t_aff0) * 1000
+        logger.info("[EXTRACT_SUB_TIMING] Affinda check", duration_ms=round(t_aff, 2))
         if affinda_result is not None:
             return affinda_result
 
         try:
-            sections = _split_sections(raw_text)
-            skills, skills_conf = _extract_skills(raw_text)
-            extra_resp: list[str] = []
-            required_skills = _canonical_skills(sections.get("required_skills", ""), extra_responsibilities=extra_resp)
-            preferred_skills = _canonical_skills(sections.get("preferred_skills", ""), extra_responsibilities=extra_resp)
-
-            # If required_skills is empty because the JD has no explicit "Required Skills:" heading,
-            # extract skills from header / unsectioned lines with list or delimiter structures
-            if not required_skills:
-                header_text = sections.get("header", "")
-                candidate_lines = []
-                for line in header_text.splitlines():
-                    l_str = line.strip()
-                    if ";" in l_str or ("," in l_str and not l_str.startswith("http") and len(l_str.split(",")) >= 2):
-                        candidate_lines.append(l_str)
-                if candidate_lines:
-                    required_skills = _canonical_skills("\n".join(candidate_lines), extra_responsibilities=extra_resp)
-
-            combined_skill_keys = {value.casefold() for value in skills}
-            for value in [*required_skills, *preferred_skills]:
-                if value.casefold() not in combined_skill_keys:
-                    skills.append(value)
-                    combined_skill_keys.add(value.casefold())
-            responsibility_source = sections.get("responsibilities", "")
-            responsibilities, resp_conf = _extract_responsibilities(responsibility_source) if responsibility_source else ([], 0.0)
-            for r in extra_resp:
-                if r not in responsibilities and len(r) > 15:
-                    responsibilities.append(r)
-            education_source = sections.get("education", "") or raw_text
-            education, edu_conf = _extract_education(education_source)
-            education_disciplines = _extract_disciplines(education_source)
-            experience, exp_conf = _extract_experience(raw_text)
-            certifications, cert_conf = _extract_certifications(raw_text)
-            job_title = _extract_job_title(raw_text, sections)
-            keywords = list(dict.fromkeys([*([job_title] if job_title else []), *required_skills, *preferred_skills]))
-            domain = _classify_domain(raw_text)
-            ai_recovered = False
-            important = (job_title, required_skills, education, experience, responsibilities)
-            if any(not value for value in important):
-                try:
-                    recovery = await self.ai_extractor.extract(raw_text)
-                except Exception as exc:
-                    recovery = None
-                    logger.warning("ai_jd_extraction_skipped", document_id=str(document_id), error_type=type(exc).__name__)
-                if recovery:
-                    recovered_fields = {
-                        "job_title": recovery.get("job_title"), "domain": recovery.get("domain"),
-                        "required_skills": recovery.get("required_skills", []),
-                        "preferred_skills": recovery.get("preferred_skills", []),
-                        "responsibilities": recovery.get("responsibilities", []),
-                        "education": recovery.get("education", []),
-                        "education_disciplines": recovery.get("education_disciplines", []),
-                        "experience": recovery.get("experience", []),
-                        "certifications": recovery.get("certifications", []),
-                        "keywords": recovery.get("keywords", []),
-                    }
-                    if not job_title and recovered_fields["job_title"]: job_title = recovered_fields["job_title"]
-                    if not domain and recovered_fields["domain"]: domain = recovered_fields["domain"]
-                    if not required_skills and recovered_fields["required_skills"]: required_skills = recovered_fields["required_skills"]
-                    if not preferred_skills and recovered_fields["preferred_skills"]: preferred_skills = recovered_fields["preferred_skills"]
-                    if not responsibilities and recovered_fields["responsibilities"]: responsibilities = recovered_fields["responsibilities"]
-                    if not education and recovered_fields["education"]: education = recovered_fields["education"]
-                    if not education_disciplines and recovered_fields["education_disciplines"]: education_disciplines = recovered_fields["education_disciplines"]
-                    if not experience and recovered_fields["experience"]: experience = recovered_fields["experience"]
-                    if not certifications and recovered_fields["certifications"]: certifications = recovered_fields["certifications"]
-                    if not keywords and recovered_fields["keywords"]: keywords = recovered_fields["keywords"]
-                    ai_recovered = True
-                    combined_skill_keys = {value.casefold() for value in skills}
-                    for value in [*required_skills, *preferred_skills]:
-                        if value.casefold() not in combined_skill_keys:
-                            skills.append(value)
-                            combined_skill_keys.add(value.casefold())
-
-            confidence_scores = {
-                "skills": skills_conf,
-                "responsibilities": resp_conf,
-                "education": edu_conf,
-                "experience": exp_conf,
-                "certifications": cert_conf,
-                "overall": round(
-                    (skills_conf + resp_conf + edu_conf + exp_conf + cert_conf) / 5, 2
-                ),
-            }
-
-            required_skills = [s for s in required_skills if _is_valid_skill(s)]
-            preferred_skills = [s for s in preferred_skills if _is_valid_skill(s)]
-            skills = [s for s in skills if _is_valid_skill(s)]
-
-            payload = ExtractedJDCreate(
+            t_extract0 = perf_counter()
+            payload = await self.extract_from_raw_text(
+                raw_text=raw_text,
                 document_id=document_id,
-                domain=domain,
-                job_title=job_title,
-                skills=skills,
-                required_skills=required_skills,
-                preferred_skills=preferred_skills,
-                responsibilities=responsibilities,
-                education=education,
-                education_disciplines=education_disciplines,
-                experience=experience,
-                certifications=certifications,
-                keywords=keywords,
-                confidence_scores=confidence_scores,
-                raw_metadata={"source_word_count": parsed.word_count, "ai_recovery": "merged" if ai_recovered else "not_used"},
+                source_word_count=parsed.word_count,
             )
+            skills = payload.skills
+            responsibilities = payload.responsibilities
+            domain = payload.domain
+            t_extract = (perf_counter() - t_extract0) * 1000
+            logger.info("[EXTRACT_SUB_TIMING] In-memory extract finished", duration_ms=round(t_extract, 2))
 
-            logger.info(
-                "jd_pipeline_trace",
-                document_id=str(document_id),
-                raw_jd_text_snippet=raw_text[:200],
-                affinda_used=affinda_result is not None,
-                ai_used=ai_recovered,
-                extracted_skills=skills,
-                extracted_required_skills=required_skills,
-                extracted_responsibilities=responsibilities[:3],
-                extracted_experience=experience,
-            )
-
+            t_ups0 = perf_counter()
             try:
                 await self.extracted_repository.upsert(
                     payload, commit=False, refresh=False
                 )
             except SQLAlchemyError as exc:
                 raise InternalServerException("Unable to persist extraction result.") from exc
+            t_upsert = (perf_counter() - t_ups0) * 1000
+            logger.info("[EXTRACT_SUB_TIMING] Extracted document flush/upsert", duration_ms=round(t_upsert, 2))
 
+            t_status0 = perf_counter()
             updated = await self._set_status(
                 document_id,
                 ProcessingStatus.COMPLETED,
@@ -1081,6 +1114,8 @@ class JDExtractionService:
                 refresh=False,
                 document=document,
             )
+            t_status_comp = (perf_counter() - t_status0) * 1000
+            logger.info("[EXTRACT_SUB_TIMING] Status COMPLETED/PARSED DB commit", duration_ms=round(t_status_comp, 2))
         except AppException:
             await self._set_status(
                 document_id,

@@ -1,4 +1,5 @@
 from asyncio import to_thread
+from pathlib import Path
 from time import perf_counter
 from uuid import UUID
 
@@ -71,6 +72,20 @@ class ParsingService:
         self.storage = storage
         self.affinda_service = affinda_service or AffindaService()
 
+    async def parse_local_file(
+        self, path: Path, mime_type: str
+    ) -> tuple[ParseOutput, int, int, float]:
+        """Parse document directly via local deterministic parser without DB operations."""
+        t0 = perf_counter()
+        parsed = await to_thread(parse_document_file, path, mime_type)
+        duration_ms = (perf_counter() - t0) * 1000
+        if not parsed.raw_text or not parsed.raw_text.strip():
+            raise DocumentParseFailedException(
+                details={"reason": "Document parsing produced empty text."}
+            )
+        word_count, character_count = text_metrics(parsed.raw_text)
+        return parsed, word_count, character_count, duration_ms
+
     async def parse_document(self, document_id: UUID) -> DocumentParseRead:
         document = await self._load_document(document_id)
         logger.info(
@@ -99,6 +114,7 @@ class ParsingService:
 
         metadata = dict(document.metadata_json or {})
 
+        t_sub0 = perf_counter()
         await self._set_status(
             document_id,
             ProcessingStatus.PARSING_PENDING,
@@ -109,45 +125,62 @@ class ParsingService:
             document=document,
             refresh=False,
         )
+        t_status_pending = (perf_counter() - t_sub0) * 1000
+        logger.info("[PARSE_SUB_TIMING] Status PARSING_PENDING DB commit", duration_ms=round(t_status_pending, 2))
 
         started_at = perf_counter()
         try:
-            affinda_payload = await self._try_affinda(document, path)
-            if affinda_payload is not None:
-                raw_text = affinda_payload["data"].get("rawText")
-                if not isinstance(raw_text, str) or not raw_text.strip():
-                    logger.warning(
-                        "affinda_raw_text_missing_fallback",
+            affinda_payload = None
+            if document.document_type == DocumentTypeEnum.JOB_DESCRIPTION:
+                logger.info(
+                    "[JD] local deterministic parser selected",
+                    document_id=str(document.id),
+                    filename=document.original_filename,
+                )
+                t_parse_compute0 = perf_counter()
+                parsed, word_count, character_count, duration_ms = await self.parse_local_file(
+                    path, document.mime_type
+                )
+                t_parse_compute = (perf_counter() - t_parse_compute0) * 1000
+                logger.info("[PARSE_SUB_TIMING] Local file parsing I/O & compute finished", duration_ms=round(t_parse_compute, 2))
+            else:
+                affinda_payload = await self._try_affinda(document, path)
+                if affinda_payload is not None:
+                    raw_text = affinda_payload["data"].get("rawText")
+                    if not isinstance(raw_text, str) or not raw_text.strip():
+                        logger.warning(
+                            "affinda_raw_text_missing_fallback",
+                            document_id=str(document.id),
+                        )
+                        affinda_payload = None
+                    else:
+                        parsed = ParseOutput(
+                            raw_text=raw_text,
+                            page_count=None,
+                            parser_engine=ParserEngine.PLAIN_TEXT,
+                            original_parser="AFFINDA",
+                        )
+                if affinda_payload is None:
+                    logger.info(
+                        "[FALLBACK] local parser started",
                         document_id=str(document.id),
+                        reason="affinda_unavailable_or_unsuccessful",
                     )
-                    affinda_payload = None
-                else:
-                    parsed = ParseOutput(
-                        raw_text=raw_text,
-                        page_count=None,
-                        parser_engine=ParserEngine.PLAIN_TEXT,
-                        original_parser="AFFINDA",
+                    parsed = await to_thread(parse_document_file, path, document.mime_type)
+                    logger.info(
+                        "[FALLBACK] local parser completed",
+                        document_id=str(document.id),
+                        parser_engine=parsed.parser_engine.value,
+                        provider_selected="local",
                     )
-            if affinda_payload is None:
-                logger.info(
-                    "[FALLBACK] local parser started",
-                    document_id=str(document.id),
-                    reason="affinda_unavailable_or_unsuccessful",
-                )
-                parsed = await to_thread(parse_document_file, path, document.mime_type)
-                logger.info(
-                    "[FALLBACK] local parser completed",
-                    document_id=str(document.id),
-                    parser_engine=parsed.parser_engine.value,
-                    provider_selected="local",
-                )
-            duration_ms = (perf_counter() - started_at) * 1000
-            if not parsed.raw_text or not parsed.raw_text.strip():
-                raise DocumentParseFailedException(
-                    details={"reason": "Document parsing produced empty text."}
-                )
+                duration_ms = (perf_counter() - started_at) * 1000
+                if not parsed.raw_text or not parsed.raw_text.strip():
+                    raise DocumentParseFailedException(
+                        details={"reason": "Document parsing produced empty text."}
+                    )
+                word_count, character_count = text_metrics(parsed.raw_text)
 
-            word_count, character_count = text_metrics(parsed.raw_text)
+            t_sub0 = perf_counter()
             await self.parsed_repository.upsert(
                 ParsedDocumentCreate(
                     document_id=document_id,
@@ -162,6 +195,10 @@ class ParsingService:
                 commit=False,
                 refresh=False,
             )
+            t_upsert = (perf_counter() - t_sub0) * 1000
+            logger.info("[PARSE_SUB_TIMING] Parsed document flush/upsert", duration_ms=round(t_upsert, 2))
+
+            t_sub0 = perf_counter()
             updated = await self._set_status(
                 document_id,
                 ProcessingStatus.PARSED,
@@ -180,6 +217,8 @@ class ParsingService:
                 refresh=False,
                 document=document,
             )
+            t_status_parsed = (perf_counter() - t_sub0) * 1000
+            logger.info("[PARSE_SUB_TIMING] Status PARSED DB commit", duration_ms=round(t_status_parsed, 2))
         except AppException:
             await self.document_repository.session.rollback()
             await self._mark_failed(document_id, metadata, "Parse rejected.")
@@ -215,6 +254,8 @@ class ParsingService:
         )
 
     async def _try_affinda(self, document, path):
+        if document.document_type != DocumentTypeEnum.RESUME:
+            return None
         if not self.affinda_service.configured:
             logger.info(
                 "[FALLBACK] Affinda skipped",
@@ -224,16 +265,9 @@ class ParsingService:
             )
             return None
         try:
-            if document.document_type == DocumentTypeEnum.RESUME:
-                response = await self.affinda_service.parse_resume(
-                    path, document.original_filename, document.mime_type
-                )
-            elif document.document_type == DocumentTypeEnum.JOB_DESCRIPTION:
-                response = await self.affinda_service.parse_job_description(
-                    path, document.original_filename, document.mime_type
-                )
-            else:
-                return None
+            response = await self.affinda_service.parse_resume(
+                path, document.original_filename, document.mime_type
+            )
             return {
                 "data": response["data"],
                 "meta": {"identifier": (response.get("meta") or {}).get("identifier")},

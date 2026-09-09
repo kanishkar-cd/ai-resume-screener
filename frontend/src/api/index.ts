@@ -13,6 +13,7 @@ import type {
   Document,
   DocumentUpload,
   DocumentList,
+  JobDescriptionProcessResponse,
   ExtractedDocument,
   ExtractResult,
   NormalizeResult,
@@ -61,11 +62,21 @@ export const api = {
     return apiRequest<void>(`/projects/${projectId}`, { method: 'DELETE' })
   },
 
-  // ── JD upload ─────────────────────────────────────────────
+  // ── JD upload & process ───────────────────────────────────
   uploadJobDescription(projectId: string, file: File): Promise<DocumentUpload> {
     const form = new FormData()
     form.append('file', file)
     return apiRequest<DocumentUpload>(`/projects/${projectId}/job-description`, {
+      method: 'POST',
+      body: form,
+      isMultipart: true,
+    })
+  },
+
+  processJobDescription(projectId: string, file: File): Promise<JobDescriptionProcessResponse> {
+    const form = new FormData()
+    form.append('file', file)
+    return apiRequest<JobDescriptionProcessResponse>(`/projects/${projectId}/job-description/process`, {
       method: 'POST',
       body: form,
       isMultipart: true,

@@ -147,38 +147,22 @@ export default function CreateRequisition() {
           })
         }
 
-        // Upload & Parse
-        const uploadRes = await api.uploadJobDescription(projId, file)
-        const docId = uploadRes.document_id
+        // Unified JD processing: Upload → Parse → Extract → Normalize in a single backend call
+        setProcessingStatusMessage('Processing Job Description...')
+        const res = await api.processJobDescription(projId, file)
+        const docId = res.document_id
         dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
-
-        await api.parseDocument(docId)
-
-        // Extract
-        setProcessingStatusMessage('Analyzing job requirements')
-        await api.extractDocument(docId)
-
-        // Normalize
-        setProcessingStatusMessage('Preparing screening criteria')
-        await api.normalizeDocument(docId)
         dispatch({
           type: 'SET_JD_PROCESSING',
           payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
         })
 
-        // Fetch actual extracted JSON
-        setProcessingStatusMessage('Almost ready')
-        try {
-          const ext = await api.getExtractedDocument(docId)
-          if ('required_skills' in ext || 'skills' in ext) {
-            setExtractedJd(ext as ExtractedJobDescription)
-            extractedJdRef.current = ext as ExtractedJobDescription
-          }
-        } catch {
-          // Extraction data optional fallback
+        if (res.extracted && ('required_skills' in res.extracted || 'skills' in res.extracted)) {
+          setExtractedJd(res.extracted)
+          extractedJdRef.current = res.extracted
         }
 
-        setProcessingStatusMessage('Almost ready')
+        setProcessingStatusMessage('Ready')
         processedFileRef.current = file
       } catch (err) {
         processedFileRef.current = null
@@ -257,11 +241,18 @@ export default function CreateRequisition() {
 
         if (jdFile) {
           try {
-            const uploadRes = await api.uploadJobDescription(targetProjId, jdFile)
-            await api.parseDocument(uploadRes.document_id)
-            await api.extractDocument(uploadRes.document_id)
+            const processRes = await api.processJobDescription(targetProjId, jdFile)
+            dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: processRes.document_id })
+            dispatch({
+              type: 'SET_JD_PROCESSING',
+              payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+            })
+            if (processRes.extracted) {
+              setExtractedJd(processRes.extracted)
+              extractedJdRef.current = processRes.extracted
+            }
           } catch {
-            // JD upload fallback
+            // JD processing fallback
           }
         }
       }
