@@ -78,6 +78,7 @@ export default function CreateRequisition() {
   // JD Upload State
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [isProcessingJd, setIsProcessingJd] = useState(false)
+  const [isFinalizing, setIsFinalizing] = useState(false)
   const [processingStatusMessage, setProcessingStatusMessage] = useState('Reading JD data')
   const [jdError, setJdError] = useState<string | null>(null)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
@@ -220,7 +221,7 @@ export default function CreateRequisition() {
 
   // Step 3 → Start Screening: ensure project created + persist threshold, then navigate
   const handleStartScreening = async () => {
-    setIsProcessingJd(true)
+    setIsFinalizing(true)
     setJdError(null)
 
     try {
@@ -292,7 +293,7 @@ export default function CreateRequisition() {
       const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to finalize requisition setup'
       setJdError(msg)
     } finally {
-      setIsProcessingJd(false)
+      setIsFinalizing(false)
     }
   }
 
@@ -702,10 +703,10 @@ export default function CreateRequisition() {
               <button
                 type="button"
                 onClick={() => void handleStartScreening()}
-                disabled={isProcessingJd || Boolean(jdError)}
+                disabled={isProcessingJd || isFinalizing || Boolean(jdError)}
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
               >
-                {isProcessingJd ? (
+                {isFinalizing ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
                     <span>Finalizing Requisition...</span>
