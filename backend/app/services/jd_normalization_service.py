@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from time import perf_counter
-from uuid import UUID
+from uuid import UUID, uuid4
 
 # pyrefly: ignore [missing-import]
 import structlog
@@ -256,27 +256,13 @@ class JDNormalizationService:
         self.extracted_repository = extracted_repository
         self.normalized_repository = normalized_repository
 
-    async def normalize_document(self, document_id: UUID) -> JDNormalizeResult:
-        started_at = perf_counter()
-        document = await self._load_document(document_id)
-        logger.info(
-            "[NORMALIZE] normalization started",
-            document_id=str(document_id),
-            document_type="JOB_DESCRIPTION",
-        )
-
-        # Load extracted data
-        try:
-            extracted = await self.extracted_repository.get_by_document_id(document_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to retrieve extracted data.") from exc
-
-        if extracted is None:
-            raise ExtractedJDNotFoundException(
-                "Document must be extracted before normalization."
-            )
-
-        metadata = dict(document.metadata_json or {})
+    def normalize_from_extracted(
+        self,
+        extracted: Any,
+        document_id: UUID,
+        extracted_id: UUID | None = None,
+    ) -> NormalizedJDCreate:
+        """Normalize extracted JD fields in-memory without database round-trips."""
         changes: list[NormalizationChange] = []
         warnings: list[str] = []
 
@@ -284,12 +270,12 @@ class JDNormalizationService:
         required_skills = _stable_casefold(_safe_list(extracted, "required_skills"))
         preferred_skills = _stable_casefold(_safe_list(extracted, "preferred_skills"))
         grouped_skills = [*required_skills, *preferred_skills]
-        canonical_skills, skill_changes = _canonicalize_skills(grouped_skills or list(extracted.skills or []))
+        canonical_skills, skill_changes = _canonicalize_skills(grouped_skills or list(getattr(extracted, "skills", None) or []))
         changes.extend(skill_changes)
 
         # ── Degrees ─────────────────────────────────────────────
         degree_requirements: list[str] = []
-        for raw_item in (extracted.education or []):
+        for raw_item in (getattr(extracted, "education", None) or []):
             parts = [p.strip() for p in re.split(r"\s+(?:OR|or|\/|\|)\s+", raw_item) if p.strip()]
             for raw_degree in parts:
                 canonical, rule = _canonicalize_degree(raw_degree)
@@ -315,7 +301,7 @@ class JDNormalizationService:
         # ── Experience ──────────────────────────────────────────
         experience_requirements: list[CanonicalExperienceRequirement] = []
         seen_exp_keys: set[str] = set()
-        for raw_exp in (extracted.experience or []):
+        for raw_exp in (getattr(extracted, "experience", None) or []):
             req = _parse_experience_phrase(raw_exp)
             exp_key = f"{req.minimum_months}:{req.maximum_months}:{req.display_value.casefold()}"
             if exp_key not in seen_exp_keys:
@@ -332,8 +318,8 @@ class JDNormalizationService:
             warnings.append("No experience requirements found in extracted data.")
 
         # ── Keywords ────────────────────────────────────────────
-        canonical_keywords = _canonicalize_keywords(extracted.keywords or [])
-        responsibilities = [r.strip() for r in (extracted.responsibilities or []) if r.strip()]
+        canonical_keywords = _canonicalize_keywords(getattr(extracted, "keywords", None) or [])
+        responsibilities = [r.strip() for r in (getattr(extracted, "responsibilities", None) or []) if r.strip()]
         certifications = _stable_casefold(_safe_list(extracted, "certifications"))
         education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
         job_title_value = getattr(extracted, "job_title", None)
@@ -342,14 +328,15 @@ class JDNormalizationService:
             job_title = job_title.title()
 
         # ── Domain passthrough ──────────────────────────────────
-        domain = extracted.domain
+        domain = getattr(extracted, "domain", None)
 
         # ── Confidence estimation ────────────────────────────────
+        conf_scores = getattr(extracted, "confidence_scores", None) or {}
         field_confidence = {
-            "skills": extracted.confidence_scores.get("skills", 0.0),
-            "education": extracted.confidence_scores.get("education", 0.0),
-            "experience": extracted.confidence_scores.get("experience", 0.0),
-            "certifications": extracted.confidence_scores.get("certifications", 0.0),
+            "skills": conf_scores.get("skills", 0.0),
+            "education": conf_scores.get("education", 0.0),
+            "experience": conf_scores.get("experience", 0.0),
+            "certifications": conf_scores.get("certifications", 0.0),
         }
 
         norm_meta = NormalizationMetadata(
@@ -360,9 +347,11 @@ class JDNormalizationService:
             field_confidence=field_confidence,
         )
 
+        resolved_extracted_id = extracted_id or getattr(extracted, "id", None) or uuid4()
+
         payload = NormalizedJDCreate(
             document_id=document_id,
-            extracted_job_description_id=extracted.id,
+            extracted_job_description_id=resolved_extracted_id,
             skills=canonical_skills,
             job_title=job_title,
             required_skills=required_skills,
@@ -377,15 +366,52 @@ class JDNormalizationService:
             normalization_metadata=norm_meta,
             ruleset_version=RULESET_VERSION,
         )
+        return payload
 
+    async def normalize_document(self, document_id: UUID) -> JDNormalizeResult:
+        started_at = perf_counter()
+
+        t0 = perf_counter()
+        document = await self._load_document(document_id)
+        metadata = dict(document.metadata_json or {})
+        t_load = (perf_counter() - t0) * 1000
+        logger.info("[NORMALIZE_SUB_TIMING] Document load DB query", duration_ms=round(t_load, 2))
+
+        # Load extracted data
+        t0 = perf_counter()
+        try:
+            extracted = await self.extracted_repository.get_by_document_id(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve extracted data.") from exc
+        t_get_ext = (perf_counter() - t0) * 1000
+        logger.info("[NORMALIZE_SUB_TIMING] Extracted document load DB query", duration_ms=round(t_get_ext, 2))
+
+        if extracted is None:
+            raise ExtractedJDNotFoundException(
+                "Document must be extracted before normalization."
+            )
+
+        t_comp0 = perf_counter()
+        payload = self.normalize_from_extracted(
+            extracted=extracted,
+            document_id=document_id,
+            extracted_id=extracted.id,
+        )
+        t_norm_compute = (perf_counter() - t_comp0) * 1000
+        logger.info("[NORMALIZE_SUB_TIMING] Normalization rules compute finished", duration_ms=round(t_norm_compute, 2))
+
+        t_ups0 = perf_counter()
         try:
             await self.normalized_repository.upsert(
                 payload, commit=False, refresh=False
             )
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to persist normalization result.") from exc
+        t_upsert = (perf_counter() - t_ups0) * 1000
+        logger.info("[NORMALIZE_SUB_TIMING] Normalized document flush/upsert", duration_ms=round(t_upsert, 2))
 
         # Update document status to COMPLETED / NORMALIZATION stage
+        t_status0 = perf_counter()
         await self._set_status(
             document_id,
             ProcessingStatus.COMPLETED,
@@ -393,16 +419,18 @@ class JDNormalizationService:
             refresh=False,
             document=document,
         )
+        t_status_comp = (perf_counter() - t_status0) * 1000
+        logger.info("[NORMALIZE_SUB_TIMING] Status COMPLETED DB commit", duration_ms=round(t_status_comp, 2))
 
         logger.info(
             "[NORMALIZE] normalization completed",
             document_id=str(document_id),
             document_type="JOB_DESCRIPTION",
-            canonical_skills=len(canonical_skills),
-            responsibilities_count=len(responsibilities),
-            certifications_count=len(certifications),
-            degrees=len(degree_requirements),
-            experience_reqs=len(experience_requirements),
+            canonical_skills=len(payload.skills),
+            responsibilities_count=len(payload.responsibilities),
+            certifications_count=len(payload.certifications),
+            degrees=len(payload.degree_requirements),
+            experience_reqs=len(payload.experience_requirements),
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
         return JDNormalizeResult(
@@ -412,9 +440,9 @@ class JDNormalizationService:
             processing_status=ProcessingStatus.COMPLETED,
             ruleset_version=RULESET_VERSION,
             message=(
-                f"Normalized {len(canonical_skills)} skills, "
-                f"{len(degree_requirements)} degree requirements, "
-                f"{len(experience_requirements)} experience requirements."
+                f"Normalized {len(payload.skills)} skills, "
+                f"{len(payload.degree_requirements)} degree requirements, "
+                f"{len(payload.experience_requirements)} experience requirements."
             ),
         )
 

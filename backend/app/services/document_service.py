@@ -167,22 +167,50 @@ class DocumentService:
         self, project_id: UUID, file: UploadFile
     ) -> DocumentUploadRead:
         """Upload a Job Description and replace the prior active one."""
+        t_upload_start = perf_counter()
+
+        t0 = perf_counter()
         await self._verify_project(project_id)
+        t_verify = (perf_counter() - t0) * 1000
+        logger.info("[UPLOAD_SUB_TIMING] Project verify DB query", duration_ms=round(t_verify, 2))
+
+        t0 = perf_counter()
         original_filename, extension = await validate_file(file)
+        t_val = (perf_counter() - t0) * 1000
+
+        t0 = perf_counter()
         stored_filename, file_path, size, file_hash = await self.storage.save_file(
             file, project_id, "job_description", extension
         )
+        t_save = (perf_counter() - t0) * 1000
+        logger.info(
+            "[UPLOAD_SUB_TIMING] File I/O validate and save to disk",
+            validate_ms=round(t_val, 2),
+            file_save_ms=round(t_save, 2),
+            file_size_bytes=size,
+        )
+
         existing = None
         try:
+            t0 = perf_counter()
             duplicate = await self.repository.get_by_hash(
                 project_id, file_hash, DocumentType.JOB_DESCRIPTION
             )
+            t_hash = (perf_counter() - t0) * 1000
+            logger.info("[UPLOAD_SUB_TIMING] Duplicate check DB query", duration_ms=round(t_hash, 2))
+
             if duplicate is not None:
                 self.storage.delete_file(file_path)
                 raise DuplicateDocumentException()
+
+            t0 = perf_counter()
             existing = await self.repository.soft_delete_project_job_description(
                 project_id
             )
+            t_soft_del = (perf_counter() - t0) * 1000
+            logger.info("[UPLOAD_SUB_TIMING] Soft-delete prior JD DB query & commit", duration_ms=round(t_soft_del, 2))
+
+            t0 = perf_counter()
             document = await self.repository.create(
                 DocumentCreate(
                     project_id=project_id,
@@ -195,6 +223,8 @@ class DocumentService:
                     file_hash=file_hash,
                 )
             )
+            t_create = (perf_counter() - t0) * 1000
+            logger.info("[UPLOAD_SUB_TIMING] Document create DB insert & commit", duration_ms=round(t_create, 2))
         except DuplicateDocumentException:
             raise
         except (IntegrityError, SQLAlchemyError) as exc:
@@ -205,6 +235,18 @@ class DocumentService:
             raise InternalServerException(
                 "Unable to replace project Job Description."
             ) from exc
+
+        t_total_upload = (perf_counter() - t_upload_start) * 1000
+        logger.info(
+            "[UPLOAD_SUB_SUMMARY] upload_job_description complete breakdown",
+            total_ms=round(t_total_upload, 2),
+            verify_project_ms=round(t_verify, 2),
+            file_validate_ms=round(t_val, 2),
+            file_save_disk_ms=round(t_save, 2),
+            duplicate_check_ms=round(t_hash, 2),
+            soft_delete_prior_ms=round(t_soft_del, 2),
+            document_create_ms=round(t_create, 2),
+        )
 
         if existing is not None:
             try:

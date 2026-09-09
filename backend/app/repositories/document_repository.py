@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
+from time import perf_counter
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from app.models.document import (
     DocumentModel,
@@ -26,6 +28,8 @@ from app.schemas.document import (
     SortOrder,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 class DocumentRepository:
     """Async persistence operations for project documents."""
@@ -42,8 +46,13 @@ class DocumentRepository:
         )
         model = DocumentModel(**values)
         self.session.add(model)
+        t0 = perf_counter()
         await self.session.commit()
+        t_commit = (perf_counter() - t0) * 1000
+        t0 = perf_counter()
         await self.session.refresh(model)
+        t_refresh = (perf_counter() - t0) * 1000
+        logger.info("[DB_DOCUMENT_TIMING] create() committed", commit_ms=round(t_commit, 2), refresh_ms=round(t_refresh, 2))
         return model
 
     async def get_by_hash(
@@ -104,11 +113,16 @@ class DocumentRepository:
     async def soft_delete_project_job_description(
         self, project_id: UUID
     ) -> DocumentModel | None:
+        t0 = perf_counter()
         document = await self.get_job_description_by_project(project_id)
         if document is None:
             return None
         document.deleted_at = datetime.now(UTC)
+        t_commit0 = perf_counter()
         await self.session.commit()
+        t_commit = (perf_counter() - t_commit0) * 1000
+        t_total = (perf_counter() - t0) * 1000
+        logger.info("[DB_DOCUMENT_TIMING] soft_delete_project_job_description()", total_ms=round(t_total, 2), commit_ms=round(t_commit, 2))
         return document
 
     async def restore_document(self, document_id: UUID) -> DocumentModel | None:
@@ -121,11 +135,15 @@ class DocumentRepository:
         return document
 
     async def get_document(self, document_id: UUID) -> DocumentModel | None:
+        t0 = perf_counter()
         statement = select(DocumentModel).where(
             DocumentModel.id == document_id,
             DocumentModel.deleted_at.is_(None),
         )
-        return await self.session.scalar(statement)
+        res = await self.session.scalar(statement)
+        t_query = (perf_counter() - t0) * 1000
+        logger.info("[DB_DOCUMENT_TIMING] get_document() query", document_id=str(document_id), duration_ms=round(t_query, 2))
+        return res
 
     async def get_by_id(self, document_id: UUID) -> DocumentModel | None:
         """Backward-compatible active document lookup."""
@@ -197,13 +215,25 @@ class DocumentRepository:
         if metadata is not None:
             document.metadata_json = metadata
         if commit:
+            t0 = perf_counter()
             await self.session.commit()
+            t_commit = (perf_counter() - t0) * 1000
+            t_ref = 0.0
             if refresh:
+                t0 = perf_counter()
                 await self.session.refresh(document)
+                t_ref = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] update_status() committed", status=status.value, commit_ms=round(t_commit, 2), refresh_ms=round(t_ref, 2))
         else:
+            t0 = perf_counter()
             await self.session.flush()
+            t_flush = (perf_counter() - t0) * 1000
+            t_ref = 0.0
             if refresh:
+                t0 = perf_counter()
                 await self.session.refresh(document)
+                t_ref = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] update_status() flushed", status=status.value, flush_ms=round(t_flush, 2), refresh_ms=round(t_ref, 2))
         return document
 
     async def update_processing(
@@ -225,11 +255,25 @@ class DocumentRepository:
         document.processing_status = ProcessingStatusEnum(status.value)
         document.error_message = error_message
         if commit:
+            t0 = perf_counter()
             await self.session.commit()
+            t_commit = (perf_counter() - t0) * 1000
+            t_ref = 0.0
+            if refresh:
+                t0 = perf_counter()
+                await self.session.refresh(document)
+                t_ref = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] update_processing() committed", stage=stage.value, status=status.value, commit_ms=round(t_commit, 2), refresh_ms=round(t_ref, 2))
         else:
+            t0 = perf_counter()
             await self.session.flush()
-        if refresh:
-            await self.session.refresh(document)
+            t_flush = (perf_counter() - t0) * 1000
+            t_ref = 0.0
+            if refresh:
+                t0 = perf_counter()
+                await self.session.refresh(document)
+                t_ref = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] update_processing() flushed", stage=stage.value, status=status.value, flush_ms=round(t_flush, 2), refresh_ms=round(t_ref, 2))
         return document
 
     async def delete_document(

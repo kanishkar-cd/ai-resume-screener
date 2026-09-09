@@ -144,3 +144,19 @@ class BatchResumeUploadRead(BaseModel):
 
 class BatchResumeUploadResponse(BaseModel):
     data: BatchResumeUploadRead
+
+
+class JobDescriptionProcessRead(BaseModel):
+    document_id: UUID
+    project_id: UUID
+    document_type: DocumentType = DocumentType.JOB_DESCRIPTION
+    filename: str
+    processing_stage: ProcessingStage
+    processing_status: ProcessingStatus
+    extracted: dict[str, Any] | None = None
+    normalized: dict[str, Any] | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JobDescriptionProcessResponse(BaseModel):
+    data: JobDescriptionProcessRead
