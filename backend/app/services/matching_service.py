@@ -1254,6 +1254,10 @@ SEMANTIC_SYNONYMS: dict[str, set[str]] = {
     "cloud": {"aws", "azure", "gcp", "s3", "ec2", "lambda", "cloud", "cloudformation", "terraform", "infrastructure"},
     "cloud infrastructure": {"aws", "azure", "gcp", "s3", "ec2", "instances", "terraform", "cloud", "infrastructure", "devops"},
     "cloud infrastructure operations": {"aws", "azure", "gcp", "s3", "ec2", "instances", "terraform", "cloud", "infrastructure", "operations", "provisioned", "provisioning"},
+    "aws": {"aws", "amazon web services", "amazon web services (aws)", "aws cloud", "ec2", "s3", "lambda"},
+    "amazon web services": {"aws", "amazon web services", "amazon web services (aws)", "aws cloud", "ec2", "s3", "lambda"},
+    "gcp": {"gcp", "google cloud", "google cloud platform"},
+    "azure": {"azure", "microsoft azure"},
     "mentoring": {"mentor", "mentored", "mentoring", "guidance", "coach", "coaching", "mentorship", "led junior developers"},
     "code review": {"code reviews", "reviewed code", "code quality", "pr reviews", "pull request", "code review"},
     "troubleshooting": {"troubleshooting", "debugging", "fixed defects", "incident triage", "root cause", "resolved issues", "production defects", "production bugs"},
@@ -1261,6 +1265,16 @@ SEMANTIC_SYNONYMS: dict[str, set[str]] = {
     "kubernetes": {"kubernetes", "k8s", "container orchestration", "helm", "pods", "kubernetes cluster", "cluster deployments"},
     "k8s": {"kubernetes", "k8s", "container orchestration", "kubernetes cluster"},
     "sql": {"sql", "mysql", "postgresql", "postgres", "sqlite", "oracle", "mariadb", "pl/sql", "plsql", "t-sql", "tsql", "relational database", "relational databases", "database management", "rdbms"},
+    "relational database": {"sql", "mysql", "postgresql", "postgres", "sqlite", "oracle", "mariadb", "pl/sql", "plsql", "relational database", "relational databases", "database management", "rdbms", "database"},
+    "relational databases": {"sql", "mysql", "postgresql", "postgres", "sqlite", "oracle", "mariadb", "pl/sql", "plsql", "relational database", "relational databases", "database management", "rdbms", "database"},
+    "restful apis": {"rest api", "rest apis", "restful api", "restful apis", "fastapi", "flask", "django", "express", "rest", "restful", "endpoints", "api", "apis"},
+    "rest api": {"rest api", "rest apis", "restful api", "restful apis", "fastapi", "flask", "django", "express", "rest", "restful", "endpoints", "api", "apis"},
+    "message queues": {"kafka", "rabbitmq", "sqs", "pubsub", "message queue", "message queues", "event streaming", "messaging"},
+    "message queue": {"kafka", "rabbitmq", "sqs", "pubsub", "message queue", "message queues", "event streaming", "messaging"},
+    "kafka": {"kafka", "rabbitmq", "message queue", "message queues", "event streaming", "messaging"},
+    "nosql": {"mongodb", "dynamodb", "cassandra", "couchbase", "redis", "nosql"},
+    "containerization": {"docker", "containers", "container", "containerized"},
+    "container orchestration": {"kubernetes", "k8s", "container orchestration", "helm", "pods"},
     "html": {"html", "html5", "web", "frontend", "front-end", "web development", "web-based", "markup", "react", "react.js", "vue", "angular", "ui"},
     "css": {"css", "css3", "style", "styling", "styles", "tailwind", "bootstrap", "sass", "scss", "web", "frontend", "front-end", "responsive", "ui"},
     "object-oriented programming": {"oop", "object-oriented", "object oriented", "object-oriented programming", "java", "python", "c++", "c#", "typescript", "classes", "inheritance", "polymorphism", "encapsulation", "abstractions"},
@@ -1544,6 +1558,8 @@ _GENERIC_BUZZWORDS = frozenset({
     "skills", "design", "implementation", "building", "software", "engineering",
     "engineered", "developed", "managed", "created", "maintained", "role",
     "platform", "platforms", "event", "events", "tool", "tools",
+    "programming", "program", "programmer", "concepts", "concept", "technology", "technologies", "tech",
+    "fundamentals", "basics", "basic", "language", "languages", "framework", "frameworks",
     "in", "and", "or", "to", "for", "with", "a", "an", "the", "of", "on", "at", "by", "from",
 })
 
@@ -1568,26 +1584,32 @@ class SemanticEvidenceRetriever:
         if not q_stems or not t_stems:
             return 0.0
 
-        # Direct stem overlap ratio
-        stem_overlap = len(q_stems & t_stems) / len(q_stems)
-        if stem_overlap > 0:
-            return round(stem_overlap, 3)
+        # Check distinctive stem overlap ratio (prevent generic buzzwords like "programming" from creating false positives)
+        generic_stems = _stem_tokens("programming program language developer development concepts basics fundamentals software application technology technologies tools skills design framework")
+        q_meaningful = q_stems - generic_stems
+        if q_meaningful:
+            meaningful_overlap = len(q_meaningful & t_stems) / len(q_meaningful)
+            if meaningful_overlap > 0:
+                stem_overlap = len(q_stems & t_stems) / len(q_stems)
+                return round(stem_overlap, 3)
+        else:
+            stem_overlap = len(q_stems & t_stems) / len(q_stems)
+            if stem_overlap > 0:
+                return round(stem_overlap, 3)
 
         # Check semantic synonym mapping (e.g. Kafka -> message queues / event streaming)
         q_lower = query.casefold().strip()
         text_lower = text.casefold()
         for term, syns in SEMANTIC_SYNONYMS.items():
-            concept_stems = _stem_tokens(term)
-            for s in syns:
-                concept_stems.update(_stem_tokens(s))
-            if q_stems & concept_stems:
+            term_stems = _stem_tokens(term) - generic_stems or _stem_tokens(term)
+            if term == q_lower or (term_stems and term_stems.issubset(q_meaningful or q_stems)):
                 for s in syns:
                     if len(s) > 2 and re.search(rf"\b{re.escape(s)}\b", text_lower):
                         return 0.65
 
         # Sub-word token similarity for long technical words (len >= 5) to catch variants
-        q_tokens = [t for t in _TOKEN.findall(q_lower) if len(t) >= 5]
-        t_tokens = [t for t in _TOKEN.findall(text_lower) if len(t) >= 5]
+        q_tokens = [t for t in _TOKEN.findall(q_lower) if len(t) >= 5 and t not in _GENERIC_BUZZWORDS]
+        t_tokens = [t for t in _TOKEN.findall(text_lower) if len(t) >= 5 and t not in _GENERIC_BUZZWORDS]
         if q_tokens and t_tokens:
             for qt in q_tokens:
                 qt_ngrams = {qt[i : i + 3] for i in range(len(qt) - 2)}
@@ -1760,8 +1782,10 @@ class EvidencePrefilter:
         # 2. Lexical & Synonym Overlap Scoring
         req_lower = requirement.text.casefold()
         synonym_phrases: set[str] = set()
+        generic_concept_words = frozenset(_GENERIC_BUZZWORDS | {"programming", "program", "developer", "development", "engineer", "engineering", "concepts", "fundamentals", "basics", "design", "language"})
         for term, syns in SEMANTIC_SYNONYMS.items():
-            if term in req_lower or any(re.search(rf"\b{re.escape(t)}\b", req_lower) for t in term.split() if len(t) > 2):
+            term_core_words = [t for t in term.split() if len(t) > 2 and t.casefold() not in generic_concept_words]
+            if term in req_lower or (term_core_words and any(re.search(rf"\b{re.escape(t)}\b", req_lower) for t in term_core_words)):
                 synonym_phrases.update(syns)
                 synonym_phrases.add(term)
 
@@ -1769,6 +1793,10 @@ class EvidencePrefilter:
         req_core_stems = set(required_stems)
         for s in synonym_phrases:
             required_stems.update(_stem_tokens(s))
+
+        generic_stems = _stem_tokens("programming program language developer development engineer engineering concepts fundamentals basics design technology technologies tools tool skills skill software application applications framework frameworks")
+        distinctive_core_stems = req_core_stems - generic_stems
+        distinctive_all_stems = required_stems - generic_stems
 
         scored = []
         telemetry_records = []
@@ -1786,13 +1814,26 @@ class EvidencePrefilter:
             for c in canonical_lower:
                 item_stems.update(_stem_tokens(c))
 
-            core_overlap = len(req_core_stems & item_stems) / len(req_core_stems) if req_core_stems else 0.0
-            syn_overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
+            # Guard against generic-word false positives:
+            # If requirement contains distinctive technical stems (e.g. "rust" in "Rust programming"),
+            # candidate evidence must contain at least one distinctive stem or match a synonym.
+            # Matching purely generic words (e.g. "programming") yields 0 overlap.
+            if distinctive_core_stems and not (distinctive_core_stems & item_stems) and not (distinctive_all_stems & item_stems) and not has_synonym:
+                core_overlap = 0.0
+                syn_overlap = 0.0
+            else:
+                core_overlap = len(req_core_stems & item_stems) / len(req_core_stems) if req_core_stems else 0.0
+                syn_overlap = len(required_stems & item_stems) / len(required_stems) if required_stems else 0.0
             overlap = max(core_overlap, syn_overlap)
             score = overlap + phrase_bonus
 
             cos_sim = SemanticEvidenceRetriever.cosine_similarity(requirement.text, item.text)
             sem_sim = SemanticEvidenceRetriever.similarity(requirement.text, item.text)
+
+            # Suppress cosine and semantic similarity if evidence only matched generic words without distinctive technical capability
+            if distinctive_core_stems and not (distinctive_core_stems & item_stems) and not (distinctive_all_stems & item_stems) and not has_synonym:
+                cos_sim = 0.0
+                sem_sim = 0.0
 
             if score >= self.threshold and cos_sim >= self.cosine_evidence_threshold:
                 source = "both"
@@ -1876,6 +1917,7 @@ class GroqTokenBudgetGate:
         self.header_remaining_tokens: int | None = None
         self.header_reset_timestamp: float | None = None
         self.header_remaining_requests: int | None = None
+        self._waiters: list[tuple[int, asyncio.Future, float]] = []
 
     @classmethod
     def get_gate(cls, settings: Settings | None = None) -> GroqTokenBudgetGate:
@@ -1896,6 +1938,10 @@ class GroqTokenBudgetGate:
             cls._instance.header_remaining_tokens = None
             cls._instance.header_reset_timestamp = None
             cls._instance.header_remaining_requests = None
+            for _, fut, _ in cls._instance._waiters:
+                if not fut.done():
+                    fut.cancel()
+            cls._instance._waiters.clear()
 
     @property
     def tpm_limit(self) -> int:
@@ -1914,6 +1960,38 @@ class GroqTokenBudgetGate:
     @property
     def usable_tpm(self) -> int:
         return int(self.tpm_limit * (1.0 - self.safety_margin))
+
+    def _available_tokens_unlocked(self, now: float) -> int:
+        self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
+        local_used = sum(tok for _, tok in self.usage_history)
+        if self.header_reset_timestamp is not None:
+            if now >= self.header_reset_timestamp:
+                self.header_remaining_tokens = None
+                self.header_reset_timestamp = None
+        if self.header_remaining_tokens is not None and self.header_reset_timestamp is not None and now < self.header_reset_timestamp:
+            avail_hdr = max(0, self.header_remaining_tokens - self.reserved_in_flight)
+            avail_loc = max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+            return min(avail_hdr, avail_loc)
+        return max(0, self.usable_tpm - local_used - self.reserved_in_flight)
+
+    def _drain_waiters_unlocked(self, now: float) -> None:
+        """Grant token reservations to queued waiters in strict FIFO order as budget becomes available."""
+        self._waiters = [w for w in self._waiters if not w[1].done() and w[2] > now]
+        while self._waiters:
+            req_tokens, fut, _ = self._waiters[0]
+            avail = self._available_tokens_unlocked(now)
+            if avail >= req_tokens:
+                self.reserved_in_flight += req_tokens
+                self._waiters.pop(0)
+                if not fut.done():
+                    fut.set_result(True)
+                logger.info(
+                    "groq_token_reservation_granted_from_queue",
+                    reserved_tokens=req_tokens,
+                    available_tokens_remaining=avail - req_tokens,
+                )
+            else:
+                break
 
     def available_tokens(self) -> int:
         now = time.monotonic()
@@ -1950,33 +2028,23 @@ class GroqTokenBudgetGate:
         """
         Atomically check available tokens and reserve estimated_tokens if safe capacity exists.
         Returns True if capacity exists and reservation succeeded, False otherwise.
+        Does NOT allow new requests to bypass active queued waiters.
         Does NOT block or sleep.
         """
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
             now = time.monotonic()
-            self.usage_history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
-            local_window_used = sum(tok for _, tok in self.usage_history)
-
-            if self.header_reset_timestamp is not None:
-                if now >= self.header_reset_timestamp:
-                    self.header_remaining_tokens = None
-                    self.header_reset_timestamp = None
-
-            if self.header_remaining_tokens is not None:
-                avail_from_header = max(0, self.header_remaining_tokens - self.reserved_in_flight)
-                avail_from_local = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
-                available_tokens = min(avail_from_header, avail_from_local)
-            else:
-                available_tokens = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
-
-            if available_tokens >= estimated_tokens:
+            self._drain_waiters_unlocked(now)
+            if self._waiters:
+                return False
+            avail = self._available_tokens_unlocked(now)
+            if avail >= estimated_tokens:
                 self.reserved_in_flight += estimated_tokens
                 logger.info(
                     "groq_token_reservation_secured",
                     reserved_tokens=estimated_tokens,
-                    available_tokens_before=available_tokens,
+                    available_tokens_before=avail,
                     usable_limit=self.usable_tpm,
                 )
                 return True
@@ -1986,40 +2054,77 @@ class GroqTokenBudgetGate:
         """Calculate minimum seconds to wait until estimated_tokens becomes available."""
         now = time.monotonic()
         history = [(ts, tok) for ts, tok in self.usage_history if now - ts < self.window_seconds]
-        if self.reserved_in_flight > 0:
-            return 1.0
-
         local_window_used = sum(tok for _, tok in history)
-        available = self.usable_tpm - local_window_used
+        available = max(0, self.usable_tpm - local_window_used - self.reserved_in_flight)
         if available >= estimated_tokens:
             return 0.0
 
         needed_freed = estimated_tokens - available
         freed = 0
-        wait_seconds = 0.0
+        wait_seconds = 0.5
         for ts, tok in sorted(history, key=lambda x: x[0]):
             freed += tok
-            wait_seconds = max(0.0, (ts + self.window_seconds) - now)
+            wait_seconds = max(0.1, (ts + self.window_seconds) - now)
             if freed >= needed_freed:
                 break
-        return wait_seconds
 
-    async def wait_for_budget(self, estimated_tokens: int, max_wait_seconds: float = 65.0) -> bool:
-        """Wait until estimated_tokens can be reserved, or until max_wait_seconds expires."""
+        if self.header_reset_timestamp is not None and now < self.header_reset_timestamp:
+            if self.header_remaining_tokens is not None and (self.header_remaining_tokens - self.reserved_in_flight) < estimated_tokens:
+                header_wait = max(0.1, self.header_reset_timestamp - now)
+                wait_seconds = max(wait_seconds, header_wait)
+
+        return min(wait_seconds, 60.0)
+
+    async def wait_for_budget(self, estimated_tokens: int, max_wait_seconds: float = 90.0) -> bool:
+        """
+        Wait in strict FIFO queue until estimated_tokens can be reserved, or until max_wait_seconds expires.
+        Wakes up immediately when prior in-flight requests complete and record actual tokens.
+        """
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        loop = asyncio.get_running_loop()
         deadline = time.monotonic() + max_wait_seconds
-        while time.monotonic() < deadline:
-            reserved = await self.try_reserve(estimated_tokens)
-            if reserved:
-                return True
+        fut: asyncio.Future[bool] = loop.create_future()
+
+        async with self._lock:
+            now = time.monotonic()
+            self._drain_waiters_unlocked(now)
+            if not self._waiters:
+                avail = self._available_tokens_unlocked(now)
+                if avail >= estimated_tokens:
+                    self.reserved_in_flight += estimated_tokens
+                    return True
+            self._waiters.append((estimated_tokens, fut, deadline))
+
+        while time.monotonic() < deadline and not fut.done():
             wait_time = self.get_wait_time_for_budget(estimated_tokens)
-            remaining_time = deadline - time.monotonic()
-            if wait_time <= 0:
-                wait_time = 1.0
-            sleep_duration = min(wait_time, remaining_time, 2.0)
-            if sleep_duration <= 0:
-                break
-            await asyncio.sleep(sleep_duration)
-        return await self.try_reserve(estimated_tokens)
+            rem = deadline - time.monotonic()
+            sleep_sec = min(max(0.1, wait_time), rem, 1.5)
+            try:
+                await asyncio.wait_for(asyncio.shield(fut), timeout=sleep_sec)
+                return True
+            except asyncio.TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                async with self._lock:
+                    self._waiters = [w for w in self._waiters if w[1] is not fut]
+                raise
+
+            async with self._lock:
+                now = time.monotonic()
+                self._drain_waiters_unlocked(now)
+                if fut.done():
+                    return fut.result()
+
+        async with self._lock:
+            now = time.monotonic()
+            self._drain_waiters_unlocked(now)
+            if fut.done():
+                return fut.result()
+            self._waiters = [w for w in self._waiters if w[1] is not fut]
+            if not fut.done():
+                fut.cancel()
+            return False
 
     async def acquire_reservation(self, estimated_tokens: int, correlation_id: str = "") -> bool:
         """
@@ -2030,14 +2135,15 @@ class GroqTokenBudgetGate:
         return await self.try_reserve(estimated_tokens)
 
     async def release_reservation(self, estimated_tokens: int) -> None:
-        """Release in-flight reservation."""
+        """Release in-flight reservation and notify queued waiters."""
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
             self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
+            self._drain_waiters_unlocked(time.monotonic())
 
     async def record_response(self, estimated_tokens: int, response: httpx.Response | None = None, actual_tokens: int | None = None) -> None:
-        """Release reservation, record used tokens into sliding window, sync headers."""
+        """Release reservation, record used tokens into sliding window, sync headers, notify waiters."""
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
@@ -2070,6 +2176,8 @@ class GroqTokenBudgetGate:
                         except (ValueError, TypeError):
                             pass
 
+            self._drain_waiters_unlocked(now)
+
     async def record_429(self, estimated_tokens: int, response: httpx.Response | None = None) -> float:
         """Handle 429 response: release reservation, update reset timestamp, return wait seconds."""
         if self._lock is None:
@@ -2077,6 +2185,32 @@ class GroqTokenBudgetGate:
         async with self._lock:
             self.reserved_in_flight = max(0, self.reserved_in_flight - estimated_tokens)
             now = time.monotonic()
+
+            wait_seconds = 1.0
+            if response is not None and hasattr(response, "headers"):
+                headers = response.headers
+                if isinstance(headers, dict) or hasattr(headers, "get"):
+                    res_tok = headers.get("x-ratelimit-reset-tokens")
+                    retry_after = headers.get("retry-after")
+                    if res_tok is not None:
+                        try:
+                            res_str = str(res_tok).strip()
+                            if res_str.endswith("ms"):
+                                wait_seconds = float(res_str[:-2]) / 1000.0
+                            elif res_str.endswith("s"):
+                                wait_seconds = float(res_str[:-1])
+                            else:
+                                wait_seconds = float(res_str)
+                        except (ValueError, TypeError):
+                            pass
+                    elif retry_after is not None:
+                        try:
+                            wait_seconds = float(retry_after)
+                        except (ValueError, TypeError):
+                            pass
+            self.header_reset_timestamp = now + wait_seconds
+            self._drain_waiters_unlocked(now)
+            return wait_seconds
 
             self.header_remaining_tokens = 0
             retry_after = 2.0
@@ -2329,6 +2463,8 @@ class ProviderCircuitBreaker:
     def can_call(self, provider: str) -> bool:
         entry = self._states.setdefault(provider, {"state": "CLOSED", "failure_count": 0, "permanent_failures": 0, "last_failure_time": 0.0})
         now = time.monotonic()
+        if entry.get("permanent_failures", 0) > 0:
+            return False
         if entry["state"] == "OPEN":
             if now - entry["last_failure_time"] >= self.cooldown_seconds:
                 entry["state"] = "HALF_OPEN"
@@ -3687,59 +3823,190 @@ class HybridMatchingService:
             requirement = requirement_by_id.get(verdict.requirement_id)
             if not requirement:
                 continue
-            # Rule 1: Canonical / deterministic success -> MATCHED -> STOP (Do NOT call LLM)
+
+            # ── 1. Required Skills & Skills: 100% Deterministic (NO AI) ──
+            if requirement.kind in {RequirementKind.SKILL, RequirementKind.REQUIRED_SKILL, RequirementKind.PREFERRED_SKILL}:
+                # Step 1: Canonical match
+                if verdict.status == MatchStatus.MATCHED:
+                    verdict.coverage = 1.0
+                    verdict.coverage_score = 1.0
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / alias canonical match."}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="Deterministic high-confidence canonical match",
+                    )
+                    continue
+
+                if verdict.status == MatchStatus.PARTIALLY_MATCHED:
+                    cov = float(getattr(verdict, "coverage", 0.5) or 0.5)
+                    verdict.coverage = cov
+                    verdict.coverage_score = cov
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "adjacent", "note": verdict.reasoning or "Partial canonical match."}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="Deterministic partial conjunction match",
+                    )
+                    continue
+
+                # Step 2: Unmatched Evidence Prefilter (NO LLM)
+                selected = prefilter.select(requirement, evidence)
+                if selected:
+                    # Step 3: Partial-match scoring from candidate evidence
+                    recs = prefilter.retrieval_telemetry.get(requirement.requirement_id, [])
+                    max_lexical = max((r.get("lexical_score", 0.0) for r in recs), default=0.0)
+                    max_cosine = max((r.get("cosine_score", 0.0) for r in recs), default=0.0)
+                    max_semantic = max((r.get("semantic_score", 0.0) for r in recs), default=0.0)
+                    if not recs:
+                        max_cosine = max((SemanticEvidenceRetriever.cosine_similarity(requirement.text, e.text) for e in selected), default=0.0)
+                        max_semantic = max((SemanticEvidenceRetriever.similarity(requirement.text, e.text) for e in selected), default=0.0)
+
+                    eff_score = max(max_lexical, max_cosine, max_semantic)
+                    if eff_score >= 0.65:
+                        verdict.status = MatchStatus.MATCHED
+                        verdict.coverage = 1.0
+                        verdict.coverage_score = 1.0
+                        verdict.method = MatchMethod.CONCEPT
+                        evidence_level = "direct"
+                        reasoning = f"Direct evidence supports required skill ({selected[0].text[:90]})."
+                    elif eff_score >= 0.15:
+                        verdict.status = MatchStatus.PARTIALLY_MATCHED
+                        cov = round(min(0.65, max(0.35, eff_score)), 2)
+                        verdict.coverage = cov
+                        verdict.coverage_score = cov
+                        verdict.method = MatchMethod.CONCEPT
+                        evidence_level = "adjacent"
+                        reasoning = f"Partial/transferable evidence demonstrated for required skill ({selected[0].text[:90]})."
+                    else:
+                        verdict.status = MatchStatus.NO_MATCH
+                        verdict.coverage = 0.0
+                        verdict.coverage_score = 0.0
+                        verdict.method = None
+                        evidence_level = "none"
+                        reasoning = "Candidate evidence did not meet minimum relevance threshold."
+
+                    verdict.evidence_ids = [e.evidence_id for e in selected[:2]] if verdict.status != MatchStatus.NO_MATCH else []
+                    verdict.reasoning = reasoning
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": evidence_level, "note": selected[0].text[:120]}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        evidence_count=len(selected),
+                        effective_score=eff_score,
+                        reason="Deterministic evidence prefilter match",
+                    )
+                else:
+                    # Step 4: Truly unmatched = 0 points
+                    verdict.status = MatchStatus.NO_MATCH
+                    verdict.coverage = 0.0
+                    verdict.coverage_score = 0.0
+                    verdict.method = None
+                    verdict.evidence_ids = []
+                    verdict.reasoning = "No candidate evidence available for required skill."
+                    verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No candidate evidence available."}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="No candidate evidence available for required skill",
+                    )
+                continue
+
+            # ── 2. Roles & Responsibilities: Groq AI ──
+            if requirement.kind in {RequirementKind.RESPONSIBILITY, RequirementKind.PROJECT_RELEVANCE}:
+                if verdict.status == MatchStatus.MATCHED:
+                    verdict.coverage = 1.0
+                    verdict.coverage_score = 1.0
+                    verdict.importance = getattr(requirement, "importance", "important") or "important"
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / canonical experiential match."}]
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="Deterministic canonical match for responsibility",
+                    )
+                    continue
+
+                selected = prefilter.select(requirement, evidence)
+                if selected:
+                    # Route to Groq AI
+                    unresolved.append(requirement)
+                    supplied.update((item.evidence_id, item) for item in selected)
+                    allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=True,
+                        llm_attempted=True,
+                        evidence_count=len(selected),
+                        reason="Routing responsibility to Groq AI",
+                    )
+                else:
+                    # Genuinely NO experiential evidence -> NO_MATCH (0 points, 0 LLM calls)
+                    allowed_evidence[requirement.requirement_id] = set()
+                    verdict.status = MatchStatus.NO_MATCH
+                    verdict.coverage = 0.0
+                    verdict.coverage_score = 0.0
+                    verdict.importance = getattr(requirement, "importance", "important") or "important"
+                    verdict.sub_claims = [requirement.text]
+                    verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No experiential evidence available."}]
+                    verdict.reasoning = "No experiential evidence (projects/experience) found for responsibility."
+                    logger.info(
+                        "matching_routing_decision",
+                        requirement_id=requirement.requirement_id,
+                        requirement_text=requirement.text,
+                        deterministic_status=verdict.status.value,
+                        fallback_eligible=False,
+                        llm_attempted=False,
+                        reason="No experiential evidence available for responsibility",
+                    )
+                continue
+
+            # ── 3. Other Requirements (Degree, Experience, Certifications, Languages): Deterministic ──
             if verdict.status == MatchStatus.MATCHED:
                 verdict.coverage = 1.0
                 verdict.coverage_score = 1.0
-                verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
-                verdict.sub_claims = [requirement.text]
-                verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct", "note": "Exact / alias canonical match."}]
-                logger.info(
-                    "matching_routing_decision",
-                    requirement_id=requirement.requirement_id,
-                    requirement_text=requirement.text,
-                    deterministic_status=verdict.status.value,
-                    fallback_eligible=False,
-                    llm_attempted=False,
-                    reason="Deterministic high-confidence match",
-                )
-                continue
-
-            # Rule 2: Canonical matching FAILS -> Check candidate evidence via prefilter
-            selected = prefilter.select(requirement, evidence)
-            if selected:
-                # Evidence exists -> route to LLM fallback
-                unresolved.append(requirement)
-                supplied.update((item.evidence_id, item) for item in selected)
-                allowed_evidence[requirement.requirement_id] = {item.evidence_id for item in selected}
-                logger.info(
-                    "matching_routing_decision",
-                    requirement_id=requirement.requirement_id,
-                    requirement_text=requirement.text,
-                    deterministic_status=verdict.status.value,
-                    fallback_eligible=True,
-                    llm_attempted=True,
-                    evidence_count=len(selected),
-                )
+            elif verdict.status == MatchStatus.PARTIALLY_MATCHED:
+                cov = float(getattr(verdict, "coverage", 0.5) or 0.5)
+                verdict.coverage = cov
+                verdict.coverage_score = cov
             else:
-                # Rule 3: Canonical fails + genuinely NO candidate evidence -> NO_MATCH (0 LLM calls)
-                allowed_evidence[requirement.requirement_id] = set()
                 verdict.status = MatchStatus.NO_MATCH
                 verdict.coverage = 0.0
                 verdict.coverage_score = 0.0
-                verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
-                verdict.sub_claims = [requirement.text]
-                verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "none", "note": "No candidate evidence available."}]
-                verdict.reasoning = "No candidate evidence available for prefilter."
-                logger.info(
-                    "matching_routing_decision",
-                    requirement_id=requirement.requirement_id,
-                    requirement_text=requirement.text,
-                    deterministic_status=verdict.status.value,
-                    fallback_eligible=False,
-                    llm_attempted=False,
-                    reason="No candidate evidence available for prefilter",
-                )
+            verdict.importance = getattr(requirement, "importance", "important") or ("critical" if getattr(requirement, "required", True) else "important")
+            verdict.sub_claims = [requirement.text]
+            verdict.sub_claim_evidence = [{"claim": requirement.text, "evidence_level": "direct" if verdict.status == MatchStatus.MATCHED else ("adjacent" if verdict.status == MatchStatus.PARTIALLY_MATCHED else "none"), "note": verdict.reasoning or ""}]
 
         resume_id = str(getattr(resume, "id", getattr(resume, "candidate_name", "default_resume")))
         if unresolved:

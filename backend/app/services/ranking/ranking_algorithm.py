@@ -20,7 +20,10 @@ class RankingAlgorithm:
         previous_ranks = previous_ranks or {}
         ordered = sorted(candidates, key=lambda item: (
             bool(item[0].is_knocked_out),
-            RankingAlgorithm.RECOMMENDATION_PRIORITY.get(item[0].recommendation.value, 3),
+            RankingAlgorithm.RECOMMENDATION_PRIORITY.get(
+                item[0].recommendation.value if hasattr(item[0].recommendation, "value") else str(item[0].recommendation),
+                3
+            ),
             -float(item[0].final_score), -float(item[0].skills_score),
             -float(item[0].experience_score), -float(item[0].confidence),
             item[1], str(item[0].document_id),
@@ -29,11 +32,12 @@ class RankingAlgorithm:
         rankings = []
         for position, (score, _) in enumerate(ordered, start=1):
             previous = previous_ranks.get(score.document_id)
+            rec_str = score.recommendation.value if hasattr(score.recommendation, "value") else str(score.recommendation)
             rankings.append(CandidateRankingCreate(
                 document_id=score.document_id, candidate_score_id=score.id,
                 rank_position=position,
                 percentile=round((total - position + 1) / total * 100, 2),
-                final_score=float(score.final_score), recommendation=score.recommendation.value,
+                final_score=float(score.final_score), recommendation=rec_str,
                 confidence=float(score.confidence), previous_rank=previous,
                 rank_change=(previous - position) if previous is not None else 0,
             ))

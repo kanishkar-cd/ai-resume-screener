@@ -166,6 +166,7 @@ export interface Candidate {
   scoreBreakdown?: import('../api/types').CategoryBreakdownItem[]
   extractedAt?: Date
   scoredAt?: Date
+  isProcessing?: boolean
 }
 
 // ─── JD / document processing (mirrors backend document fields) ─

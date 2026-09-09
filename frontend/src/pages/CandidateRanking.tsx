@@ -21,6 +21,8 @@ import {
   Download,
   ArrowRight,
   Award,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
@@ -50,7 +52,7 @@ function getRecommendationConfig(candidate: Candidate): {
   iconColor: string
   Icon: typeof CheckCircle2
 } {
-  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT') {
+  if (candidate.isKnockedOut || candidate.recommendation === 'REJECT' || candidate.overallScore < 40) {
     return {
       label: 'Not Relevant',
       shortLabel: 'Reject',
@@ -59,7 +61,7 @@ function getRecommendationConfig(candidate: Candidate): {
       Icon: ThumbsDown,
     }
   }
-  if (candidate.recommendation === 'SHORTLIST') {
+  if (candidate.overallScore >= 60 && (candidate.recommendation === 'SHORTLIST' || candidate.overallScore >= 70)) {
     return {
       label: 'Strong Match',
       shortLabel: 'Shortlist',
@@ -89,8 +91,9 @@ function getScoreBg(score: number) {
   return 'bg-red-50 border-red-200'
 }
 
-function recommendationToStatus(recommendation: string, knockedOut: boolean): ScreeningStatus {
-  if (knockedOut || recommendation === 'REJECT') return 'rejected'
+function recommendationToStatus(recommendation: string, knockedOut: boolean, score?: number): ScreeningStatus {
+  if (knockedOut || recommendation === 'REJECT' || (score !== undefined && score < 40)) return 'rejected'
+  if (score !== undefined && score < 60) return 'pending'
   return 'screened'
 }
 
@@ -640,6 +643,110 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
   )
 }
 
+// Module-level guard to prevent duplicate background scoring promises
+const inFlightScoringProjects = new Set<string>()
+
+function buildCandidateFromScore(
+  score: ApiCandidateScore,
+  ranking: ApiCandidateRanking | undefined,
+  config: WeightConfig,
+  fallbackName: string,
+  fallbackEmail: string,
+  filename: string,
+): Candidate {
+  const components = [
+    ['skills', 'Required Skills'],
+    ['responsibilities', 'Responsibilities'],
+    ['projects', 'Projects'],
+    ['preferred_skills', 'Preferred Skills'],
+    ['experience', 'Experience'],
+    ['certifications', 'Certifications'],
+    ['education', 'Education'],
+    ['languages', 'Languages'],
+  ] as const
+
+  const candidateScores = components
+    .map(([key, label]) => {
+      const detail = (score.component_scores as any)?.[key]
+      if (!detail) return null
+      const explanation = detail.explanation || ''
+      const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
+      const weightKey = key === 'skills' ? 'required_skills' : key
+      const effectiveWeight = (score.effective_weights && (score.effective_weights[weightKey] ?? score.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 50 : key === 'responsibilities' ? 50 : 0)
+      const finalScore = (effectiveWeight === 0 || !isApplicable) ? 0 : (detail.score ?? 0)
+      const weightedScore = (score.weighted_scores as any)?.[key] ?? (finalScore * effectiveWeight / 100)
+      return {
+        criterionId: key,
+        label,
+        score: finalScore,
+        weight: effectiveWeight,
+        weightedScore,
+        isApplicable,
+        explanation,
+      }
+    })
+    .filter(Boolean) as any[]
+
+  const skillsObj = candidateScores.find((s) => s.criterionId === 'skills')
+  const respObj = candidateScores.find((s) => s.criterionId === 'responsibilities')
+  const is5050 = skillsObj?.weight === 50 && respObj?.weight === 50
+  const direct5050Score = is5050 && skillsObj && respObj
+    ? Number((skillsObj.weightedScore + respObj.weightedScore).toFixed(1))
+    : (ranking?.final_score ?? score.final_score)
+
+  const recommendation = ranking?.recommendation ?? score.recommendation
+  const isKnockedOut = ranking?.is_knocked_out ?? score.is_knocked_out
+  const knockoutReason = ranking?.knockout_reason ?? score.knockout_reason
+
+  return {
+    id: score.document_id,
+    documentId: score.document_id,
+    name: ranking?.candidate_name || fallbackName || 'Candidate',
+    email: ranking?.email || fallbackEmail || '',
+    resumeFile: filename || score.document_id,
+    overallScore: direct5050Score,
+    rank: ranking?.rank_position ?? 1,
+    percentile: ranking?.percentile ?? score.confidence,
+    confidence: ranking?.confidence ?? score.confidence,
+    recommendation,
+    isKnockedOut,
+    knockoutReason,
+    rejectionReason: isKnockedOut ? 'knockout' : recommendation === 'REJECT' ? 'below_recommendation_threshold' : undefined,
+    status: recommendationToStatus(recommendation, isKnockedOut, direct5050Score),
+    extractedFields: [],
+    scores: candidateScores,
+    matchVerdicts: score.match_verdicts || (score as any).matchVerdicts || [],
+    passingScore: score.passing_score ?? config.passing_score,
+    effectiveWeights: score.effective_weights,
+    scoreBreakdown: score.score_breakdown || [],
+    scoredAt: new Date(score.created_at || (ranking?.created_at ?? Date.now())),
+    isProcessing: false,
+  }
+}
+
+function buildPendingCandidate(
+  docId: string,
+  fallbackName: string,
+  fallbackEmail: string,
+  filename: string,
+): Candidate {
+  return {
+    id: docId,
+    documentId: docId,
+    name: fallbackName || filename || 'Candidate',
+    email: fallbackEmail || '',
+    resumeFile: filename || docId,
+    overallScore: -1,
+    rank: 999,
+    recommendation: 'PENDING',
+    isKnockedOut: false,
+    status: 'pending',
+    extractedFields: [],
+    scores: [],
+    isProcessing: true,
+  }
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function CandidateRanking() {
   const { state, dispatch } = usePipeline()
@@ -653,6 +760,12 @@ export default function CandidateRanking() {
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [requestedDocumentId] = useState(() => (location.state as { selectedDocumentId?: string } | null)?.selectedDocumentId)
 
+  // Live scoring state
+  const [isScoringInProgress, setIsScoringInProgress] = useState(false)
+  const [scoringProgress, setScoringProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 })
+  const [scoringError, setScoringError] = useState<string | null>(null)
+  const pollIntervalRef = React.useRef<NodeJS.Timeout | null>(null)
+
   const candidates: Candidate[] = state.candidates
 
   // Auto-open drawer if navigated with a specific document
@@ -662,127 +775,249 @@ export default function CandidateRanking() {
     if (requested) setSelectedCandidate(requested)
   }, [candidates, requestedDocumentId, selectedCandidate])
 
-  const mapRankings = useCallback((rankings: ApiCandidateRanking[], scores: ApiCandidateScore[], config: WeightConfig): Candidate[] => {
-    const scoresByDocument = new Map(scores.map((score) => [score.document_id, score]))
-    const components = [
-      ['skills', 'Required Skills'],
-      ['responsibilities', 'Responsibilities'],
-      ['projects', 'Projects'],
-      ['preferred_skills', 'Preferred Skills'],
-      ['experience', 'Experience'],
-      ['certifications', 'Certifications'],
-      ['education', 'Education'],
-      ['languages', 'Languages'],
-    ] as const
-    return rankings.map((ranking) => {
-      const persistedScore = scoresByDocument.get(ranking.document_id)
-      if (!persistedScore) throw new Error(`Score data missing for ${ranking.document_id}.`)
-      const candidateScores = components
-        .map(([key, label]) => {
-          const detail = (persistedScore.component_scores as any)?.[key]
-          if (!detail) return null
-          const explanation = detail.explanation || ''
-          const isApplicable = !(/\(N\/A\)/i.test(explanation) || (key === 'experience' && /against 0 required months/i.test(explanation)))
-          const weightKey = key === 'skills' ? 'required_skills' : key
-          const effectiveWeight = (persistedScore.effective_weights && (persistedScore.effective_weights[weightKey] ?? persistedScore.effective_weights[key])) ?? (config.weights as any)?.[key] ?? (key === 'skills' ? 50 : key === 'responsibilities' ? 50 : 0)
-          const finalScore = (effectiveWeight === 0 || !isApplicable) ? 0 : (detail.score ?? 0)
-          const weightedScore = (persistedScore.weighted_scores as any)?.[key] ?? (finalScore * effectiveWeight / 100)
-          return {
-            criterionId: key,
-            label,
-            score: finalScore,
-            weight: effectiveWeight,
-            weightedScore,
-            isApplicable,
-            explanation,
-          }
-        })
-        .filter(Boolean) as any[]
+  const dummyConfig = React.useMemo<WeightConfig>(() => ({
+    id: '',
+    project_id: state.projectId || '',
+    weights: { required_skills: 50, responsibilities: 50, preferred_skills: 0, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 },
+    passing_score: 60,
+    min_experience_years: 0,
+    required_degree: null,
+    required_certifications: [],
+    mandatory_skills: [],
+    preferred_skills: [],
+    knockout_rules: [],
+    custom_keywords: [],
+    version: 1,
+    created_at: '',
+    updated_at: '',
+  }), [state.projectId])
 
-      const skillsObj = candidateScores.find((s) => s.criterionId === 'skills')
-      const respObj = candidateScores.find((s) => s.criterionId === 'responsibilities')
-      const is5050 = skillsObj?.weight === 50 && respObj?.weight === 50
-      const direct5050Score = is5050 && skillsObj && respObj
-        ? Number((skillsObj.weightedScore + respObj.weightedScore).toFixed(1))
-        : ranking.final_score
+  const buildCandidateMap = useCallback((
+    documents: ApiDocument[],
+    scores: ApiCandidateScore[],
+    rankings: ApiCandidateRanking[],
+    metaMap: Map<string, { name: string; email: string; filename: string }>
+  ): Candidate[] => {
+    const scoresByDoc = new Map(scores.map((s) => [s.document_id, s]))
+    const rankingsByDoc = new Map(rankings.map((r) => [r.document_id, r]))
 
-      return {
-        id: ranking.document_id,
-        documentId: ranking.document_id,
-        name: ranking.candidate_name || 'Candidate',
-        email: ranking.email || '',
-        resumeFile: state.upload.resumes.find((r: any) => r.id === ranking.document_id)?.name || ranking.document_id,
-        overallScore: direct5050Score,
-        rank: ranking.rank_position,
-        percentile: ranking.percentile,
-        confidence: ranking.confidence,
-        recommendation: ranking.recommendation,
-        isKnockedOut: ranking.is_knocked_out,
-        knockoutReason: ranking.knockout_reason,
-        rejectionReason: ranking.is_knocked_out ? 'knockout' : ranking.recommendation === 'REJECT' ? 'below_recommendation_threshold' : undefined,
-        status: recommendationToStatus(ranking.recommendation, ranking.is_knocked_out),
-        extractedFields: [],
-        scores: candidateScores,
-        matchVerdicts: persistedScore.match_verdicts || (persistedScore as any).matchVerdicts || [],
-        passingScore: persistedScore.passing_score ?? config.passing_score,
-        effectiveWeights: persistedScore.effective_weights,
-        scoreBreakdown: persistedScore.score_breakdown || [],
-        scoredAt: new Date(ranking.created_at),
-      }
-    })
-  }, [state.upload.resumes])
+    const result: Candidate[] = []
 
-  const [fetchError, setFetchError] = useState<string | null>(null)
+    for (const doc of documents) {
+      const meta = metaMap.get(doc.id)
+      const filename = meta?.filename || doc.original_filename
+      const fallbackName = meta?.name || filename.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ')
+      const fallbackEmail = meta?.email || ''
 
-  // Load rankings from backend
-  useEffect(() => {
-    if (!state.projectId) { setRankingsLoading(false); return }
-    let active = true
-    setRankingsLoading(true)
-    const dummyConfig: WeightConfig = { id: '', project_id: state.projectId, weights: { required_skills: 50, responsibilities: 50, preferred_skills: 0, projects: 0, experience: 0, education: 0, certifications: 0, languages: 0 }, passing_score: 60, min_experience_years: 0, required_degree: null, required_certifications: [], mandatory_skills: [], preferred_skills: [], knockout_rules: [], custom_keywords: [], version: 1, created_at: '', updated_at: '' }
+      const s = scoresByDoc.get(doc.id)
+      const r = rankingsByDoc.get(doc.id)
 
-    const loadData = async () => {
-      try {
-        let [response, scores] = await Promise.all([
-          api.getRankings(state.projectId!, { page_size: 100 }),
-          api.getProjectScores(state.projectId!),
-        ])
-
-        if ((!response.items || response.items.length === 0) && active) {
-          try {
-            await api.scoreProject(state.projectId!)
-            await api.rankProject(state.projectId!)
-            ;[response, scores] = await Promise.all([
-              api.getRankings(state.projectId!, { page_size: 100 }),
-              api.getProjectScores(state.projectId!),
-            ])
-          } catch {
-            // Ignore if project has no candidates or missing JD
-          }
-        }
-
-        if (active) {
-          const freshMapped = mapRankings(response.items || [], scores || [], dummyConfig)
-          const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
-          const merged = freshMapped.map((c) => {
-            const overrideStatus = existingStatusMap.get(c.id)
-            return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
-          })
-          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
-          setFetchError(null)
-        }
-      } catch (err) {
-        if (active) {
-          setFetchError(err instanceof Error ? err.message : 'Failed to fetch candidate rankings.')
-        }
-      } finally {
-        if (active) setRankingsLoading(false)
+      if (s) {
+        result.push(buildCandidateFromScore(s, r, dummyConfig, fallbackName, fallbackEmail, filename))
+      } else {
+        result.push(buildPendingCandidate(doc.id, fallbackName, fallbackEmail, filename))
       }
     }
 
-    loadData()
-    return () => { active = false }
-  }, [dispatch, mapRankings, state.projectId])
+    // Sort: scored candidates by rank or score descending, then pending candidates
+    return result.sort((a, b) => {
+      if (a.isProcessing && !b.isProcessing) return 1
+      if (!a.isProcessing && b.isProcessing) return -1
+      if (!a.isProcessing && !b.isProcessing) {
+        if (a.rank && b.rank && a.rank !== b.rank && rankings.length > 0) return a.rank - b.rank
+        return b.overallScore - a.overallScore
+      }
+      return 0
+    })
+  }, [dummyConfig])
+
+  // Orchestrate progressive scoring and ranking
+  const startScoringFlow = useCallback(async (forceRetry = false) => {
+    if (!state.projectId) {
+      setRankingsLoading(false)
+      return
+    }
+
+    const projectId = state.projectId
+    setScoringError(null)
+
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+
+    try {
+      // 1. Fetch current documents, scores, and rankings
+      const [resumesRes, initialScoresRes, initialRankingsRes] = await Promise.all([
+        api.listProjectResumes(projectId).catch(() => ({ items: [], total: 0 })),
+        api.getProjectScores(projectId).catch(() => []),
+        api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+      ])
+
+      const docList: ApiDocument[] = resumesRes.items || []
+      const initialScores: ApiCandidateScore[] = Array.isArray(initialScoresRes) ? initialScoresRes : []
+      const initialRankings: ApiCandidateRanking[] = Array.isArray(initialRankingsRes.items) ? initialRankingsRes.items : []
+
+      if (docList.length === 0) {
+        setRankingsLoading(false)
+        setIsScoringInProgress(false)
+        return
+      }
+
+      // Metadata lookup map (names, emails)
+      const metaMap = new Map<string, { name: string; email: string; filename: string }>()
+      for (const r of state.upload.resumes) {
+        metaMap.set(r.id, {
+          name: r.name ? r.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') : 'Candidate',
+          email: '',
+          filename: r.name,
+        })
+      }
+
+      // Attempt to load candidate names from normalized documents
+      try {
+        const normDocs = await Promise.all(
+          docList.map(async (doc) => {
+            try {
+              const res = await api.getNormalizedDocument(doc.id)
+              const data = (res && 'data' in res) ? (res as any).data : res
+              return { id: doc.id, data }
+            } catch {
+              return null
+            }
+          })
+        )
+        for (const item of normDocs) {
+          if (item && item.data && typeof item.data === 'object' && item.data.candidate_name) {
+            metaMap.set(item.id, {
+              name: item.data.candidate_name,
+              email: item.data.email || '',
+              filename: metaMap.get(item.id)?.filename || '',
+            })
+          }
+        }
+      } catch {
+        // Fallback to filenames
+      }
+
+      // Check if scoring is already 100% complete
+      const isComplete = !forceRetry &&
+        initialScores.length >= docList.length &&
+        initialRankings.length >= docList.length
+
+      if (isComplete) {
+        const mapped = buildCandidateMap(docList, initialScores, initialRankings, metaMap)
+        const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
+        const merged = mapped.map((c) => {
+          const overrideStatus = existingStatusMap.get(c.id)
+          return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
+        })
+        dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
+        setRankingsLoading(false)
+        setIsScoringInProgress(false)
+        setScoringProgress({ completed: initialScores.length, total: docList.length })
+        return
+      }
+
+      // Scoring is needed or in progress!
+      // Immediately render candidates with existing scores or pending state
+      const initialMapped = buildCandidateMap(docList, initialScores, initialRankings, metaMap)
+      const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
+      const initialMerged = initialMapped.map((c) => {
+        const overrideStatus = existingStatusMap.get(c.id)
+        return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
+      })
+      dispatch({ type: 'SET_RANKED_CANDIDATES', payload: initialMerged })
+      setRankingsLoading(false)
+      setIsScoringInProgress(true)
+      setScoringProgress({ completed: initialScores.length, total: docList.length })
+
+      // Trigger background scoring if not already running for this project
+      if (!inFlightScoringProjects.has(projectId) || forceRetry) {
+        inFlightScoringProjects.add(projectId)
+        api.scoreProject(projectId)
+          .then(async () => {
+            await api.rankProject(projectId)
+          })
+          .catch((err) => {
+            console.error('Backend scoring error:', err)
+            setScoringError(err instanceof Error ? err.message : 'Candidate scoring failed. Please retry.')
+          })
+          .finally(() => {
+            inFlightScoringProjects.delete(projectId)
+          })
+      }
+
+      // Start polling getProjectScores every 2500ms
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const [currentScores, currentRankings] = await Promise.all([
+            api.getProjectScores(projectId).catch(() => []),
+            api.getRankings(projectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+          ])
+
+          const activeScores: ApiCandidateScore[] = Array.isArray(currentScores) ? currentScores : []
+          const activeRankings: ApiCandidateRanking[] = Array.isArray(currentRankings.items) ? currentRankings.items : []
+
+          setScoringProgress({ completed: activeScores.length, total: docList.length })
+
+          // Progressively update candidates in UI
+          const updatedMapped = buildCandidateMap(docList, activeScores, activeRankings, metaMap)
+          const currentStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
+          const updatedMerged = updatedMapped.map((c) => {
+            const overrideStatus = currentStatusMap.get(c.id)
+            return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
+          })
+          dispatch({ type: 'SET_RANKED_CANDIDATES', payload: updatedMerged })
+
+          // Check completion
+          const isDone = (!inFlightScoringProjects.has(projectId) && activeScores.length >= docList.length)
+          if (isDone) {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            // Ensure rank is computed
+            try {
+              await api.rankProject(projectId)
+              const [finalRanks, finalScs] = await Promise.all([
+                api.getRankings(projectId, { page_size: 100 }),
+                api.getProjectScores(projectId),
+              ])
+              const finalMapped = buildCandidateMap(docList, finalScs || [], finalRanks.items || [], metaMap)
+              dispatch({ type: 'SET_RANKED_CANDIDATES', payload: finalMapped })
+            } catch {
+              // Ignore ranking fallback error
+            }
+            setIsScoringInProgress(false)
+          } else if (!inFlightScoringProjects.has(projectId) && activeScores.length < docList.length) {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            setIsScoringInProgress(false)
+          }
+        } catch (pollErr) {
+          console.warn('Poll error:', pollErr)
+        }
+      }, 2500)
+
+    } catch (err) {
+      setRankingsLoading(false)
+      setIsScoringInProgress(false)
+      setScoringError(err instanceof Error ? err.message : 'Failed to initialize candidate shortlisting.')
+    }
+  }, [buildCandidateMap, dispatch, state.candidates, state.projectId, state.upload.resumes])
+
+  useEffect(() => {
+    void startScoringFlow()
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
+  }, [state.projectId])
 
 
   // Derived data
@@ -793,7 +1028,12 @@ export default function CandidateRanking() {
       const matchStatus = filterStatus === 'all' || c.status === filterStatus
       return matchSearch && matchStatus
     })
-    .sort((a, b) => a.rank - b.rank)
+    .sort((a, b) => {
+      if (b.overallScore !== a.overallScore) {
+        return b.overallScore - a.overallScore
+      }
+      return a.rank - b.rank
+    })
 
   const shortlisted = candidates.filter((c) => c.status === 'screened').length
   const needsReview = candidates.filter((c) => c.status === 'pending').length
@@ -868,6 +1108,75 @@ export default function CandidateRanking() {
           </div>
         </motion.div>
 
+        {/* ── AI Evaluation In Progress Banner ── */}
+        {isScoringInProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/90 via-sky-50/80 to-indigo-50/90 border border-blue-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Loader2 size={20} className="animate-spin" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Candidate Scoring & AI Evaluation in Progress
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold uppercase tracking-wider">
+                    Live
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Evaluating candidate resumes against job requirements and responsibilities. Results update automatically.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+              <div className="text-right">
+                <span className="text-xs font-bold text-slate-900">
+                  {scoringProgress.completed} of {scoringProgress.total}
+                </span>
+                <span className="text-[11px] text-slate-500 ml-1 font-medium">completed</span>
+              </div>
+              <div className="w-28 h-2 bg-blue-200/60 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${scoringProgress.total > 0 ? (scoringProgress.completed / scoringProgress.total) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Scoring Error Banner with Retry ── */}
+        {scoringError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-2xl bg-red-50 border border-red-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-red-800"
+          >
+            <div className="flex items-center gap-3">
+              <AlertCircle size={20} className="text-red-600 shrink-0" />
+              <div>
+                <p className="text-xs font-bold">Candidate evaluation encountered an issue</p>
+                <p className="text-xs text-red-600 mt-0.5">{scoringError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void startScoringFlow(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors shrink-0"
+            >
+              <RefreshCw size={13} />
+              <span>Retry Scoring</span>
+            </button>
+          </motion.div>
+        )}
+
         {/* ── Candidate Table ── */}
         <motion.div variants={fadeUp} className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
 
@@ -900,17 +1209,10 @@ export default function CandidateRanking() {
             >
               <option value="all">All Candidates</option>
               <option value="screened">Shortlisted</option>
+              <option value="pending">Under Review</option>
               <option value="rejected">Not Relevant</option>
             </select>
           </div>
-
-          {/* Error notification strip */}
-          {fetchError && (
-            <div className="flex items-center gap-2 px-6 py-3 bg-red-50 border-b border-red-200 text-red-700 text-xs font-semibold">
-              <AlertCircle size={14} />
-              <span>{fetchError}</span>
-            </div>
-          )}
 
           {/* Table */}
           {rankingsLoading ? (
@@ -942,21 +1244,23 @@ export default function CandidateRanking() {
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
                           transition={{ delay: idx * 0.03 }}
-                          className="hover:bg-slate-50/70 cursor-pointer transition-colors group"
-                          onClick={() => setSelectedCandidate(candidate)}
+                          className={`${candidate.isProcessing ? 'bg-slate-50/40 cursor-default' : 'hover:bg-slate-50/70 cursor-pointer'} transition-colors group`}
+                          onClick={() => {
+                            if (!candidate.isProcessing) setSelectedCandidate(candidate)
+                          }}
                         >
                           {/* Candidate */}
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3.5">
                               <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 font-bold text-xs shrink-0 shadow-2xs">
-                                {candidate.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                {candidate.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() || 'C'}
                               </div>
                               <div className="min-w-0">
                                 <div className="font-bold text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors">
                                   {candidate.name}
                                 </div>
                                 <div className="text-xs text-slate-500 font-normal truncate mt-0.5">
-                                  {candidate.email}
+                                  {candidate.email || candidate.resumeFile}
                                 </div>
                               </div>
                             </div>
@@ -964,65 +1268,92 @@ export default function CandidateRanking() {
 
                           {/* Score & Band */}
                           <td className="px-6 py-4">
-                            <div className="flex items-center gap-3.5">
-                              <div className="flex flex-col">
-                                <div className="flex items-baseline gap-1">
-                                  <span className="text-base font-extrabold text-slate-900 leading-none">
-                                    {Math.round(candidate.overallScore)}%
-                                  </span>
+                            {candidate.isProcessing ? (
+                              <div className="flex items-center gap-2.5">
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50/90 border border-blue-200/80 text-blue-700 text-xs font-semibold">
+                                  <Loader2 size={13} className="animate-spin text-blue-600 shrink-0" />
+                                  <span>Scoring…</span>
                                 </div>
-                                <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all duration-500 ${
-                                      candidate.overallScore >= 70
-                                        ? 'bg-emerald-500'
-                                        : candidate.overallScore >= 45
-                                        ? 'bg-amber-500'
-                                        : 'bg-rose-500'
-                                    }`}
-                                    style={{ width: `${Math.min(100, Math.max(0, candidate.overallScore))}%` }}
-                                  />
+                                <span className="px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border border-amber-200 bg-amber-50 text-amber-700 shadow-2xs">
+                                  <HelpCircle size={13} className="text-amber-500" />
+                                  <span>Under Review</span>
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-3.5">
+                                <div className="flex flex-col">
+                                  <div className="flex items-baseline gap-1">
+                                    <span className="text-base font-extrabold text-slate-900 leading-none">
+                                      {Math.round(candidate.overallScore)}%
+                                    </span>
+                                  </div>
+                                  <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all duration-500 ${
+                                        candidate.overallScore >= 70
+                                          ? 'bg-emerald-500'
+                                          : candidate.overallScore >= 45
+                                          ? 'bg-amber-500'
+                                          : 'bg-rose-500'
+                                      }`}
+                                      style={{ width: `${Math.min(100, Math.max(0, candidate.overallScore))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border shadow-2xs ${recConfig.cls}`}>
+                                  <recConfig.Icon size={13} className={recConfig.iconColor} />
+                                  <span>{recConfig.label}</span>
                                 </div>
                               </div>
-                              <div className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border shadow-2xs ${recConfig.cls}`}>
-                                <recConfig.Icon size={13} className={recConfig.iconColor} />
-                                <span>{recConfig.label}</span>
-                              </div>
-                            </div>
+                            )}
                           </td>
 
                           {/* Screening Status */}
                           <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                            <select
-                              className={`text-xs font-bold border rounded-xl px-3.5 py-2 outline-none transition-all cursor-pointer shadow-2xs ${
-                                candidate.status === 'screened'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80'
-                                  : candidate.status === 'pending'
-                                  ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80'
-                                  : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100/80'
-                              }`}
-                              value={candidate.status}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                updateStatus(candidate.id, e.target.value as ScreeningStatus)
-                              }}
-                            >
-                              <option value="screened" className="bg-white text-slate-800 font-semibold">Shortlisted</option>
-                              <option value="rejected" className="bg-white text-slate-800 font-semibold">Not Relevant</option>
-                            </select>
+                            {candidate.isProcessing ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                <span>Under Review</span>
+                              </span>
+                            ) : (
+                              <select
+                                className={`text-xs font-bold border rounded-xl px-3.5 py-2 outline-none transition-all cursor-pointer shadow-2xs ${
+                                  candidate.status === 'screened'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80'
+                                    : candidate.status === 'pending'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80'
+                                    : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100/80'
+                                }`}
+                                value={candidate.status}
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  updateStatus(candidate.id, e.target.value as ScreeningStatus)
+                                }}
+                              >
+                                <option value="screened" className="bg-white text-slate-800 font-semibold">Shortlisted</option>
+                                <option value="pending" className="bg-white text-slate-800 font-semibold">Under Review</option>
+                                <option value="rejected" className="bg-white text-slate-800 font-semibold">Not Relevant</option>
+                              </select>
+                            )}
                           </td>
 
                           {/* Explain / View Details */}
                           <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                            <motion.button
-                              type="button"
-                              className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 px-3.5 py-2 rounded-xl hover:bg-blue-50 border border-blue-200/80 bg-white transition-all shadow-2xs cursor-pointer"
-                              onClick={(e) => { e.stopPropagation(); setSelectedCandidate(candidate) }}
-                              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                            >
-                              <Sparkles size={13} className="text-blue-500" />
-                              <span>Explain</span>
-                            </motion.button>
+                            {candidate.isProcessing ? (
+                              <span className="text-[11px] text-slate-400 font-medium italic">
+                                Pending AI review
+                              </span>
+                            ) : (
+                              <motion.button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 px-3.5 py-2 rounded-xl hover:bg-blue-50 border border-blue-200/80 bg-white transition-all shadow-2xs cursor-pointer"
+                                onClick={(e) => { e.stopPropagation(); setSelectedCandidate(candidate) }}
+                                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                              >
+                                <Sparkles size={13} className="text-blue-500" />
+                                <span>Explain</span>
+                              </motion.button>
+                            )}
                           </td>
                         </motion.tr>
                       )

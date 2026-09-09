@@ -99,9 +99,11 @@ class Settings(BaseSettings):
     GROQ_TPM_SAFETY_MARGIN: float = Field(default=0.125, ge=0.0, le=0.5)
     GROQ_ESTIMATED_OUTPUT_TOKENS: int = Field(default=350, ge=50, le=4096)
     GROQ_MAX_COMPLETION_TOKENS: int = Field(default=4096, ge=512, le=8192)
+    GROQ_BUDGET_WAIT_TIMEOUT_SECONDS: float = Field(default=90.0, ge=5.0, le=300.0)
     ENABLE_AI_RESUME_EXTRACTION: bool = False
     AI_EXTRACTION_TIMEOUT_SECONDS: float = 30.0
 
+    ENABLE_CEREBRAS_FALLBACK: bool = False
     CEREBRAS_API_KEY: str | None = None
     CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
     CEREBRAS_MODEL: str = "gpt-oss-120b"
