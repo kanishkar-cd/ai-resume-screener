@@ -643,8 +643,15 @@ function ExplanationDrawer({ candidate, projectId, jdDocumentId, assessmentCandi
   )
 }
 
-// Module-level guard to prevent duplicate background scoring promises
-const inFlightScoringProjects = new Set<string>()
+interface InFlightScoringResult {
+  docList: ApiDocument[]
+  finalScores: ApiCandidateScore[]
+  finalRankings: ApiCandidateRanking[]
+  metaMap: Map<string, { name: string; email: string; filename: string }>
+}
+
+// Module-level promise cache to deduplicate concurrent in-flight scoring requests per project
+const inFlightScoringPromises = new Map<string, Promise<InFlightScoringResult>>()
 
 function buildCandidateFromScore(
   score: ApiCandidateScore,
@@ -744,6 +751,11 @@ export default function CandidateRanking() {
   const [scoringError, setScoringError] = useState<string | null>(null)
 
   const candidates: Candidate[] = state.candidates
+  const candidatesRef = React.useRef(candidates)
+  candidatesRef.current = candidates
+
+  const uploadResumesRef = React.useRef(state.upload.resumes)
+  uploadResumesRef.current = state.upload.resumes
 
   // Auto-open drawer if navigated with a specific document
   useEffect(() => {
@@ -814,105 +826,112 @@ export default function CandidateRanking() {
     setRankingsLoading(true)
 
     try {
-      // 1. Fetch current documents, scores, and rankings
-      const [resumesRes, initialScoresRes, initialRankingsRes] = await Promise.all([
-        api.listProjectResumes(targetProjectId).catch(() => ({ items: [], total: 0 })),
-        api.getProjectScores(targetProjectId).catch(() => []),
-        api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
-      ])
+      let scoringPromise = inFlightScoringPromises.get(targetProjectId)
 
-      const docList: ApiDocument[] = resumesRes.items || []
-      const initialScores: ApiCandidateScore[] = Array.isArray(initialScoresRes) ? initialScoresRes : []
-      const initialRankings: ApiCandidateRanking[] = Array.isArray(initialRankingsRes.items) ? initialRankingsRes.items : []
+      if (!scoringPromise || forceRetry) {
+        scoringPromise = (async (): Promise<InFlightScoringResult> => {
+          // 1. Fetch current documents, scores, and rankings
+          const [resumesRes, initialScoresRes, initialRankingsRes] = await Promise.all([
+            api.listProjectResumes(targetProjectId).catch(() => ({ items: [], total: 0 })),
+            api.getProjectScores(targetProjectId).catch(() => []),
+            api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+          ])
+
+          const docList: ApiDocument[] = resumesRes.items || []
+          const initialScores: ApiCandidateScore[] = Array.isArray(initialScoresRes) ? initialScoresRes : []
+          const initialRankings: ApiCandidateRanking[] = Array.isArray(initialRankingsRes.items) ? initialRankingsRes.items : []
+
+          if (docList.length === 0) {
+            return {
+              docList: [],
+              finalScores: [],
+              finalRankings: [],
+              metaMap: new Map(),
+            }
+          }
+
+          // Metadata lookup map (names, emails)
+          const metaMap = new Map<string, { name: string; email: string; filename: string }>()
+          for (const r of uploadResumesRef.current) {
+            metaMap.set(r.id, {
+              name: r.name ? r.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') : 'Candidate',
+              email: '',
+              filename: r.name,
+            })
+          }
+
+          // Attempt to load candidate names from normalized documents
+          try {
+            const normDocs = await Promise.all(
+              docList.map(async (doc) => {
+                try {
+                  const res = await api.getNormalizedDocument(doc.id)
+                  const data = (res && 'data' in res) ? (res as any).data : res
+                  return { id: doc.id, data }
+                } catch {
+                  return null
+                }
+              })
+            )
+            for (const item of normDocs) {
+              if (item && item.data && typeof item.data === 'object' && item.data.candidate_name) {
+                metaMap.set(item.id, {
+                  name: item.data.candidate_name,
+                  email: item.data.email || '',
+                  filename: metaMap.get(item.id)?.filename || '',
+                })
+              }
+            }
+          } catch {
+            // Fallback to filenames
+          }
+
+          // Check if scoring and ranking are already 100% complete
+          const isComplete = !forceRetry &&
+            initialScores.length >= docList.length &&
+            initialRankings.length >= docList.length &&
+            docList.length > 0
+
+          if (isComplete) {
+            return {
+              docList,
+              finalScores: initialScores,
+              finalRankings: initialRankings,
+              metaMap,
+            }
+          }
+
+          // Scoring and ranking execution
+          await api.scoreProject(targetProjectId)
+          await api.rankProject(targetProjectId)
+
+          // Fetch final complete scores & rankings
+          const [finalScoresRes, finalRankingsRes] = await Promise.all([
+            api.getProjectScores(targetProjectId).catch(() => []),
+            api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
+          ])
+
+          return {
+            docList,
+            finalScores: Array.isArray(finalScoresRes) ? finalScoresRes : [],
+            finalRankings: Array.isArray(finalRankingsRes.items) ? finalRankingsRes.items : [],
+            metaMap,
+          }
+        })()
+
+        inFlightScoringPromises.set(targetProjectId, scoringPromise)
+      }
+
+      setIsScoringInProgress(true)
+      const { docList, finalScores, finalRankings, metaMap } = await scoringPromise
 
       if (docList.length === 0) {
         dispatch({ type: 'SET_RANKED_CANDIDATES', payload: [] })
-        setRankingsLoading(false)
-        setIsScoringInProgress(false)
         return
       }
 
-      // Metadata lookup map (names, emails)
-      const metaMap = new Map<string, { name: string; email: string; filename: string }>()
-      for (const r of state.upload.resumes) {
-        metaMap.set(r.id, {
-          name: r.name ? r.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ') : 'Candidate',
-          email: '',
-          filename: r.name,
-        })
-      }
-
-      // Attempt to load candidate names from normalized documents
-      try {
-        const normDocs = await Promise.all(
-          docList.map(async (doc) => {
-            try {
-              const res = await api.getNormalizedDocument(doc.id)
-              const data = (res && 'data' in res) ? (res as any).data : res
-              return { id: doc.id, data }
-            } catch {
-              return null
-            }
-          })
-        )
-        for (const item of normDocs) {
-          if (item && item.data && typeof item.data === 'object' && item.data.candidate_name) {
-            metaMap.set(item.id, {
-              name: item.data.candidate_name,
-              email: item.data.email || '',
-              filename: metaMap.get(item.id)?.filename || '',
-            })
-          }
-        }
-      } catch {
-        // Fallback to filenames
-      }
-
-      // Check if scoring and ranking are already 100% complete
-      const isComplete = !forceRetry &&
-        initialScores.length >= docList.length &&
-        initialRankings.length >= docList.length &&
-        docList.length > 0
-
-      if (isComplete) {
-        const mapped = buildCandidateMap(docList, initialScores, initialRankings, metaMap)
-        const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
-        const merged = mapped.map((c) => {
-          const overrideStatus = existingStatusMap.get(c.id)
-          return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
-        })
-        dispatch({ type: 'SET_RANKED_CANDIDATES', payload: merged })
-        setRankingsLoading(false)
-        setIsScoringInProgress(false)
-        return
-      }
-
-      // Scoring needed: keep loading symbol alone, NO live/partial data
-      setIsScoringInProgress(true)
-
-      if (!inFlightScoringProjects.has(targetProjectId) || forceRetry) {
-        inFlightScoringProjects.add(targetProjectId)
-        try {
-          await api.scoreProject(targetProjectId)
-          await api.rankProject(targetProjectId)
-        } finally {
-          inFlightScoringProjects.delete(targetProjectId)
-        }
-      }
-
-      // Fetch final complete scores & rankings
-      const [finalScores, finalRankings] = await Promise.all([
-        api.getProjectScores(targetProjectId).catch(() => []),
-        api.getRankings(targetProjectId, { page_size: 100 }).catch(() => ({ items: [], total: 0 })),
-      ])
-
-      const finalMapped = buildCandidateMap(
-        docList,
-        Array.isArray(finalScores) ? finalScores : [],
-        Array.isArray(finalRankings.items) ? finalRankings.items : [],
-        metaMap
-      )
-      const existingStatusMap = new Map(state.candidates.map((c) => [c.id, c.status]))
+      const finalMapped = buildCandidateMap(docList, finalScores, finalRankings, metaMap)
+      const existingStatusMap = new Map(candidatesRef.current.map((c) => [c.id, c.status]))
       const finalMerged = finalMapped.map((c) => {
         const overrideStatus = existingStatusMap.get(c.id)
         return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
@@ -922,10 +941,11 @@ export default function CandidateRanking() {
       console.error('Failed to load candidate rankings:', err)
       setScoringError(err instanceof Error ? err.message : 'Failed to score and rank candidates.')
     } finally {
+      inFlightScoringPromises.delete(targetProjectId)
       setRankingsLoading(false)
       setIsScoringInProgress(false)
     }
-  }, [buildCandidateMap, dispatch, state.candidates, projectId, state.upload.resumes])
+  }, [buildCandidateMap, dispatch, projectId])
 
   useEffect(() => {
     void startScoringFlow()
@@ -964,7 +984,7 @@ export default function CandidateRanking() {
   }
 
   // If loading or scoring is in progress, show clear, user-friendly loading state
-  if (rankingsLoading || isScoringInProgress) {
+  if (rankingsLoading || isScoringInProgress || (state.upload.resumes.length > 0 && candidates.length === 0 && !scoringError)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[65vh] gap-4 py-16">
         <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-blue-600 animate-spin" />

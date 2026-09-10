@@ -2992,10 +2992,14 @@ class GroqMatchEvaluator:
         self, requirements: list[Requirement], evidence: list[Evidence],
         allowed_evidence: dict[str, set[str]] | None = None,
     ) -> dict[str, Any]:
+        # NOTE: "requirement_type" is intentionally omitted -- only RESPONSIBILITY/PROJECT_RELEVANCE
+        # requirements ever reach this payload (SKILL kinds are scored 100% deterministically upstream
+        # in HybridMatchingService), so the field was always the constant "responsibility" and carried
+        # no information the model could use to distinguish requirements. Dropping it cuts input tokens
+        # on every Groq call with no change to what the model can infer.
         req_list = [
             {
                 "requirement_id": r.requirement_id,
-                "requirement_type": "skill" if getattr(r.kind, "value", str(r.kind)) in {"skill", "required_skills", "preferred_skills"} else "responsibility",
                 "kind": getattr(r.kind, "value", str(r.kind)),
                 "text": r.text,
                 "required": r.required,
@@ -3008,12 +3012,16 @@ class GroqMatchEvaluator:
         if allowed_evidence:
             for ids in allowed_evidence.values():
                 relevant_ev_ids.update(ids)
+        # NOTE: "canonical_terms" is intentionally omitted from the wire payload -- EvidenceBuilder
+        # already appends those same terms (technologies/skills/degree/cert/language names) into the
+        # evidence's `text` field for deterministic/lexical matching, so re-serializing them here as a
+        # separate JSON array duplicates content the model already sees in `text` without adding any
+        # new information, purely inflating token usage per call.
         ev_list = [
             {
                 "evidence_id": e.evidence_id,
                 "kind": e.kind,
                 "text": e.text[:400] if len(e.text) > 400 else e.text,
-                "canonical_terms": e.canonical_terms[:10] if e.canonical_terms else [],
             }
             for e in evidence
             if not relevant_ev_ids or e.evidence_id in relevant_ev_ids

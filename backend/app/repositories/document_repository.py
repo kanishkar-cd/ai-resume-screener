@@ -37,7 +37,9 @@ class DocumentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, document: DocumentCreate) -> DocumentModel:
+    async def create(
+        self, document: DocumentCreate, *, commit: bool = True, refresh: bool = True
+    ) -> DocumentModel:
         values = document.model_dump()
         values["document_type"] = DocumentTypeEnum(values["document_type"])
         values["processing_stage"] = ProcessingStageEnum(values["processing_stage"])
@@ -46,13 +48,28 @@ class DocumentRepository:
         )
         model = DocumentModel(**values)
         self.session.add(model)
-        t0 = perf_counter()
-        await self.session.commit()
-        t_commit = (perf_counter() - t0) * 1000
-        t0 = perf_counter()
-        await self.session.refresh(model)
-        t_refresh = (perf_counter() - t0) * 1000
-        logger.info("[DB_DOCUMENT_TIMING] create() committed", commit_ms=round(t_commit, 2), refresh_ms=round(t_refresh, 2))
+        if commit:
+            t0 = perf_counter()
+            await self.session.commit()
+            t_commit = (perf_counter() - t0) * 1000
+            t_refresh = 0.0
+            if refresh:
+                t0 = perf_counter()
+                await self.session.refresh(model)
+                t_refresh = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] create() committed", commit_ms=round(t_commit, 2), refresh_ms=round(t_refresh, 2))
+        else:
+            # Caller (e.g. a batch upload) will commit once for the whole batch --
+            # flush is enough to populate the client-side UUID default on `model.id`.
+            t0 = perf_counter()
+            await self.session.flush()
+            t_flush = (perf_counter() - t0) * 1000
+            t_refresh = 0.0
+            if refresh:
+                t0 = perf_counter()
+                await self.session.refresh(model)
+                t_refresh = (perf_counter() - t0) * 1000
+            logger.info("[DB_DOCUMENT_TIMING] create() flushed", flush_ms=round(t_flush, 2), refresh_ms=round(t_refresh, 2))
         return model
 
     async def get_by_hash(
@@ -148,6 +165,26 @@ class DocumentRepository:
     async def get_by_id(self, document_id: UUID) -> DocumentModel | None:
         """Backward-compatible active document lookup."""
         return await self.get_document(document_id)
+
+    async def get_documents_by_ids(self, document_ids: list[UUID]) -> list[DocumentModel]:
+        """Bulk-fetch active documents by id in a single round trip (avoids N+1 get_document loops)."""
+        if not document_ids:
+            return []
+        t0 = perf_counter()
+        result = await self.session.scalars(
+            select(DocumentModel).where(
+                DocumentModel.id.in_(document_ids),
+                DocumentModel.deleted_at.is_(None),
+            )
+        )
+        documents = list(result.all())
+        logger.info(
+            "[DB_DOCUMENT_TIMING] get_documents_by_ids() query",
+            requested_count=len(document_ids),
+            returned_count=len(documents),
+            duration_ms=round((perf_counter() - t0) * 1000, 2),
+        )
+        return documents
 
     async def download_document(self, document_id: UUID) -> DocumentModel | None:
         """Return active metadata needed to resolve a physical download."""

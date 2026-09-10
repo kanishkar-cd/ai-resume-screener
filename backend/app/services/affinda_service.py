@@ -1,3 +1,4 @@
+import time
 from asyncio import to_thread
 from pathlib import Path
 from time import perf_counter
@@ -10,9 +11,56 @@ from app.core.config import Settings, get_settings
 
 logger = structlog.get_logger(__name__)
 
+_PERMANENT_FAILURE_STATUS_CODES = {401, 402, 403, 404}
+
 
 class AffindaError(Exception):
     """Safe provider failure. Callers must fall back to the local pipeline."""
+
+
+class AffindaCircuitBreaker:
+    """Skip repeated Affinda calls once a permanent, account-level failure is seen.
+
+    Errors like invalid auth or an exhausted parsing-credit balance are not
+    per-document -- they fail identically for every document in a batch. Without
+    this, each document still pays the full file-upload round trip to Affinda
+    before falling back locally. A cooldown lets the breaker self-heal (e.g. once
+    credits are topped up) without requiring a process restart.
+    """
+
+    _instance: "AffindaCircuitBreaker | None" = None
+
+    def __init__(self, cooldown_seconds: float = 60.0) -> None:
+        self.cooldown_seconds = cooldown_seconds
+        self._open = False
+        self._opened_at = 0.0
+        self._reason: str | None = None
+
+    @classmethod
+    def get_breaker(cls, cooldown_seconds: float = 60.0) -> "AffindaCircuitBreaker":
+        if cls._instance is None:
+            cls._instance = cls(cooldown_seconds)
+        else:
+            cls._instance.cooldown_seconds = cooldown_seconds
+        return cls._instance
+
+    @classmethod
+    def reset_breaker(cls) -> None:
+        cls._instance = None
+
+    def can_call(self) -> bool:
+        if not self._open:
+            return True
+        return (time.monotonic() - self._opened_at) >= self.cooldown_seconds
+
+    def record_permanent_failure(self, reason: str) -> None:
+        self._open = True
+        self._opened_at = time.monotonic()
+        self._reason = reason
+
+    def record_success(self) -> None:
+        self._open = False
+        self._reason = None
 
 
 class AffindaService:
@@ -42,6 +90,17 @@ class AffindaService:
                 document_type_configured=bool(document_type),
             )
             raise AffindaError("Affinda is not configured.")
+        breaker = AffindaCircuitBreaker.get_breaker(
+            getattr(self.settings, "AFFINDA_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 60.0)
+        )
+        if not breaker.can_call():
+            logger.warning(
+                "[AFFINDA] circuit open, skipping request",
+                document_type="resume" if document_type == self.settings.AFFINDA_RESUME_DOCUMENT_TYPE_ID else "job_description",
+                filename=filename,
+                reason=breaker._reason,
+            )
+            raise AffindaError(f"Affinda circuit open: {breaker._reason or 'previous permanent failure'}")
         started_at = perf_counter()
         provider_kind = "resume" if document_type == self.settings.AFFINDA_RESUME_DOCUMENT_TYPE_ID else "job_description"
         logger.info(
@@ -95,6 +154,8 @@ class AffindaService:
             )
             raise AffindaError("Affinda returned a malformed response.") from exc
         if response.status_code not in {200, 201}:
+            if response.status_code in _PERMANENT_FAILURE_STATUS_CODES:
+                breaker.record_permanent_failure(f"http_{response.status_code}")
             logger.warning(
                 "[AFFINDA] response failed",
                 document_type=provider_kind,
@@ -112,12 +173,13 @@ class AffindaService:
             import asyncio
             max_polls = 20
             poll_count = 0
-            while poll_count < max_polls:
-                await asyncio.sleep(1.0)
-                poll_count += 1
-                try:
-                    async with httpx.AsyncClient(timeout=self.settings.AFFINDA_TIMEOUT_SECONDS) as client:
-                        get_resp = await client.get(
+            poll_timeout = getattr(self.settings, "AFFINDA_POLL_TIMEOUT_SECONDS", 15.0)
+            async with httpx.AsyncClient(timeout=poll_timeout) as poll_client:
+                while poll_count < max_polls:
+                    await asyncio.sleep(1.0)
+                    poll_count += 1
+                    try:
+                        get_resp = await poll_client.get(
                             f"{endpoint}/{identifier}",
                             headers={"Authorization": f"Bearer {self.settings.AFFINDA_API_KEY}"},
                         )
@@ -130,8 +192,8 @@ class AffindaService:
                                     break
                                 if meta.get("failed"):
                                     break
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
             raise AffindaError("Affinda response did not contain structured data.")
@@ -147,6 +209,7 @@ class AffindaService:
                 duration_ms=round((perf_counter() - started_at) * 1000, 2),
             )
             raise AffindaError("Affinda document processing failed.")
+        breaker.record_success()
         logger.info(
             "[AFFINDA] attempt succeeded",
             document_type=provider_kind,

@@ -143,7 +143,9 @@ class Settings(BaseSettings):
     AFFINDA_WORKSPACE_ID: str | None = None
     AFFINDA_RESUME_DOCUMENT_TYPE_ID: str | None = None
     AFFINDA_JD_DOCUMENT_TYPE_ID: str | None = None
-    AFFINDA_TIMEOUT_SECONDS: float = 240.0
+    AFFINDA_TIMEOUT_SECONDS: float = 30.0
+    AFFINDA_POLL_TIMEOUT_SECONDS: float = 15.0
+    AFFINDA_CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = 60.0
 
     CD_RECRUIT_BASE_URL: str = "http://localhost:3001"
     CD_RECRUIT_API_KEY: str = "pk_live_7f9ec682b7da34e6b9d5fee8ad70be610c1b8d67647a1c99"

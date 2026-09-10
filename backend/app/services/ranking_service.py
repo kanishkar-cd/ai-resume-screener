@@ -68,9 +68,13 @@ class RankingService:
             if not scores:
                 raise NoScoredCandidatesException("No candidates have been scored for this project yet. Please score candidates before computing rankings.")
 
+            documents_by_id = {
+                document.id: document
+                for document in await self.documents.get_documents_by_ids([score.document_id for score in scores])
+            }
             candidates = []
             for score in scores:
-                document = await self.documents.get_document(score.document_id)
+                document = documents_by_id.get(score.document_id)
                 if document is not None:
                     candidates.append((score, document.created_at))
             if not candidates:

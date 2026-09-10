@@ -1,0 +1,292 @@
+{
+  "total_pipeline_time_ms": 428299.7409001691,
+  "stages": {
+    "batch_upload_ms": 23020.289200008847,
+    "parsing_ms": 144323.65230005234,
+    "extraction_ms": 49336.75650006626,
+    "normalization_ms": 36172.423999989405,
+    "frontend_fetches_ms": 6739.347200025804,
+    "scoring_ms": 153093.65530009381,
+    "ranking_ms": 15613.616399932653
+  },
+  "per_resume_uploads": [
+    {
+      "filename": "23cs196_Yogeshwar_R_1390.pdf",
+      "size_bytes": 227209,
+      "disk_io_ms": 24.094799999147654,
+      "hash_check_db_ms": 799.9053000239655,
+      "create_commit_db_ms": 3013.931999914348,
+      "total_upload_ms": 3837.9461999284104,
+      "document_id": "7870fdb5-a12c-44b3-b8e6-53e2413675e0"
+    },
+    {
+      "filename": "Harshini_resume.pdf",
+      "size_bytes": 179987,
+      "disk_io_ms": 11.28249999601394,
+      "hash_check_db_ms": 413.58790011145175,
+      "create_commit_db_ms": 3601.278500049375,
+      "total_upload_ms": 4026.162799913436,
+      "document_id": "f04af2ee-1af4-45b5-8068-b892d5e20c07"
+    },
+    {
+      "filename": "shri ram resume.pdf",
+      "size_bytes": 643279,
+      "disk_io_ms": 55.2979001076892,
+      "hash_check_db_ms": 341.68599999975413,
+      "create_commit_db_ms": 3882.13949999772,
+      "total_upload_ms": 4279.1335000656545,
+      "document_id": "af3317fc-b316-4e57-9f4d-5e1cc2bfd31e"
+    },
+    {
+      "filename": "NAVEENA_N_RESUME.pdf",
+      "size_bytes": 460086,
+      "disk_io_ms": 16.717900056391954,
+      "hash_check_db_ms": 1040.4737999197096,
+      "create_commit_db_ms": 3387.2479000128806,
+      "total_upload_ms": 4444.444500026293,
+      "document_id": "7d3d017a-e878-4299-bbd2-d01e3c8ff920"
+    },
+    {
+      "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+      "size_bytes": 262979,
+      "disk_io_ms": 14.52419999986887,
+      "hash_check_db_ms": 869.9990999884903,
+      "create_commit_db_ms": 3245.647000032477,
+      "total_upload_ms": 4130.181599990465,
+      "document_id": "259ae47e-a4f6-45e8-8769-7e804d50aba7"
+    }
+  ],
+  "per_resume_parsing": [
+    {
+      "filename": "23cs196_Yogeshwar_R_1390.pdf",
+      "doc_id": "7870fdb5-a12c-44b3-b8e6-53e2413675e0",
+      "db_pre_ms": 4611.382400034927,
+      "affinda_ms": 25886.394999921322,
+      "affinda_success": true,
+      "local_fallback_ms": 0.0,
+      "db_save_ms": 6205.688900081441,
+      "total_parse_ms": 36707.24630006589,
+      "word_count": 495
+    },
+    {
+      "filename": "Harshini_resume.pdf",
+      "doc_id": "f04af2ee-1af4-45b5-8068-b892d5e20c07",
+      "db_pre_ms": 2497.140899999067,
+      "affinda_ms": 18080.478899995796,
+      "affinda_success": true,
+      "local_fallback_ms": 0.0,
+      "db_save_ms": 3595.9923999616876,
+      "total_parse_ms": 24177.509600063786,
+      "word_count": 281
+    },
+    {
+      "filename": "shri ram resume.pdf",
+      "doc_id": "af3317fc-b316-4e57-9f4d-5e1cc2bfd31e",
+      "db_pre_ms": 2169.0359000349417,
+      "affinda_ms": 10785.835399990901,
+      "affinda_success": true,
+      "local_fallback_ms": 0.0,
+      "db_save_ms": 6993.732500006445,
+      "total_parse_ms": 19951.55190001242,
+      "word_count": 286
+    },
+    {
+      "filename": "NAVEENA_N_RESUME.pdf",
+      "doc_id": "7d3d017a-e878-4299-bbd2-d01e3c8ff920",
+      "db_pre_ms": 11263.584299944341,
+      "affinda_ms": 27194.10560000688,
+      "affinda_success": true,
+      "local_fallback_ms": 0.0,
+      "db_save_ms": 5409.421399934217,
+      "total_parse_ms": 43872.65379994642,
+      "word_count": 420
+    },
+    {
+      "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+      "doc_id": "259ae47e-a4f6-45e8-8769-7e804d50aba7",
+      "db_pre_ms": 4305.983299971558,
+      "affinda_ms": 9484.8856999306,
+      "affinda_success": true,
+      "local_fallback_ms": 0.0,
+      "db_save_ms": 5818.3657000772655,
+      "total_parse_ms": 19612.594099948183,
+      "word_count": 562
+    }
+  ],
+  "per_resume_extraction": [
+    {
+      "filename": "23cs196_Yogeshwar_R_1390.pdf",
+      "db_read_ms": 9739.020499982871,
+      "affinda_map_ms": 168.64429996348917,
+      "regex_extract_ms": 0.0,
+      "ai_extract_ms": 0.0,
+      "db_write_ms": 6151.391799910925,
+      "total_extract_ms": 16062.302400008775
+    },
+    {
+      "filename": "Harshini_resume.pdf",
+      "db_read_ms": 2655.030700028874,
+      "affinda_map_ms": 60.23950001690537,
+      "regex_extract_ms": 0.0,
+      "ai_extract_ms": 0.0,
+      "db_write_ms": 2631.879199994728,
+      "total_extract_ms": 5348.9449000917375
+    },
+    {
+      "filename": "shri ram resume.pdf",
+      "db_read_ms": 4964.717700029723,
+      "affinda_map_ms": 96.18880006019026,
+      "regex_extract_ms": 0.0,
+      "ai_extract_ms": 0.0,
+      "db_write_ms": 3949.3574999505654,
+      "total_extract_ms": 9011.592699913308
+    },
+    {
+      "filename": "NAVEENA_N_RESUME.pdf",
+      "db_read_ms": 2716.5740999625996,
+      "affinda_map_ms": 172.41459991782904,
+      "regex_extract_ms": 0.0,
+      "ai_extract_ms": 0.0,
+      "db_write_ms": 7996.8382000224665,
+      "total_extract_ms": 10887.807100079954
+    },
+    {
+      "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+      "db_read_ms": 4759.446000098251,
+      "affinda_map_ms": 129.7105000121519,
+      "regex_extract_ms": 0.0,
+      "ai_extract_ms": 0.0,
+      "db_write_ms": 3132.4638000223786,
+      "total_extract_ms": 8023.977600038052
+    }
+  ],
+  "per_resume_normalization": [
+    {
+      "filename": "23cs196_Yogeshwar_R_1390.pdf",
+      "db_read_ms": 3872.7960999822244,
+      "norm_compute_ms": 0.04569999873638153,
+      "db_write_ms": 3388.541299966164,
+      "total_norm_ms": 7261.457200045697
+    },
+    {
+      "filename": "Harshini_resume.pdf",
+      "db_read_ms": 5811.525699915364,
+      "norm_compute_ms": 0.03660004585981369,
+      "db_write_ms": 3344.4560000207275,
+      "total_norm_ms": 9156.244700076059
+    },
+    {
+      "filename": "shri ram resume.pdf",
+      "db_read_ms": 3262.8442000132054,
+      "norm_compute_ms": 0.05819997750222683,
+      "db_write_ms": 2931.129500037059,
+      "total_norm_ms": 6194.270199979655
+    },
+    {
+      "filename": "NAVEENA_N_RESUME.pdf",
+      "db_read_ms": 2401.473799953237,
+      "norm_compute_ms": 0.04379998426884413,
+      "db_write_ms": 4680.643899948336,
+      "total_norm_ms": 7082.478999975137
+    },
+    {
+      "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+      "db_read_ms": 3373.696699971333,
+      "norm_compute_ms": 0.036800047382712364,
+      "db_write_ms": 3100.934399990365,
+      "total_norm_ms": 6474.866800010204
+    }
+  ],
+  "per_resume_scoring": [
+    {
+      "filename": "23EC052- JEGADHEES J(RESUME) (1)_5572.pdf",
+      "deterministic_skills_ms": 100.38449999410659,
+      "responsibilities_groq_ai_and_db_ms": 10488.637800095603,
+      "total_candidate_ms": 10590.614499989897,
+      "final_score": 44.77,
+      "skills_score": 61.54,
+      "resp_score": 28.0,
+      "recommendation": "SHORTLIST",
+      "llm_provider_selected": "groq",
+      "llm_estimated_tokens": 2455,
+      "llm_actual_input_tokens": 1580,
+      "llm_actual_output_tokens": 1184,
+      "llm_actual_total_tokens": 2764,
+      "llm_duration_ms": 3313.0,
+      "llm_provider_call_ms": 3313.0,
+      "llm_token_wait_ms": 0.0
+    },
+    {
+      "filename": "NAVEENA_N_RESUME.pdf",
+      "deterministic_skills_ms": 47.49790008645505,
+      "responsibilities_groq_ai_and_db_ms": 12828.899500076659,
+      "total_candidate_ms": 12877.737900009379,
+      "final_score": 44.19,
+      "skills_score": 66.38,
+      "resp_score": 22.0,
+      "recommendation": "SHORTLIST",
+      "llm_provider_selected": "groq",
+      "llm_estimated_tokens": 2335,
+      "llm_actual_input_tokens": 1511,
+      "llm_actual_output_tokens": 1236,
+      "llm_actual_total_tokens": 2747,
+      "llm_duration_ms": 2985.0,
+      "llm_provider_call_ms": 2985.0,
+      "llm_token_wait_ms": 0.0
+    },
+    {
+      "filename": "shri ram resume.pdf",
+      "deterministic_skills_ms": 42.21689992118627,
+      "responsibilities_groq_ai_and_db_ms": 44877.470900071785,
+      "total_candidate_ms": 44920.8497001091,
+      "final_score": 1.93,
+      "skills_score": 3.85,
+      "resp_score": 0.0,
+      "recommendation": "REJECT",
+      "llm_provider_selected": "groq",
+      "llm_estimated_tokens": 2376,
+      "llm_actual_input_tokens": 1521,
+      "llm_actual_output_tokens": 789,
+      "llm_actual_total_tokens": 2310,
+      "llm_duration_ms": 41485.0,
+      "llm_provider_call_ms": 1516.0,
+      "llm_token_wait_ms": 39969.0
+    },
+    {
+      "filename": "Harshini_resume.pdf",
+      "deterministic_skills_ms": 16.957900021225214,
+      "responsibilities_groq_ai_and_db_ms": 14572.989500011317,
+      "total_candidate_ms": 14590.485199936666,
+      "final_score": 8.69,
+      "skills_score": 17.38,
+      "resp_score": 0.0,
+      "recommendation": "REJECT",
+      "llm_provider_selected": "groq",
+      "llm_estimated_tokens": 2184,
+      "llm_actual_input_tokens": 1402,
+      "llm_actual_output_tokens": 863,
+      "llm_actual_total_tokens": 2265,
+      "llm_duration_ms": 7390.0,
+      "llm_provider_call_ms": 1765.0,
+      "llm_token_wait_ms": 5625.0
+    },
+    {
+      "filename": "23cs196_Yogeshwar_R_1390.pdf",
+      "deterministic_skills_ms": 78.58370000030845,
+      "responsibilities_groq_ai_and_db_ms": 52169.20099989511,
+      "total_candidate_ms": 52249.233999988064,
+      "final_score": 51.93,
+      "skills_score": 53.85,
+      "resp_score": 50.0,
+      "recommendation": "SHORTLIST",
+      "llm_provider_selected": "groq",
+      "llm_estimated_tokens": 2545,
+      "llm_actual_input_tokens": 1669,
+      "llm_actual_output_tokens": 1100,
+      "llm_actual_total_tokens": 2769,
+      "llm_duration_ms": 44172.0,
+      "llm_provider_call_ms": 2219.0,
+      "llm_token_wait_ms": 41953.0
+    }
+  ]
+}

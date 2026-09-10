@@ -86,6 +86,7 @@ class DocumentService:
         file: UploadFile,
         *,
         verify_project: bool = True,
+        commit: bool = True,
     ) -> DocumentUploadRead:
         started_at = perf_counter()
         if verify_project:
@@ -107,29 +108,55 @@ class DocumentService:
         )
 
         try:
-            if await self.repository.get_by_hash(project_id, file_hash, document_type) is not None:
-                self.storage.delete_file(file_path)
-                raise DuplicateDocumentException()
-            document = await self.repository.create(
-                DocumentCreate(
-                    project_id=project_id,
-                    document_type=document_type,
-                    original_filename=original_filename,
-                    stored_filename=stored_filename,
-                    file_path=file_path,
-                    file_size_bytes=size,
-                    mime_type=file.content_type or "application/octet-stream",
-                    file_hash=file_hash,
+            if commit:
+                if await self.repository.get_by_hash(project_id, file_hash, document_type) is not None:
+                    raise DuplicateDocumentException()
+                document = await self.repository.create(
+                    DocumentCreate(
+                        project_id=project_id,
+                        document_type=document_type,
+                        original_filename=original_filename,
+                        stored_filename=stored_filename,
+                        file_path=file_path,
+                        file_size_bytes=size,
+                        mime_type=file.content_type or "application/octet-stream",
+                        file_hash=file_hash,
+                    )
                 )
-            )
+            else:
+                # Batch mode: isolate this file's insert in a SAVEPOINT so one bad
+                # file (e.g. a rare concurrent-upload hash race) rolls back only
+                # its own work, not documents already flushed earlier in the same
+                # batch -- while still deferring the expensive physical COMMIT to
+                # a single round trip at the end of the whole batch.
+                async with self.repository.session.begin_nested():
+                    if await self.repository.get_by_hash(project_id, file_hash, document_type) is not None:
+                        raise DuplicateDocumentException()
+                    document = await self.repository.create(
+                        DocumentCreate(
+                            project_id=project_id,
+                            document_type=document_type,
+                            original_filename=original_filename,
+                            stored_filename=stored_filename,
+                            file_path=file_path,
+                            file_size_bytes=size,
+                            mime_type=file.content_type or "application/octet-stream",
+                            file_hash=file_hash,
+                        ),
+                        commit=False,
+                        refresh=False,
+                    )
         except DuplicateDocumentException:
+            self.storage.delete_file(file_path)
             raise
         except IntegrityError as exc:
-            await self.repository.session.rollback()
+            if commit:
+                await self.repository.session.rollback()
             self.storage.delete_file(file_path)
             raise DuplicateDocumentException() from exc
         except SQLAlchemyError as exc:
-            await self.repository.session.rollback()
+            if commit:
+                await self.repository.session.rollback()
             self.storage.delete_file(file_path)
             raise InternalServerException("Unable to persist document metadata.") from exc
 
@@ -282,7 +309,7 @@ class DocumentService:
             try:
                 successful.append(
                     await self.upload_document(
-                        project_id, DocumentType.RESUME, file, verify_project=False
+                        project_id, DocumentType.RESUME, file, verify_project=False, commit=False
                     )
                 )
             except AppException as exc:
@@ -306,6 +333,14 @@ class DocumentService:
                         message="The resume could not be uploaded.",
                     )
                 )
+        if successful:
+            t0 = perf_counter()
+            await self.repository.session.commit()
+            logger.info(
+                "[DB_DOCUMENT_TIMING] upload_resume_batch() single batched commit",
+                successful_count=len(successful),
+                commit_ms=round((perf_counter() - t0) * 1000, 2),
+            )
         return BatchResumeUploadRead(
             project_id=project_id,
             total_received=len(files),

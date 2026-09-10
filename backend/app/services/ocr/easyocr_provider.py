@@ -1,3 +1,4 @@
+import threading
 from typing import Any
 import structlog
 
@@ -12,14 +13,17 @@ class EasyOCRProvider(BaseOCRProvider):
     def __init__(self, languages: list[str] | None = None) -> None:
         self.languages = languages or ["en"]
         self._reader: Any = None
+        self._reader_lock = threading.Lock()
 
     @property
     def reader(self) -> Any:
         if self._reader is None:
-            logger.info("initializing_easyocr_reader", languages=self.languages)
-            import easyocr  # Lazy import to keep startup fast
+            with self._reader_lock:
+                if self._reader is None:
+                    logger.info("initializing_easyocr_reader", languages=self.languages)
+                    import easyocr  # Lazy import to keep startup fast
 
-            self._reader = easyocr.Reader(self.languages, gpu=False)
+                    self._reader = easyocr.Reader(self.languages, gpu=False)
         return self._reader
 
     def extract_text_from_image(self, image_bytes: bytes) -> str:

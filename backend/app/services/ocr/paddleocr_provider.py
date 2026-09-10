@@ -1,4 +1,5 @@
 import io
+import threading
 from typing import Any
 import structlog
 
@@ -14,29 +15,32 @@ class PaddleOCRProvider(BaseOCRProvider):
         langs = languages or ["en"]
         self.lang = langs[0] if langs else "en"
         self._ocr: Any = None
+        self._ocr_lock = threading.Lock()
 
     @property
     def ocr(self) -> Any:
         if self._ocr is None:
-            logger.info("initializing_paddleocr_engine", lang=self.lang)
-            try:
-                import os
-                os.environ["FLAGS_use_mkldnn"] = "0"
-                try:
-                    import paddle
-                    paddle.set_flags({"FLAGS_use_mkldnn": False})
-                except Exception:
-                    pass
+            with self._ocr_lock:
+                if self._ocr is None:
+                    logger.info("initializing_paddleocr_engine", lang=self.lang)
+                    try:
+                        import os
+                        os.environ["FLAGS_use_mkldnn"] = "0"
+                        try:
+                            import paddle
+                            paddle.set_flags({"FLAGS_use_mkldnn": False})
+                        except Exception:
+                            pass
 
-                from paddleocr import PaddleOCR  # Lazy import to keep startup fast
+                        from paddleocr import PaddleOCR  # Lazy import to keep startup fast
 
-                try:
-                    self._ocr = PaddleOCR(lang=self.lang, enable_mkldnn=False)
-                except Exception:
-                    self._ocr = PaddleOCR(lang=self.lang)
-            except Exception as exc:
-                logger.exception("paddleocr_initialization_failed", error=str(exc))
-                raise RuntimeError(f"Failed to initialize PaddleOCR engine: {exc}") from exc
+                        try:
+                            self._ocr = PaddleOCR(lang=self.lang, enable_mkldnn=False)
+                        except Exception:
+                            self._ocr = PaddleOCR(lang=self.lang)
+                    except Exception as exc:
+                        logger.exception("paddleocr_initialization_failed", error=str(exc))
+                        raise RuntimeError(f"Failed to initialize PaddleOCR engine: {exc}") from exc
         return self._ocr
 
     def extract_text_from_image(self, image_bytes: bytes) -> str:

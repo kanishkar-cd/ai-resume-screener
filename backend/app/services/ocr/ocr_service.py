@@ -1,3 +1,4 @@
+import threading
 from typing import Sequence
 
 import structlog
@@ -8,6 +9,34 @@ from app.services.ocr.factory import OCRProviderFactory
 from app.services.ocr.paddleocr_provider import PaddleOCRProvider
 
 logger = structlog.get_logger(__name__)
+
+# Process-wide provider cache: constructing EasyOCR/PaddleOCR loads their neural
+# net weights from disk (tens of seconds on CPU). Without this cache, every OCR
+# fallback call built a brand-new provider (and therefore reloaded the model)
+# even though the same engine/language config is used for the process lifetime.
+_provider_cache: dict[str, BaseOCRProvider] = {}
+_provider_cache_lock = threading.Lock()
+
+
+def _get_cached_provider(engine_name: str, languages: list[str] | None) -> BaseOCRProvider:
+    cache_key = f"{engine_name.lower()}:{','.join(languages or [])}"
+    provider = _provider_cache.get(cache_key)
+    if provider is not None:
+        return provider
+    with _provider_cache_lock:
+        provider = _provider_cache.get(cache_key)
+        if provider is not None:
+            return provider
+        try:
+            provider = OCRProviderFactory.create(engine_name=engine_name, languages=languages)
+        except Exception:
+            logger.warning(
+                "configured_ocr_engine_failed_falling_back_to_paddleocr",
+                configured_engine=engine_name,
+            )
+            provider = OCRProviderFactory.create(engine_name="paddleocr", languages=languages)
+        _provider_cache[cache_key] = provider
+        return provider
 
 
 class OCRService:
@@ -20,20 +49,7 @@ class OCRService:
             settings = get_settings()
             engine_name = getattr(settings, "OCR_ENGINE", "paddleocr") or "paddleocr"
             languages = getattr(settings, "OCR_LANGUAGES", ["en"])
-            try:
-                self.provider = OCRProviderFactory.create(
-                    engine_name=engine_name,
-                    languages=languages,
-                )
-            except Exception:
-                logger.warning(
-                    "configured_ocr_engine_failed_falling_back_to_paddleocr",
-                    configured_engine=engine_name,
-                )
-                self.provider = OCRProviderFactory.create(
-                    engine_name="paddleocr",
-                    languages=languages,
-                )
+            self.provider = _get_cached_provider(engine_name, languages)
 
     def process_page_images(self, page_images: Sequence[bytes]) -> str:
         """Process page image bytes sequentially and return combined page text."""
@@ -50,7 +66,8 @@ class OCRService:
             except Exception as exc:
                 if not isinstance(self.provider, PaddleOCRProvider):
                     logger.warning("primary_ocr_provider_failed_switching_to_paddleocr", error=str(exc))
-                    self.provider = PaddleOCRProvider()
+                    languages = getattr(get_settings(), "OCR_LANGUAGES", ["en"])
+                    self.provider = _get_cached_provider("paddleocr", languages)
                     page_text = self.provider.extract_text_from_image(image_bytes)
                 else:
                     raise
