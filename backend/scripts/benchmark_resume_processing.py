@@ -225,7 +225,8 @@ async def main():
             dup = await doc_repo.get_by_hash(project_id, file_hash, DocumentTypeEnum.RESUME)
             t_hash_db = (perf_counter() - t0) * 1000
 
-            # sub-timing 3: create & commit DB
+            # sub-timing 3: create (flush only -- deferred to one batched commit below,
+            # matching the fix applied to DocumentService.upload_resume_batch())
             t0 = perf_counter()
             from app.schemas.document import DocumentCreate, DocumentType
             created = await doc_repo.create(
@@ -238,7 +239,9 @@ async def main():
                     file_size_bytes=size,
                     mime_type="application/pdf",
                     file_hash=file_hash,
-                )
+                ),
+                commit=False,
+                refresh=False,
             )
             t_create_db = (perf_counter() - t0) * 1000
             uploaded_docs.append(created)
@@ -253,6 +256,11 @@ async def main():
                 "total_upload_ms": total_doc_upload,
                 "document_id": created.id,
             })
+
+        if uploaded_docs:
+            t0 = perf_counter()
+            await session.commit()
+            print(f"  Single batched commit for {len(uploaded_docs)} resumes: {(perf_counter() - t0) * 1000:.2f} ms")
 
     total_batch_upload_ms = (perf_counter() - t_batch_upload_start) * 1000
     print(f"  Batch upload completed: {len(uploaded_docs)} resumes in {total_batch_upload_ms:.2f} ms")
@@ -620,13 +628,11 @@ async def main():
         scores = await score_repo.get_project_scores(project_id)
         t_get_scores_db = (perf_counter() - t0) * 1000
 
-        # Note: ranking_service loops sequentially calling get_document for each score!
+        # Bulk-fetch documents by id in one round trip instead of one get_document() per score
+        # (matches the fix applied to RankingService.compute_project_rankings()).
         t0 = perf_counter()
-        candidates = []
-        for sc in scores:
-            d = await doc_repo.get_document(sc.document_id)
-            if d is not None:
-                candidates.append((sc, d.created_at))
+        docs_by_id = {d.id: d for d in await doc_repo.get_documents_by_ids([sc.document_id for sc in scores])}
+        candidates = [(sc, docs_by_id[sc.document_id].created_at) for sc in scores if sc.document_id in docs_by_id]
         t_sequential_doc_lookups_db = (perf_counter() - t0) * 1000
 
         t0 = perf_counter()
@@ -643,7 +649,7 @@ async def main():
     total_ranking_ms = (perf_counter() - t_rank_stage_start) * 1000
     print(f"  Ranking computation completed in {total_ranking_ms:.2f} ms")
     print(f"    - Scores DB Query            : {t_get_scores_db:6.2f} ms")
-    print(f"    - Sequential Doc Lookups (DB): {t_sequential_doc_lookups_db:6.2f} ms (5 sequential SELECT round-trips)")
+    print(f"    - Bulk Doc Lookup (DB)       : {t_sequential_doc_lookups_db:6.2f} ms (1 round trip instead of {len(scores)} sequential SELECTs)")
     print(f"    - Ranking In-Memory Algorithm: {t_rank_algo:6.2f} ms")
     print(f"    - Bulk Upsert DB Commit      : {t_bulk_upsert_db:6.2f} ms")
 
