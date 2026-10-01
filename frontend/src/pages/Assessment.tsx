@@ -104,19 +104,8 @@ export default function Assessment() {
       return
     }
     setIsCompleting(true)
-    try {
-      await api.updateProject(projectId, {
-        status: 'COMPLETED',
-        metadata_json: {
-          ...(typeof state.selectedProject?.metadata_json === 'object' ? state.selectedProject.metadata_json : {}),
-          is_completed: true,
-          completed_at: new Date().toISOString(),
-        },
-      })
-    } catch (err) {
-      console.warn('Failed to update project status via API:', err)
-    }
 
+    // Optimistically update pipeline store immediately for instantaneous UI response
     if (state.selectedProject) {
       dispatch({
         type: 'SELECT_PROJECT',
@@ -132,7 +121,21 @@ export default function Assessment() {
       })
     }
 
-    navigate('/dashboard')
+    try {
+      await api.updateProject(projectId, {
+        status: 'COMPLETED',
+        metadata_json: {
+          ...(typeof state.selectedProject?.metadata_json === 'object' ? state.selectedProject.metadata_json : {}),
+          is_completed: true,
+          completed_at: new Date().toISOString(),
+        },
+      })
+    } catch (err) {
+      console.warn('Failed to update project status via API:', err)
+    } finally {
+      setIsCompleting(false)
+      navigate('/dashboard')
+    }
   }
 
   const handleCopyLink = (id: string, link: string) => {

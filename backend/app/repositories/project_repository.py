@@ -20,7 +20,6 @@ class ProjectRepository:
         project = ProjectModel(**values)
         self.session.add(project)
         await self.session.commit()
-        await self.session.refresh(project)
         return project
 
     async def get_by_id(self, project_id: UUID) -> ProjectModel | None:
@@ -49,17 +48,25 @@ class ProjectRepository:
                 )
             )
 
-        total = await self.session.scalar(
-            select(func.count()).select_from(ProjectModel).where(*filters)
-        )
-        result = await self.session.scalars(
-            select(ProjectModel)
+        stmt = (
+            select(ProjectModel, func.count().over().label("total_count"))
             .where(*filters)
             .order_by(ProjectModel.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        return list(result.all()), int(total or 0)
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if not rows:
+            if page == 1:
+                return [], 0
+            total = await self.session.scalar(
+                select(func.count()).select_from(ProjectModel).where(*filters)
+            )
+            return [], int(total or 0)
+        projects = [row[0] for row in rows]
+        total = int(rows[0][1])
+        return projects, total
 
     async def update(
         self, project_id: UUID, update_data: ProjectUpdate

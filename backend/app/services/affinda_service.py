@@ -70,7 +70,8 @@ class AffindaService:
     @property
     def configured(self) -> bool:
         return bool(
-            self.settings.AFFINDA_API_KEY
+            getattr(self.settings, "ENABLE_AFFINDA", False)
+            and self.settings.AFFINDA_API_KEY
             and self.settings.AFFINDA_WORKSPACE_ID
             and self.settings.AFFINDA_RESUME_DOCUMENT_TYPE_ID
             and self.settings.AFFINDA_JD_DOCUMENT_TYPE_ID

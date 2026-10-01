@@ -24,7 +24,7 @@ class WeightConfigRepository:
         payload: WeightConfigCreate | WeightConfigUpdate | dict[str, Any],
         *,
         commit: bool = True,
-        refresh: bool = True,
+        refresh: bool = False,
     ) -> WeightConfigModel:
         if isinstance(payload, (WeightConfigCreate, WeightConfigUpdate)):
             values = payload.model_dump(exclude_unset=True, mode="json")

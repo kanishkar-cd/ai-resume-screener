@@ -113,9 +113,8 @@ class ScoringEngineFacade:
 
         settings = get_settings()
         breaker = ProviderCircuitBreaker.get_breaker(settings)
-        cerebras_enabled = bool(getattr(settings, "CEREBRAS_API_KEY", None)) and breaker.can_call("cerebras")
-        default_concurrency = getattr(settings, "MAX_CONCURRENT_RESUMES", 3)
-        max_concurrent = default_concurrency if cerebras_enabled else 1
+        default_concurrency = int(getattr(settings, "MAX_CONCURRENT_RESUMES", 3))
+        max_concurrent = max(1, default_concurrency)
         throttle_seconds = getattr(settings, "LLM_BATCH_THROTTLE_SECONDS", 0.25)
         scheduler = ResumeQueueScheduler(max_concurrent=max_concurrent, throttle_seconds=throttle_seconds)
 

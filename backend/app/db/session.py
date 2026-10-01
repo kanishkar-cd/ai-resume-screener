@@ -11,7 +11,10 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-connect_args: dict = {}
+connect_args: dict = {
+    "timeout": 30.0,
+    "command_timeout": 60.0,
+}
 if settings.POSTGRES_SERVER and "neon.tech" in settings.POSTGRES_SERVER:
     endpoint_id = settings.POSTGRES_SERVER.split(".")[0]
     if endpoint_id:
@@ -29,6 +32,8 @@ elif settings.DATABASE_URL and "neon.tech" in settings.DATABASE_URL:
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URI,
     pool_pre_ping=True,
+    pool_recycle=300,
+    pool_timeout=30,
     pool_size=10,
     max_overflow=20,
     connect_args=connect_args,

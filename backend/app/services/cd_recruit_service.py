@@ -164,8 +164,16 @@ class CDRecruitService:
             "X-API-Key": api_key,
         }
 
+        # Use responsive polling timeout (max 4s) so status checks don't block user UI
+        poll_timeout = httpx.Timeout(
+            connect=min(2.5, self.settings.CD_RECRUIT_TIMEOUT_SECONDS),
+            read=min(4.0, self.settings.CD_RECRUIT_TIMEOUT_SECONDS),
+            write=min(2.5, self.settings.CD_RECRUIT_TIMEOUT_SECONDS),
+            pool=min(2.5, self.settings.CD_RECRUIT_TIMEOUT_SECONDS),
+        )
+
         try:
-            async with httpx.AsyncClient(timeout=self.settings.CD_RECRUIT_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=poll_timeout) as client:
                 data: dict[str, Any] = {}
                 try:
                     response = await client.get(url, headers=headers)

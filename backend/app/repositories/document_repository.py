@@ -218,22 +218,30 @@ class DocumentRepository:
             filters.append(
                 DocumentModel.original_filename.ilike(f"%{escaped}%", escape="\\")
             )
-        total = await self.session.scalar(
-            select(func.count()).select_from(DocumentModel).where(*filters)
-        )
         order_column = (
             DocumentModel.created_at.asc()
             if sort_order == SortOrder.ASC
             else DocumentModel.created_at.desc()
         )
-        result = await self.session.scalars(
-            select(DocumentModel)
+        stmt = (
+            select(DocumentModel, func.count().over().label("total_count"))
             .where(*filters)
             .order_by(order_column)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        return list(result.all()), int(total or 0)
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if not rows:
+            if page == 1:
+                return [], 0
+            total = await self.session.scalar(
+                select(func.count()).select_from(DocumentModel).where(*filters)
+            )
+            return [], int(total or 0)
+        documents = [row[0] for row in rows]
+        total = int(rows[0][1])
+        return documents, total
 
     async def update_status(
         self,

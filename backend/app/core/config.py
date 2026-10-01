@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     COSINE_NGRAM_WEIGHT: float = Field(default=0.5, ge=0.0, le=5.0)
     COSINE_GENERIC_TOKEN_WEIGHT: float = Field(default=0.05, ge=0.0, le=1.0)
 
+    ENABLE_AFFINDA: bool = False
     AFFINDA_API_KEY: str | None = None
     AFFINDA_API_BASE_URL: str = "https://api.affinda.com"
     AFFINDA_WORKSPACE_ID: str | None = None
@@ -148,7 +149,7 @@ class Settings(BaseSettings):
     AFFINDA_CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = 60.0
 
     CD_RECRUIT_BASE_URL: str = "http://localhost:3001"
-    CD_RECRUIT_API_KEY: str = "pk_live_7f9ec682b7da34e6b9d5fee8ad70be610c1b8d67647a1c99"
+    CD_RECRUIT_API_KEY: str = "pk_live_1ade99d824febf6f016c83f29443b3e95efe8cfdf50e87e4"
     CD_RECRUIT_TIMEOUT_SECONDS: float = 15.0
     CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
@@ -227,13 +228,6 @@ class Settings(BaseSettings):
                 ssl_val = query_dict.pop("sslmode")
                 if ssl_val and "ssl" not in query_dict:
                     query_dict["ssl"] = ssl_val
-
-            if parsed_url.host and ("neon.tech" in parsed_url.host or "aws" in parsed_url.host):
-                try:
-                    ip = socket.gethostbyname(parsed_url.host)
-                    parsed_url = parsed_url._replace(host=ip)
-                except Exception:
-                    pass
 
             if parsed_url.password:
                 encoded_password = quote_plus(parsed_url.password)

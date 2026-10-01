@@ -162,6 +162,17 @@ export default function CreateRequisition() {
           extractedJdRef.current = res.extracted
         }
 
+        // Initialize weight configuration immediately in background
+        api.createWeightConfig(projId, {
+          passing_score: passingScore,
+          weights: defaultWeights,
+          min_experience_years: expLevel === 'Fresher' ? 0 : 1,
+          mandatory_skills: [],
+          preferred_skills: [],
+          knockout_rules: [],
+          custom_keywords: [],
+        }).catch(() => {})
+
         setProcessingStatusMessage('Ready')
         processedFileRef.current = file
       } catch (err) {
@@ -178,7 +189,7 @@ export default function CreateRequisition() {
 
     inFlightPromiseRef.current = promise
     return promise
-  }, [createdProjectId, reqRef, jobTitle, department.name, expLevel, dispatch])
+  }, [createdProjectId, reqRef, jobTitle, department.name, expLevel, dispatch, passingScore, defaultWeights])
 
   const handleFileChange = (file: File) => {
     if (processedFileRef.current !== file) {
@@ -203,13 +214,22 @@ export default function CreateRequisition() {
     }
   }
 
-  // Step 3 → Start Screening: ensure project created + persist threshold, then navigate
+  // Step 3 → Start Screening: ensure project created + persist threshold, then navigate instantly
   const handleStartScreening = async () => {
     setIsFinalizing(true)
     setJdError(null)
 
     try {
-      let targetProjId = createdProjectId
+      // If JD processing is currently running, wait for it to complete
+      if (inFlightPromiseRef.current) {
+        try {
+          await inFlightPromiseRef.current
+        } catch {
+          // Handled inside startJdProcessing
+        }
+      }
+
+      let targetProjId = projectIdRef.current || createdProjectId
 
       // Fallback: If project was not created in earlier steps, create it now
       if (!targetProjId) {
@@ -224,6 +244,7 @@ export default function CreateRequisition() {
           status: 'DRAFT',
         })
         targetProjId = proj.id
+        projectIdRef.current = targetProjId
         setCreatedProjectId(targetProjId)
         dispatch({
           type: 'SELECT_PROJECT',
@@ -239,7 +260,7 @@ export default function CreateRequisition() {
           },
         })
 
-        if (jdFile) {
+        if (jdFile && !extractedJdRef.current) {
           try {
             const processRes = await api.processJobDescription(targetProjId, jdFile)
             dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: processRes.document_id })
@@ -257,27 +278,16 @@ export default function CreateRequisition() {
         }
       }
 
-      // Persist threshold + default weights to backend (try POST first, fallback to PATCH)
-      try {
-        await api.createWeightConfig(targetProjId, {
-          passing_score: passingScore,
-          weights: defaultWeights,
-          min_experience_years: expLevel === 'Fresher' ? 0 : 1,
-          mandatory_skills: [],
-          preferred_skills: [],
-          knockout_rules: [],
-          custom_keywords: [],
-        })
-      } catch {
-        try {
-          await api.updateWeightConfig(targetProjId, {
-            passing_score: passingScore,
-            weights: defaultWeights,
-          })
-        } catch {
-          // Weight config backend persistence non-blocking fallback
-        }
-      }
+      // Persist threshold + default weights in background and navigate immediately
+      api.createWeightConfig(targetProjId, {
+        passing_score: passingScore,
+        weights: defaultWeights,
+        min_experience_years: expLevel === 'Fresher' ? 0 : 1,
+        mandatory_skills: [],
+        preferred_skills: [],
+        knockout_rules: [],
+        custom_keywords: [],
+      }).catch(() => {})
 
       navigate(`/projects/${targetProjId}/resumes`)
     } catch (err) {

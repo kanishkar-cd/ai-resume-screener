@@ -67,6 +67,7 @@ export default function ResumeUpload() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const processingRef = useRef<Set<string>>(new Set())
+  const inFlightListRef = useRef<Promise<void> | null>(null)
   const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; document?: ApiDocument; error?: string; loading?: boolean }>>({})
 
   const successfulCount = state.resumeDocumentIds.length
@@ -78,23 +79,30 @@ export default function ResumeUpload() {
 
   const refreshResumes = useCallback(async () => {
     if (!state.projectId) return
-    try {
-      const result = await api.listProjectResumes(state.projectId)
-      const resumes: UploadedFile[] = result.items.map((document) => ({
-        id: document.id,
-        name: document.original_filename,
-        size: document.file_size_bytes,
-        type: fileTypeFromName(document.original_filename),
-        status: document.processing_status === 'FAILED' ? 'error' : 'done',
-        statusLabel: document.processing_status,
-        errorMessage: document.error_message ?? undefined,
-        uploadedAt: new Date(document.created_at),
-      }))
-      dispatch({ type: 'SET_RESUMES', payload: resumes })
-      setListError(null)
-    } catch (err) {
-      setListError(`Resume listing failed: ${errorMessage(err, 'Unknown error')}`)
-    }
+    if (inFlightListRef.current) return inFlightListRef.current
+    const promise = (async () => {
+      try {
+        const result = await api.listProjectResumes(state.projectId!)
+        const resumes: UploadedFile[] = result.items.map((document) => ({
+          id: document.id,
+          name: document.original_filename,
+          size: document.file_size_bytes,
+          type: fileTypeFromName(document.original_filename),
+          status: document.processing_status === 'FAILED' ? 'error' : 'done',
+          statusLabel: document.processing_status,
+          errorMessage: document.error_message ?? undefined,
+          uploadedAt: new Date(document.created_at),
+        }))
+        dispatch({ type: 'SET_RESUMES', payload: resumes })
+        setListError(null)
+      } catch (err) {
+        setListError(`Resume listing failed: ${errorMessage(err, 'Unknown error')}`)
+      } finally {
+        inFlightListRef.current = null
+      }
+    })()
+    inFlightListRef.current = promise
+    return promise
   }, [dispatch, state.projectId])
 
   useEffect(() => {
@@ -501,11 +509,9 @@ export default function ResumeUpload() {
 
     completeAndAdvance()
     // Immediate responsive transition to Candidate Shortlisting
-    setTimeout(() => {
-      navigate(`/projects/${projectId}/rankings`, {
-        state: { triggerScoring: true },
-      })
-    }, 150)
+    navigate(`/projects/${projectId}/rankings`, {
+      state: { triggerScoring: true },
+    })
   }
 
   const handleBack = () => {

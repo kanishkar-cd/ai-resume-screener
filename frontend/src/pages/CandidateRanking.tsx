@@ -860,32 +860,6 @@ export default function CandidateRanking() {
             })
           }
 
-          // Attempt to load candidate names from normalized documents
-          try {
-            const normDocs = await Promise.all(
-              docList.map(async (doc) => {
-                try {
-                  const res = await api.getNormalizedDocument(doc.id)
-                  const data = (res && 'data' in res) ? (res as any).data : res
-                  return { id: doc.id, data }
-                } catch {
-                  return null
-                }
-              })
-            )
-            for (const item of normDocs) {
-              if (item && item.data && typeof item.data === 'object' && item.data.candidate_name) {
-                metaMap.set(item.id, {
-                  name: item.data.candidate_name,
-                  email: item.data.email || '',
-                  filename: metaMap.get(item.id)?.filename || '',
-                })
-              }
-            }
-          } catch {
-            // Fallback to filenames
-          }
-
           // Check if scoring and ranking are already 100% complete
           const isComplete = !forceRetry &&
             initialScores.length >= docList.length &&

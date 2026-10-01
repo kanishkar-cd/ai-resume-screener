@@ -359,7 +359,6 @@ class DocumentService:
         page_size: int,
         sort_order: SortOrder,
     ) -> DocumentPaginatedResponse:
-        await self._verify_project(project_id)
         try:
             documents, total = await self.repository.list_resumes_by_project(
                 project_id,
@@ -488,8 +487,10 @@ class DocumentService:
         page: int,
         page_size: int,
         sort_order: SortOrder,
+        *,
+        verify_project: bool = False,
     ) -> DocumentPaginatedResponse:
-        if project_id is not None:
+        if verify_project and project_id is not None:
             await self._verify_project(project_id)
         normalized_search = search.strip() if search else None
         try:

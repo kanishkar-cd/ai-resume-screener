@@ -50,7 +50,7 @@ class WeightConfigService:
     ) -> WeightConfigRead:
         await self._verify_project(project_id)
         try:
-            model = await self.weight_configs.upsert(project_id, payload)
+            model = await self.weight_configs.upsert(project_id, payload, refresh=False)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to save weight configuration.") from exc
 

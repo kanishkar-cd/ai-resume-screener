@@ -106,27 +106,30 @@ async def get_assessment_status(
     )
     records = list((await db.execute(stmt)).scalars().all())
 
-    candidates_list = []
-    extraction_repo = ExtractionRepository(db)
-    doc_repo = DocumentRepository(db)
+    doc_ids = [rec.document_id for rec in records if rec.document_id]
+    ext_map = {}
+    doc_map = {}
+    if doc_ids:
+        from app.models.extracted_info import ExtractedResumeModel
+        from app.models.document import DocumentModel
 
+        ext_stmt = select(ExtractedResumeModel).where(ExtractedResumeModel.document_id.in_(doc_ids))
+        for ext in (await db.execute(ext_stmt)).scalars().all():
+            ext_map[ext.document_id] = ext
+
+        doc_stmt = select(DocumentModel).where(DocumentModel.id.in_(doc_ids))
+        for doc in (await db.execute(doc_stmt)).scalars().all():
+            doc_map[doc.id] = doc
+
+    candidates_list = []
     for rec in records:
-        cand_name = None
-        cand_email = None
-        try:
-            ext = await extraction_repo.get_resume_by_document_id(rec.document_id)
-            if ext:
-                cand_name = getattr(ext, "candidate_name", None)
-                cand_email = getattr(ext, "email", None)
-        except Exception:
-            pass
+        ext = ext_map.get(rec.document_id)
+        cand_name = getattr(ext, "candidate_name", None) if ext else None
+        cand_email = getattr(ext, "email", None) if ext else None
 
         if not cand_name:
-            try:
-                doc = await doc_repo.get_document(rec.document_id)
-                cand_name = getattr(doc, "original_filename", None) or "Candidate"
-            except Exception:
-                cand_name = "Candidate"
+            doc = doc_map.get(rec.document_id)
+            cand_name = (getattr(doc, "original_filename", None) if doc else None) or "Candidate"
 
         if not cand_email:
             cand_email = f"candidate_{str(rec.document_id)[:8]}@example.com"
