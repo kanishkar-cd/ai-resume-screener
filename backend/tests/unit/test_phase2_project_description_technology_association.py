@@ -1,6 +1,5 @@
 import pytest
 from app.services.extractors.resume_extractor import ResumeExtractor
-from app.services.affinda_mapper import _map_projects, _normalize_technology_entries, map_affinda_resume
 from app.services.normalizers.resume_normalizer import ResumeNormalizer
 
 
@@ -138,24 +137,6 @@ def test_11_missing_technology_list():
     assert "empirical evaluation" in projects[0]["description"]
 
 
-def test_12_affinda_empty_description_fallback_valid_description():
-    affinda_items = [{"projectTitle": "Custom Tool", "projectDescription": None, "technologies": ["Python"]}]
-    source_text = "PROJECTS Custom Tool | Python • Built automated linting and formatting tool."
-    mapped = _map_projects(affinda_items, source_text)
-    assert len(mapped) == 1
-    assert mapped[0]["name"] == "Custom Tool"
-    assert "automated linting" in (mapped[0].get("description") or "")
-
-
-def test_13_affinda_empty_title_fallback_valid_title():
-    affinda_items = [{"projectTitle": None, "projectDescription": None, "technologies": []}]
-    source_text = "PROJECTS Smart City Traffic | Python • Automated traffic camera recognition."
-    mapped = _map_projects(affinda_items, source_text)
-    assert len(mapped) == 1
-    assert mapped[0]["name"] == "Smart City Traffic"
-    assert "traffic camera" in mapped[0]["description"]
-
-
 def test_14_project_a_must_not_contain_project_b_description():
     block = (
         "Project A | Python • Built backend service. "
@@ -180,26 +161,6 @@ def test_15_project_a_must_not_contain_project_b_technologies():
     assert "Flask" not in projects[1]["technologies"]
 
 
-def test_16_global_resume_skills_not_copied_into_projects():
-    # End-to-end mapper test with global resume skills
-    payload = {
-        "candidateName": {"raw": "Test Candidate"},
-        "skills": [{"name": "C++"}, {"name": "Java"}, {"name": "Kubernetes"}, {"name": "Python"}],
-        "project": [
-            {
-                "projectTitle": "Frontend App",
-                "projectDescription": "Built UI components",
-                "technologies": [{"name": "React"}]
-            }
-        ]
-    }
-    extracted, normalized = map_affinda_resume(payload, "prov-1", "Source text with React and C++")
-    proj = extracted["projects"][0]
-    assert proj["technologies"] == ["React"]
-    assert "C++" not in proj["technologies"]
-    assert "Java" not in proj["technologies"]
-
-
 def test_17_phase1_regression_three_continuous_projects():
     raw_block = (
         "Project Alpha | Python, FastAPI • Developed endpoints. "
@@ -213,7 +174,3 @@ def test_17_phase1_regression_three_continuous_projects():
     assert projects[2]["name"] == "Project Gamma"
 
 
-def test_18_phase2_technology_normalization_regression():
-    raw_tech = "Python, FastAPI, PostgreSQL"
-    normalized = _normalize_technology_entries(raw_tech)
-    assert normalized == ["Python", "FastAPI", "PostgreSQL"]

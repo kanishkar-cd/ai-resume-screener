@@ -95,7 +95,7 @@ def test_evidence_builder_excludes_identity_and_contact_data() -> None:
     assert "Private Name" not in serialized and "private@example.com" not in serialized
 
 
-def test_collapsed_affinda_project_descriptions_keep_independent_provenance() -> None:
+def test_collapsed_project_descriptions_keep_independent_provenance() -> None:
     extracted = SimpleNamespace(
         projects=[
             {"name": "SustainTrack.me", "description": "Sustainability platform\nFull-stack home service booking application\nPhishing detection application\nGroundwater monitoring application", "technologies": []},

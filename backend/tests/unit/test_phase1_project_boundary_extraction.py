@@ -1,6 +1,5 @@
 import pytest
 from app.services.extractors.resume_extractor import ResumeExtractor
-from app.services.affinda_mapper import _normalize_technology_entries, map_affinda_resume
 
 
 def test_three_projects_in_continuous_single_line_text():
@@ -76,12 +75,6 @@ def test_project_descriptions_preserve_punctuation_and_symbols():
     assert "100,000+" in desc
     assert "99.9%" in desc
     assert "error-recovery & auto-retries" in desc
-
-
-def test_phase2_technology_normalization_regression():
-    raw_tech = "Python, FastAPI, PostgreSQL"
-    normalized = _normalize_technology_entries(raw_tech)
-    assert normalized == ["Python", "FastAPI", "PostgreSQL"]
 
 
 def test_multiline_standard_project_extraction():

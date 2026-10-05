@@ -4,6 +4,7 @@ from typing import Any
 from app.services.pipeline.canonical_dictionaries import (
     DEGREE_ALIASES, LOCATION_ALIASES, TITLE_ALIASES,
 )
+from app.services.extractors.resume_sections import RESUME_EXTRA_SECTIONS, StructuredSectionParser
 from app.services.pipeline.extraction_pipeline import (
     DEGREES, DESIGNATIONS, EMAIL_PATTERN, LANGUAGES, PHONE_PATTERN, SKILLS,
     URL_PATTERN, clean_unicode, content_lines, field_confidence, first_match, match_terms,
@@ -37,12 +38,14 @@ FIELD_PATTERN = re.compile(
 )
 
 
-class ResumeExtractor:
+class ResumeExtractor(StructuredSectionParser):
     """Enterprise deterministic resume extractor using hierarchical section analysis."""
+
+    GRADE_PATTERN = GRADE_PATTERN
 
     def extract(self, raw_input_text: str) -> dict[str, Any]:
         text = reconstruct_layout_text(raw_input_text)
-        sections = segment_sections(text)
+        sections = segment_sections(text, RESUME_EXTRA_SECTIONS)
         header_text = sections.get("header", "")
         header_lines = content_lines(header_text)
 
@@ -138,7 +141,10 @@ class ResumeExtractor:
         from app.services.pipeline.extraction_pipeline import SECTION_ALIASES
         all_headings = {alias for aliases in SECTION_ALIASES.values() for alias in aliases}
         for line in lines[:8]:
-            line_no_contact = re.sub(r"\S+@\S+|\+?\d[\d\s\-]{8,}\d|https?://\S+", "", line).strip()
+            line_no_contact = re.sub(
+                r"\S+@\S+|\+?\d[\d\s\-]{8,}\d|https?://\S+|\S+\.(?:com|in|io|dev|me|org|net|ai)\b\S*",
+                "", line, flags=re.I,
+            ).strip()
             if not line_no_contact:
                 continue
             parts = [p.strip() for p in re.split(r"[|\-–—]", line_no_contact) if p.strip()]
@@ -154,11 +160,30 @@ class ResumeExtractor:
                 normalized = clean.casefold()
                 if not clean or len(clean) < 3 or normalized in all_headings or normalized in cls.GENERIC_DOCUMENT_TITLES or match_terms(clean, DESIGNATIONS) or normalized in {"senior", "junior", "lead", "principal", "staff", "associate", "intern"}:
                     continue
-                return clean.title()[:255]
+                # Keep initials upper-case ("HARSHINI CS" -> "Harshini CS", not "Harshini Cs").
+                return " ".join(
+                    word if (word.isupper() and len(word.strip(".")) <= 2) else word.capitalize()
+                    for word in clean.split()
+                )[:255]
         return None
 
     @staticmethod
-    def _extract_phone(text: str) -> str | None:
+    def _repair_phone(raw: str) -> str:
+        # Country code split by a stray space in the PDF text: "+9 1 8778173009".
+        raw = re.sub(r"^\+9\s+1(?=[\s\d])", "+91", raw)
+        digits = re.sub(r"\D", "", raw)
+        # OCR often reads the adjacent contact icon as an extra trailing digit on +91 mobiles.
+        if raw.startswith("+91") and len(digits) == 13 and digits[2] in "6789":
+            return f"+91 {digits[2:12]}"
+        return raw
+
+    @classmethod
+    def _extract_phone(cls, text: str) -> str | None:
+        phone = cls._find_phone(text)
+        return cls._repair_phone(phone) if phone else None
+
+    @staticmethod
+    def _find_phone(text: str) -> str | None:
         if not text:
             return None
         cleaned = clean_unicode(text)
@@ -219,7 +244,9 @@ class ResumeExtractor:
         return None
 
     def _location(self, header: str, full_text: str) -> str | None:
-        loc_match = re.search(r"(?im)^(?:location|address|city|country)\s*[:\-–—]?\s*(.+)$", full_text)
+        # [ \t] (not \s) keeps the value on the label's own line: a bare "Address:" must not
+        # capture whatever the next line holds (e.g. "English, Tamil." from a languages grid).
+        loc_match = re.search(r"(?im)^(?:location|address|city|country)[ \t]*[:\-–—]?[ \t]*([^\s:\-–—].*)$", full_text)
         if loc_match:
             val = loc_match.group(1).strip()
             val = re.sub(r"\s+", " ", val)
@@ -236,7 +263,7 @@ class ResumeExtractor:
                     return name
 
         city_state_match = re.search(
-            r"\b([A-Z][a-zA-Z\s]{2,20})\s*,\s*([A-Z][a-zA-Z\s]{2,20}|[A-Z]{2})\b",
+            r"\b([A-Z][a-zA-Z \t]{2,20})[ \t]*,[ \t]*([A-Z][a-zA-Z \t]{2,20}|[A-Z]{2})\b",
             header,
         )
         if city_state_match:
@@ -261,8 +288,8 @@ class ResumeExtractor:
 
     DEGREE_EXTRACTION_PATTERNS = (
         (r"\b(?:B\.Tech|BTech|Bachelor\s+of\s+Technology)\b", "Bachelor of Technology"),
-        (r"\b(?:B\.E\.|B\.E|BE)\b(?:\.|\b|[A-Z])", "Bachelor of Engineering"),
-        (r"\b(?:M\.E\.|M\.E|ME)\b(?:\.|\b|[A-Z])", "Master of Engineering"),
+        (r"\bBachelor\s+of\s+Engineering\b|\b(?:B\.E\.|B\.E|BE)\b(?:\.|\b|[A-Z])", "Bachelor of Engineering"),
+        (r"\bMaster\s+of\s+Engineering\b|\b(?:M\.E\.|M\.E|ME)\b(?:\.|\b|[A-Z])", "Master of Engineering"),
         (r"\b(?:M\.Tech|MTech|Master\s+of\s+Technology)\b", "Master of Technology"),
         (r"\b(?:B\.Sc|BSc|B\.S\.|B\.S|BS|Bachelor\s+of\s+Science)\b", "Bachelor of Science"),
         (r"\b(?:M\.Sc|MSc|M\.S\.|M\.S|MS|Master\s+of\s+Science)\b", "Master of Science"),
@@ -273,7 +300,7 @@ class ResumeExtractor:
         (r"\b(?:MBA|Master\s+of\s+Business\s+Administration)\b", "Master of Business Administration"),
         (r"\b(?:Ph\.D|PhD|Doctor\s+of\s+Philosophy|Doctorate)\b", "Doctor of Philosophy"),
         (r"\b(?:Diploma)\b", "Diploma"),
-        (r"\b(?:HSC|Higher\s+Secondary\s+Education|Higher\s+Secondary\s+Certificate|Class\s+XII|Class\s+12|12th(?:\s+Grade|\s+Standard)?|Intermediate|\+2|Plus\s+Two|Pre-University|PUC)\b|\bHigher\s+Secondary\b(?!\s+School)", "Higher Secondary (12th)"),
+        (r"\b(?:HSC|HSE|Higher\s+Secondary\s+Education|Higher\s+Secondary\s+Certificate|Class\s+XII|Class\s+12|12th(?:\s+Grade|\s+Standard)?|Intermediate|\+2|Plus\s+Two|Pre-University|PUC)\b|\bHigher\s+Secondary\b(?!\s+School)", "Higher Secondary (12th)"),
         (r"\b(?:SSLC|Secondary\s+School\s+Leaving\s+Certificate|Secondary\s+School\s+Certificate|Class\s+X|Class\s+10|10th(?:\s+Grade|\s+Standard)?|Matriculation)\b|\b10th\b", "Secondary School (10th)"),
     )
 
@@ -284,7 +311,8 @@ class ResumeExtractor:
         (r"\b(?:Computer\s+Science\s+(?:and|&)\s+Engineering|Computer\s+Science|CSE)\b", "Computer Science and Engineering"),
         (r"\b(?:Electronics\s+(?:and|&)\s+Communication\s+Engineering|ECE)\b", "Electronics and Communication Engineering"),
         (r"\b(?:Electrical\s+(?:and|&)\s+Electronics\s+Engineering|EEE)\b", "Electrical and Electronics Engineering"),
-        (r"\b(?:Information\s+Technology|IT)\b", "Information Technology"),
+        (r"\b(?:Electronics\s+(?:and|&)\s+Instrumentation(?:\s+Engineering)?|EIE)\b", "Electronics and Instrumentation Engineering"),
+        (r"\bInformation\s+Technology\b|\b(?-i:IT)\b", "Information Technology"),
         (r"\b(?:Mechanical\s+Engineering|Mech)\b", "Mechanical Engineering"),
         (r"\b(?:Civil\s+Engineering)\b", "Civil Engineering"),
     )
@@ -316,6 +344,10 @@ class ResumeExtractor:
 
     @classmethod
     def _education(cls, block: str) -> list[dict[str, str | None]]:
+        return cls._education_structured(block) or cls._education_legacy(block)
+
+    @classmethod
+    def _education_legacy(cls, block: str) -> list[dict[str, str | None]]:
         if not block.strip():
             return []
 
@@ -590,6 +622,10 @@ class ResumeExtractor:
 
     @classmethod
     def _experience(cls, block: str) -> list[dict[str, Any]]:
+        return cls._experience_structured(block) or cls._experience_legacy(block)
+
+    @classmethod
+    def _experience_legacy(cls, block: str) -> list[dict[str, Any]]:
         lines = content_lines(block)
         if not lines:
             return []
@@ -799,7 +835,7 @@ class ResumeExtractor:
             if 1 <= len(words) <= 7 and len(cleaned) <= 60:
                 # Exclude purely generic category headings if isolated
                 if re.fullmatch(
-                    r"(?:technical\s+)?(?:skills?|technologies|tools?|languages?|programming\s+languages?|frameworks?|libraries|core|databases?|query\s+languages?|platforms?|cloud|methodologies|web\s+technologies|other)\s*[:：]?",
+                    r"(?:technical\s+)?(?:skills?|technologies|tools?|languages?|programming\s+languages?|frameworks?|libraries|core|core\s+concepts|concepts|databases?|query\s+languages?|platforms?|tools?\s*(?:&|and)\s*platforms?|cloud|methodologies|web\s+technologies|soft\s+skills|other)\s*[:：]?",
                     cleaned,
                     re.I,
                 ):
@@ -810,21 +846,38 @@ class ResumeExtractor:
                     extracted_skills.append(cleaned)
 
         def split_items(text_line: str) -> list[str]:
-            # Split on commas, semicolons, pipes, tabs, bullet characters, or ' / ' (with whitespace)
+            # Split on commas, semicolons, pipes, tabs, bullets, middle dots, ' / ' and ' — '
+            # (with whitespace), never inside parentheses: "Power BI (DAX, KPI Design)" stays whole.
             # Avoid splitting 'C/C++', 'CI/CD', 'TCP/IP', 'OS/Networking' without spaces
-            parts = re.split(r"[,;|•●○▪*\t]|\s{2,}|\s+/\s+", text_line)
-            return [p.strip() for p in parts if p.strip()]
+            masked = re.sub(r"\([^()]*\)", lambda m: m.group(0).replace(",", "\x00").replace(";", "\x01"), text_line)
+            parts = re.split(r"[,;|•●○▪*·\t]|\s{2,}|\s+/\s+|\s+[—–]\s+", masked)
+            items: list[str] = []
+            for part in parts:
+                part = part.replace("\x00", ",").replace("\x01", ";").strip()
+                # "Power BI (DAX, KPI Design)" -> "Power BI", "DAX", "KPI Design"
+                grouped = re.fullmatch(r"(.+?)\s*\(([^()]*[,;][^()]*)\)", part)
+                if grouped:
+                    items.append(grouped.group(1).strip())
+                    items.extend(sub.strip() for sub in re.split(r"[,;]", grouped.group(2)) if sub.strip())
+                elif part:
+                    items.append(part)
+            return items
 
         if skills_block:
             category_prefix_re = re.compile(
                 r"^(?:[•●○▪*–—\d\.\)\s]*)([A-Za-z0-9\s/&+-]{1,35}?)\s*[:：]\s*(.*)$"
+            )
+            # "Languages  Java | HTML" / "Languages – C | Java": a category label followed by a
+            # delimited list, using a column gap or dash instead of a colon.
+            category_gap_re = re.compile(
+                r"^(?:[•●○▪*\s]*)([A-Za-z][A-Za-z0-9 /&+.()-]{1,35}?)(?:\s{2,}|\s+[–—-]\s*)(\S.*[,|·;].*)$"
             )
             for raw_line in skills_block.splitlines():
                 line = raw_line.strip()
                 if not line:
                     continue
 
-                cat_match = category_prefix_re.match(line)
+                cat_match = category_prefix_re.match(line) or category_gap_re.match(line)
                 if cat_match:
                     items_str = cat_match.group(2).strip()
                     if items_str:
@@ -936,14 +989,14 @@ class ResumeExtractor:
             re.IGNORECASE,
         )
         for exp in explicit_patterns:
-            parts = re.split(r"[,;|•●○▪*\t]|\s{2,}|\s+/\s+", exp)
+            parts = re.split(r"[,;|•●○▪*·\t]|\s{2,}|\s+/\s+", exp)
             for p in parts:
                 add_tech(p)
 
         # 2. Pipe/dash inline stack e.g. "Title | Tech1, Tech2"
         pipe_patterns = re.findall(r"\s*[|–—]\s*([A-Za-z0-9\s,.\+#/]+?)(?=\s*[•\n]|\s+Built\b|\s+Developed\b|$)", text_line)
         for pp in pipe_patterns:
-            parts = re.split(r"[,;|•●○▪*\t]|\s{2,}|\s+/\s+", pp)
+            parts = re.split(r"[,;|•●○▪*·\t]|\s{2,}|\s+/\s+", pp)
             for p in parts:
                 add_tech(p)
 
@@ -1068,6 +1121,10 @@ class ResumeExtractor:
 
     @classmethod
     def _projects(cls, block: str) -> list[dict[str, Any]]:
+        return cls._projects_structured(block) or cls._projects_legacy(block)
+
+    @classmethod
+    def _projects_legacy(cls, block: str) -> list[dict[str, Any]]:
         if not block.strip():
             return []
 
@@ -1247,8 +1304,12 @@ class ResumeExtractor:
         return projects
 
 
+    @classmethod
+    def _certifications(cls, block: str) -> list[str]:
+        return cls._certifications_structured(block) or cls._certifications_legacy(block)
+
     @staticmethod
-    def _certifications(block: str) -> list[str]:
+    def _certifications_legacy(block: str) -> list[str]:
         if not block.strip():
             return []
 
@@ -1271,23 +1332,10 @@ class ResumeExtractor:
             clean = re.sub(r"^[\s•●▪*–—\d\.\)]+", "", line).strip()
             if not clean or len(clean) < 2:
                 continue
-            # Remove OCR garbage: trailing counts like ",3" or " 3" but NOT 3-digit numbers (cert codes)
-            clean = re.sub(r",\s*\d{1,2}\s*$", "", clean).strip()   # trailing ,N or ,NN  (e.g. "badges,3")
-            clean = re.sub(r"\s+\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
-            clean = re.sub(r"\s*-?\s*\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
-            # After badge removal, if the remaining text is empty or just a noise word, skip it
-            if not clean or re.fullmatch(r"badges?", clean, re.I):
+            clean = ResumeExtractor._clean_cert_text(clean)
+            if not clean:
                 continue
-            # Normalize DP900-N (OCR: missing hyphen) → DP-900. Do NOT touch already-correct DP-900.
-            clean = re.sub(r"\bDP\s*900(?:-\s*\d+)?\b", "DP-900", clean, flags=re.I)
 
-            # Add missing space before opening paren: "System(IIRS)" → "System (IIRS)"
-            clean = re.sub(r"([A-Za-z])\(", r"\1 (", clean)
-            # Remove trailing " - Training" / "- Training" suffix that leaks from AWS cert OCR
-            clean = re.sub(r"\s*-\s*Training\s*$", "", clean, flags=re.I).strip()
-            # Replace 'Graduate' with nothing when it precedes a hyphen (AWS Academy Graduate- → AWS Academy)
-            clean = re.sub(r"\s*Graduate-\s*$", "", clean, flags=re.I).strip()
-            
             # Split multi-item lines delimited by '|' or bullets
             if "|" in clean or "•" in clean:
                 parts = [p.strip() for p in re.split(r"\s*[|•●▪*]\s*", clean) if p.strip()]
@@ -1297,6 +1345,31 @@ class ResumeExtractor:
             elif clean and len(clean) >= 2:
                 raw_certs.append(clean)
 
+        return ResumeExtractor._merge_wrapped_certs(raw_certs)
+
+    @staticmethod
+    def _clean_cert_text(clean: str) -> str | None:
+        """Remove OCR artefacts from one certification line; None when only noise remains."""
+        # Remove OCR garbage: trailing counts like ",3" or " 3" but NOT 3-digit numbers (cert codes)
+        clean = re.sub(r",\s*\d{1,2}\s*$", "", clean).strip()   # trailing ,N or ,NN  (e.g. "badges,3")
+        clean = re.sub(r"\s+\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
+        clean = re.sub(r"\s*-?\s*\d+\s*badges?\b.*$", "", clean, flags=re.I).strip()
+        # After badge removal, if the remaining text is empty or just a noise word, skip it
+        if not clean or re.fullmatch(r"badges?", clean, re.I):
+            return None
+        # Normalize DP900-N (OCR: missing hyphen) → DP-900. Do NOT touch already-correct DP-900.
+        clean = re.sub(r"\bDP\s*900(?:-\s*\d+)?\b", "DP-900", clean, flags=re.I)
+        # Add missing space before opening paren: "System(IIRS)" → "System (IIRS)"
+        clean = re.sub(r"([A-Za-z])\(", r"\1 (", clean)
+        # Remove trailing " - Training" / "- Training" suffix that leaks from AWS cert OCR
+        clean = re.sub(r"\s*-\s*Training\s*$", "", clean, flags=re.I).strip()
+        # Replace 'Graduate' with nothing when it precedes a hyphen (AWS Academy Graduate- → AWS Academy)
+        clean = re.sub(r"\s*Graduate-\s*$", "", clean, flags=re.I).strip()
+        return clean or None
+
+    @staticmethod
+    def _merge_wrapped_certs(raw_certs: list[str]) -> list[str]:
+        """Join certification names that wrapped onto the following line."""
         if not raw_certs:
             return []
 

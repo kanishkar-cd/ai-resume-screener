@@ -1,5 +1,4 @@
 import pytest
-from app.services.affinda_mapper import map_affinda_resume
 from app.services.extractors.resume_extractor import ResumeExtractor
 from app.services.normalizers.resume_normalizer import ResumeNormalizer
 
@@ -122,90 +121,6 @@ Role : Intern
     assert result[0]["employment_type"] == "Internship"
     assert result[0]["start_date"] is None
     assert result[0]["end_date"] is None
-
-
-def test_8_multiple_experiences_from_affinda_mapped_and_normalized() -> None:
-    payload = {
-        "candidateName": {"raw": "Alexander Pierce"},
-        "workExperience": [
-            {
-                "workExperienceOrganization": "TechNova Solutions",
-                "workExperienceJobTitle": "Senior Software Engineer",
-                "workExperienceDates": {
-                    "start": {"date": "2023-01-01"},
-                    "end": {"isCurrent": True},
-                },
-                "workExperienceType": {"label": "Full-time"},
-                "workExperienceDescription": "Leading cloud architecture and Python services.",
-                "workExperienceResponsibilities": ["Leading cloud architecture", "Python services"],
-            },
-            {
-                "workExperienceOrganization": "CodeBridge Technologies",
-                "workExperienceJobTitle": "Software Engineer Intern",
-                "workExperienceDates": {
-                    "start": {"date": "2022-01-01"},
-                    "end": {"date": "2022-12-31", "isCurrent": False},
-                },
-                "workExperienceType": {"label": "Internship"},
-                "workExperienceDescription": "Built REST APIs and frontend components.",
-                "workExperienceResponsibilities": ["Built REST APIs", "Frontend components"],
-            },
-        ],
-    }
-
-    extracted, normalized = map_affinda_resume(payload, "provider-1")
-
-    assert len(extracted["experience"]) == 2
-    assert len(normalized["experience"]) == 2
-
-    assert extracted["experience"][0]["company"] == "TechNova Solutions"
-    assert extracted["experience"][0]["title"] == "Senior Software Engineer"
-    assert extracted["experience"][0]["employment_type"] == "Full-time"
-    assert extracted["experience"][0]["is_current"] is True
-    assert extracted["experience"][0]["responsibilities"] == ["Leading cloud architecture", "Python services"]
-
-    assert normalized["experience"][0]["company"] == "TechNova Solutions"
-    assert normalized["experience"][0]["job_title"] == "Senior Software Engineer"
-    assert normalized["experience"][0]["is_current"] is True
-    assert normalized["experience"][0]["description"] == "Leading cloud architecture and Python services."
-
-    assert extracted["experience"][1]["company"] == "CodeBridge Technologies"
-    assert extracted["experience"][1]["employment_type"] == "Internship"
-    assert extracted["experience"][1]["is_current"] is False
-
-
-def test_9_affinda_structured_data_vs_local_fallback() -> None:
-    # When Affinda has empty workExperience, local fallback parses source text
-    empty_payload = {
-        "candidateName": {"raw": "Muthu Visalakshi M"},
-        "workExperience": [],
-    }
-    source_text = """Muthu Visalakshi M
-muthu@example.com
-9876543210
-
-WORK EXPERIENCE
-Cloud Destinations, Coimbatore
-Role : Associate Software Engineer
-June 2026 – Present
-- Working on BA Accelerator, contributing to core AI agent framework.
-- Collaborating with engineering team to design agent-based automation.
-
-PROJECTS
-Project: Smart Health
-- Built health app using React.
-"""
-    extracted, normalized = map_affinda_resume(empty_payload, "provider-2", source_text=source_text)
-
-    assert len(extracted["experience"]) == 1
-    assert len(normalized["experience"]) == 1
-
-    exp = extracted["experience"][0]
-    assert exp["company"] == "Cloud Destinations"
-    assert exp["company"] != "Present"
-    assert exp["title"] == "Associate Software Engineer"
-    assert exp["is_current"] is True
-    assert "BA Accelerator" in exp["description"]
 
 
 def test_10_project_must_not_become_experience() -> None:

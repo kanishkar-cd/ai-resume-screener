@@ -1,8 +1,15 @@
+from types import SimpleNamespace
 import pytest
 from app.services.extractors.resume_extractor import ResumeExtractor
-from app.services.affinda_mapper import map_affinda_resume
 from app.services.normalizers.resume_normalizer import ResumeNormalizer
 from app.models.extracted_info import ExtractedResumeModel
+
+
+def _local_extract(source_text: str) -> tuple[dict, dict]:
+    """Run the deterministic resume extraction + normalization path used in production."""
+    extracted = ResumeExtractor().extract(source_text)
+    normalized = ResumeNormalizer().normalize(SimpleNamespace(**extracted))
+    return extracted, normalized
 
 
 # ==============================================================================
@@ -16,7 +23,7 @@ def test_phone_extraction_indian_with_country_code():
         "EDUCATION\n"
         "B.E. Computer Science and Engineering"
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] == "+91 9344081155"
     assert normalized["phone"] == "+919344081155"
 
@@ -28,7 +35,7 @@ def test_phone_extraction_indian_without_spaces_or_prefix():
         "EDUCATION\n"
         "B.E. Computer and Communication Engineering"
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] == "+919361280237"
     assert normalized["phone"] == "+919361280237"
 
@@ -39,7 +46,7 @@ def test_phone_extraction_labeled_phone():
         "EDUCATION\n"
         "Sri Eshwar College of Engineering B.Tech(CSBS)"
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] == "7397454084"
     assert normalized["phone"] == "+917397454084"
 
@@ -51,7 +58,7 @@ def test_phone_extraction_masked_number_returns_none():
         "SUMMARY\n"
         "Senior Data Analyst with 6+ years of experience."
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] is None
     assert normalized["phone"] is None
 
@@ -63,7 +70,7 @@ def test_phone_extraction_no_phone_present_returns_none():
         "PROJECTS\n"
         "Cloud Infrastructure Automation"
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] is None
     assert normalized["phone"] is None
 
@@ -77,7 +84,7 @@ def test_phone_extraction_never_matches_pin_codes_or_dates():
         "2023 - 2027\n"
         "Roll No: 23102050"
     )
-    mapped, normalized = map_affinda_resume({}, source_text=text)
+    mapped, normalized = _local_extract(text)
     assert mapped["phone"] is None
     assert normalized["phone"] is None
 
@@ -94,7 +101,7 @@ def test_education_three_tier_college_hsc_sslc_sri_geethani():
         "PROJECTS\n"
         "SECURE VOTING SYSTEM 2025 Developed a secure full-stack digital voting platform."
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     edu = mapped.get("education", [])
     assert len(edu) == 3
 
@@ -125,7 +132,7 @@ def test_education_three_tier_college_hsc_sslc_jaishree():
         "SKILLS\n"
         "Python, Flask, Selenium"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     edu = mapped.get("education", [])
     assert len(edu) == 3
 
@@ -156,7 +163,7 @@ def test_education_multiline_college_plus_hsc_muthu():
         "EXPERIENCE\n"
         "Cloud Destinations"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     edu = mapped.get("education", [])
     assert len(edu) == 2
 
@@ -181,7 +188,7 @@ def test_education_multiple_university_degrees():
         "SKILLS\n"
         "Distributed Systems, Go, Kubernetes"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     edu = mapped.get("education", [])
     assert len(edu) == 2
 
@@ -204,7 +211,7 @@ def test_education_single_degree_aswin():
         "EXPERIENCE\n"
         "Software Engineer at Cloud Destinations"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     edu = mapped.get("education", [])
     assert len(edu) == 1
     assert edu[0]["degree"] == "Bachelor of Engineering"

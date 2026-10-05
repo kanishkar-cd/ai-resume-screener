@@ -137,7 +137,6 @@ async def test_parse_txt_success_persists_and_sets_parsed(
 @pytest.mark.asyncio
 async def test_parse_marks_failed_on_parser_error(tmp_path: Path) -> None:
     service, documents, _, storage = service_fixture()
-    service._try_affinda = AsyncMock(return_value=None)
     record = document_record(
         mime_type="application/unsupported-broken",
         file_path=str(tmp_path / "broken.pdf"),

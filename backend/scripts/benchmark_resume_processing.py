@@ -4,7 +4,7 @@ Runs a realistic batch of 5 production PDF candidate resumes through the current
 Resume Processing flow without modifying any application code.
 Collects microsecond-accurate timings for:
 1. File upload/save
-2. Affinda extraction per resume / local fallback
+2. Local deterministic parsing per resume
 3. Extraction & persistence
 4. Normalization & persistence
 5. Frontend post-normalization profile fetch round-trips
@@ -69,7 +69,6 @@ from app.repositories.ranking_repository import RankingRepository
 from app.repositories.scoring_repository import ScoringRepository
 from app.repositories.weight_config_repository import WeightConfigRepository
 from app.schemas.project import ProjectCreate
-from app.services.affinda_service import AffindaService
 from app.services.document_service import DocumentService
 from app.services.extraction_service import ExtractionService
 from app.services.normalization_service import NormalizationService
@@ -146,7 +145,6 @@ async def main():
     print(f"PostgreSQL Server : {settings.POSTGRES_SERVER}")
     print(f"Groq Model        : {settings.GROQ_MODEL}")
     print(f"Groq TPM Limit    : {settings.GROQ_TPM_LIMIT}")
-    print(f"Affinda Configured: {bool(settings.AFFINDA_API_KEY and settings.AFFINDA_WORKSPACE_ID)}")
     print(f"Max Concurrent Resumes in Queue: {getattr(settings, 'MAX_CONCURRENT_RESUMES', 1)}")
     print(f"Batch Throttle Sec: {getattr(settings, 'LLM_BATCH_THROTTLE_SECONDS', 0.25)}")
     print("-" * 80)
@@ -267,7 +265,7 @@ async def main():
     for r in per_resume_upload_timings:
         print(f"    - {r['filename']:<40} | Disk: {r['disk_io_ms']:6.2f}ms | Hash DB: {r['hash_check_db_ms']:6.2f}ms | Create DB: {r['create_commit_db_ms']:6.2f}ms | Total: {r['total_upload_ms']:6.2f}ms")
 
-    # 3. Benchmark Stage 2: Parsing per Resume (Affinda vs Local Fallback)
+    # 3. Benchmark Stage 2: Parsing per Resume (local deterministic parser)
     # NOTE: the backend exposes only a single-document parse endpoint (no
     # project/batch-level parse route), so there is no production code path to
     # call here directly. Each resume below still gets its own AsyncSessionLocal()
@@ -284,8 +282,7 @@ async def main():
             doc_repo = DocumentRepository(session)
             parsed_repo = ParsedDocumentRepository(session)
             storage = StorageService()
-            affinda = AffindaService()
-            parse_service = ParsingService(doc_repo, parsed_repo, storage, affinda)
+            parse_service = ParsingService(doc_repo, parsed_repo, storage)
 
             t0 = perf_counter()
             doc = await parse_service._load_document(doc_id)
@@ -298,32 +295,14 @@ async def main():
             await parse_service._set_status(doc_id, ProcessingStatus.PARSING_PENDING, {}, document=doc, refresh=False)
             t_status_pending_db = (perf_counter() - t0) * 1000
 
-            # Measure Affinda call
+            # Measure local parse
             t0 = perf_counter()
-            affinda_error = None
-            affinda_payload = None
-            try:
-                affinda_payload = await parse_service._try_affinda(doc, path)
-            except Exception as e:
-                affinda_error = str(e)
-            t_affinda = (perf_counter() - t0) * 1000
-
-            # Measure local fallback if Affinda was None
-            local_fallback_ms = 0.0
-            if affinda_payload is None:
-                t0 = perf_counter()
-                from asyncio import to_thread
-                from app.services.parsers import parse_document_file
-                from app.services.parsers.base import text_metrics
-                parsed = await to_thread(parse_document_file, path, doc.mime_type)
-                word_count, character_count = text_metrics(parsed.raw_text)
-                local_fallback_ms = (perf_counter() - t0) * 1000
-            else:
-                raw_text = affinda_payload["data"].get("rawText", "")
-                word_count, character_count = len(raw_text.split()), len(raw_text)
-                from app.schemas.parsed_document import ParserEngine
-                from app.services.parsers.base import ParseOutput
-                parsed = ParseOutput(raw_text=raw_text, page_count=None, parser_engine=ParserEngine.PLAIN_TEXT, original_parser="AFFINDA")
+            from asyncio import to_thread
+            from app.services.parsers import parse_document_file
+            from app.services.parsers.base import text_metrics
+            parsed = await to_thread(parse_document_file, path, doc.mime_type)
+            word_count, character_count = text_metrics(parsed.raw_text)
+            local_parse_ms = (perf_counter() - t0) * 1000
 
             # Upsert parsed doc & status update
             t0 = perf_counter()
@@ -342,7 +321,7 @@ async def main():
                 commit=False,
                 refresh=False,
             )
-            await parse_service._set_status(doc_id, ProcessingStatus.PARSED, {"affinda_payload": parse_service._persistable_affinda_payload(affinda_payload)}, refresh=False, document=doc)
+            await parse_service._set_status(doc_id, ProcessingStatus.PARSED, {}, refresh=False, document=doc)
             t_save_db = (perf_counter() - t0) * 1000
 
             total_parse = (perf_counter() - t_parse_start) * 1000
@@ -350,9 +329,7 @@ async def main():
                 "filename": r_meta["filename"],
                 "doc_id": doc_id,
                 "db_pre_ms": t_load_db + t_status_pending_db,
-                "affinda_ms": t_affinda,
-                "affinda_success": affinda_payload is not None,
-                "local_fallback_ms": local_fallback_ms,
+                "local_parse_ms": local_parse_ms,
                 "db_save_ms": t_save_db,
                 "total_parse_ms": total_parse,
                 "word_count": word_count,
@@ -362,7 +339,7 @@ async def main():
     total_batch_parse_ms = (perf_counter() - t_batch_parse_start) * 1000
     print(f"  Parsing completed in {total_batch_parse_ms:.2f} ms")
     for r in parsing_timings:
-        print(f"    - {r['filename']:<40} | Affinda: {r['affinda_ms']:7.2f}ms ({'OK' if r['affinda_success'] else 'FALLBACK'}) | Local FB: {r['local_fallback_ms']:6.2f}ms | DB IO: {r['db_pre_ms']+r['db_save_ms']:6.2f}ms | Total: {r['total_parse_ms']:7.2f}ms")
+        print(f"    - {r['filename']:<40} | Local parse: {r['local_parse_ms']:7.2f}ms | DB IO: {r['db_pre_ms']+r['db_save_ms']:6.2f}ms | Total: {r['total_parse_ms']:7.2f}ms")
 
     # 4. Benchmark Stage 3: Extraction per Resume (no batch extraction endpoint
     # exists either; same safe one-session-per-resume concurrency pattern as above)
@@ -386,28 +363,21 @@ async def main():
             await doc_repo.update_processing(doc_id, ProcessingStage.EXTRACTION, ProcessingStatus.IN_PROGRESS, document=doc, refresh=False)
             t_extract_db_read = (perf_counter() - t0) * 1000
 
-            # Extraction logic (Affinda vs Regex/AI)
+            # Extraction logic (deterministic + optional AI recovery)
             t0 = perf_counter()
-            extracted = await ext_service._affinda_resume(doc, parsed.normalized_text)
-            affinda_map_ms = (perf_counter() - t0) * 1000
-            ai_extract_ms = 0.0
-            regex_extract_ms = 0.0
+            from app.services.extractors import ResumeExtractor
+            deterministic = ResumeExtractor().extract(parsed.normalized_text)
+            regex_extract_ms = (perf_counter() - t0) * 1000
 
-            if extracted is None:
-                t0 = perf_counter()
-                from app.services.extractors import ResumeExtractor
-                deterministic = ResumeExtractor().extract(parsed.normalized_text)
-                regex_extract_ms = (perf_counter() - t0) * 1000
-
-                t0 = perf_counter()
-                ai_extracted = None
-                try:
-                    ai_extracted = await ext_service.ai_resume_extractor.extract(parsed.normalized_text)
-                except Exception:
-                    pass
-                ai_extract_ms = (perf_counter() - t0) * 1000
-                from app.services.extractors.resume_merge import merge_resume_extractions
-                extracted = merge_resume_extractions(deterministic, ai_extracted)
+            t0 = perf_counter()
+            ai_extracted = None
+            try:
+                ai_extracted = await ext_service.ai_resume_extractor.extract(parsed.normalized_text)
+            except Exception:
+                pass
+            ai_extract_ms = (perf_counter() - t0) * 1000
+            from app.services.extractors.resume_merge import merge_resume_extractions
+            extracted = merge_resume_extractions(deterministic, ai_extracted)
 
             # DB persistence
             t0 = perf_counter()
@@ -420,7 +390,6 @@ async def main():
             return {
                 "filename": r_meta["filename"],
                 "db_read_ms": t_extract_db_read,
-                "affinda_map_ms": affinda_map_ms,
                 "regex_extract_ms": regex_extract_ms,
                 "ai_extract_ms": ai_extract_ms,
                 "db_write_ms": t_extract_db_write,
@@ -431,7 +400,7 @@ async def main():
     total_batch_extract_ms = (perf_counter() - t_batch_extract_start) * 1000
     print(f"  Extraction completed in {total_batch_extract_ms:.2f} ms")
     for r in extraction_timings:
-        print(f"    - {r['filename']:<40} | Affinda Map: {r['affinda_map_ms']:6.2f}ms | Regex: {r['regex_extract_ms']:6.2f}ms | AI Extract: {r['ai_extract_ms']:6.2f}ms | DB: {r['db_read_ms']+r['db_write_ms']:6.2f}ms | Total: {r['total_extract_ms']:7.2f}ms")
+        print(f"    - {r['filename']:<40} | Regex: {r['regex_extract_ms']:6.2f}ms | AI Extract: {r['ai_extract_ms']:6.2f}ms | DB: {r['db_read_ms']+r['db_write_ms']:6.2f}ms | Total: {r['total_extract_ms']:7.2f}ms")
 
     # 5. Benchmark Stage 4: Normalization per Resume (no batch normalization
     # endpoint exists either; same safe one-session-per-resume concurrency pattern)
@@ -455,9 +424,8 @@ async def main():
             t_norm_db_read = (perf_counter() - t0) * 1000
 
             t0 = perf_counter()
-            affinda_values = (getattr(extracted, "raw_metadata", {}) or {}).get("affinda_normalized_profile")
             from app.services.normalizers import ResumeNormalizer
-            values = affinda_values or ResumeNormalizer().normalize(extracted)
+            values = ResumeNormalizer().normalize(extracted)
             norm_compute_ms = (perf_counter() - t0) * 1000
 
             t0 = perf_counter()
@@ -686,7 +654,7 @@ async def main():
     print(f"\nTOTAL BATCH EXECUTION TIME (5 Resumes): {total_pipeline_time_ms / 1000:.2f} s ({total_pipeline_time_ms:.1f} ms)")
     print("\nStage Breakdown (Total Batch Time):")
     print(f"  1. Batch Upload (5 files)         : {total_batch_upload_ms:9.2f} ms ({total_batch_upload_ms/total_pipeline_time_ms*100:5.1f}%)")
-    print(f"  2. Resume Parsing (Affinda / local): {total_batch_parse_ms:9.2f} ms ({total_batch_parse_ms/total_pipeline_time_ms*100:5.1f}%)")
+    print(f"  2. Resume Parsing (local):          {total_batch_parse_ms:9.2f} ms ({total_batch_parse_ms/total_pipeline_time_ms*100:5.1f}%)")
     print(f"  3. Resume Extraction              : {total_batch_extract_ms:9.2f} ms ({total_batch_extract_ms/total_pipeline_time_ms*100:5.1f}%)")
     print(f"  4. Resume Normalization           : {total_batch_norm_ms:9.2f} ms ({total_batch_norm_ms/total_pipeline_time_ms*100:5.1f}%)")
     print(f"  5. Frontend Post-Norm Profiling   : {total_fe_fetches_ms:9.2f} ms ({total_fe_fetches_ms/total_pipeline_time_ms*100:5.1f}%)")

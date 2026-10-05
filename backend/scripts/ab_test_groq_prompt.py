@@ -52,7 +52,6 @@ from app.repositories.ranking_repository import RankingRepository
 from app.repositories.scoring_repository import ScoringRepository
 from app.repositories.weight_config_repository import WeightConfigRepository
 from app.schemas.project import ProjectCreate
-from app.services.affinda_service import AffindaService
 from app.services.document_service import DocumentService
 from app.services.extraction_service import ExtractionService
 from app.services.normalization_service import NormalizationService
@@ -189,36 +188,23 @@ async def setup_project() -> tuple:
             doc_repo = DocumentRepository(session)
             parsed_repo = ParsedDocumentRepository(session)
             storage = StorageService()
-            affinda = AffindaService()
-            parse_service = ParsingService(doc_repo, parsed_repo, storage, affinda)
+            parse_service = ParsingService(doc_repo, parsed_repo, storage)
             doc = await parse_service._load_document(doc_id)
             path = storage.resolve_file(doc.file_path)
             from app.schemas.document import ProcessingStatus
             await parse_service._set_status(doc_id, ProcessingStatus.PARSING_PENDING, {}, document=doc, refresh=False)
-            affinda_payload = None
-            try:
-                affinda_payload = await parse_service._try_affinda(doc, path)
-            except Exception:
-                pass
-            if affinda_payload is None:
-                from asyncio import to_thread
-                from app.services.parsers import parse_document_file
-                from app.services.parsers.base import text_metrics
-                parsed = await to_thread(parse_document_file, path, doc.mime_type)
-                word_count, character_count = text_metrics(parsed.raw_text)
-            else:
-                raw_text = affinda_payload["data"].get("rawText", "")
-                word_count, character_count = len(raw_text.split()), len(raw_text)
-                from app.schemas.parsed_document import ParserEngine
-                from app.services.parsers.base import ParseOutput
-                parsed = ParseOutput(raw_text=raw_text, page_count=None, parser_engine=ParserEngine.PLAIN_TEXT, original_parser="AFFINDA")
+            from asyncio import to_thread
+            from app.services.parsers import parse_document_file
+            from app.services.parsers.base import text_metrics
+            parsed = await to_thread(parse_document_file, path, doc.mime_type)
+            word_count, character_count = text_metrics(parsed.raw_text)
             from app.schemas.parsed_document import ParsedDocumentCreate
             await parsed_repo.upsert(ParsedDocumentCreate(
                 document_id=doc_id, raw_text=parsed.raw_text, normalized_text=parsed.raw_text,
                 page_count=parsed.page_count, word_count=word_count, character_count=character_count,
                 parser_engine=parsed.parser_engine, parsing_duration_ms=0,
             ), commit=False, refresh=False)
-            await parse_service._set_status(doc_id, ProcessingStatus.PARSED, {"affinda_payload": parse_service._persistable_affinda_payload(affinda_payload)}, refresh=False, document=doc)
+            await parse_service._set_status(doc_id, ProcessingStatus.PARSED, {}, refresh=False, document=doc)
 
             ext_repo = ExtractionRepository(session)
             ext_service = ExtractionService(doc_repo, parsed_repo, ext_repo)
@@ -226,17 +212,15 @@ async def setup_project() -> tuple:
             doc2 = await ext_service._get_document(doc_id)
             parsed_row = await parsed_repo.get_by_document_id(doc_id)
             await doc_repo.update_processing(doc_id, ProcessingStage.EXTRACTION, ProcessingStatus.IN_PROGRESS, document=doc2, refresh=False)
-            extracted = await ext_service._affinda_resume(doc2, parsed_row.normalized_text)
-            if extracted is None:
-                from app.services.extractors import ResumeExtractor
-                deterministic = ResumeExtractor().extract(parsed_row.normalized_text)
-                ai_extracted = None
-                try:
-                    ai_extracted = await ext_service.ai_resume_extractor.extract(parsed_row.normalized_text)
-                except Exception:
-                    pass
-                from app.services.extractors.resume_merge import merge_resume_extractions
-                extracted = merge_resume_extractions(deterministic, ai_extracted)
+            from app.services.extractors import ResumeExtractor
+            deterministic = ResumeExtractor().extract(parsed_row.normalized_text)
+            ai_extracted = None
+            try:
+                ai_extracted = await ext_service.ai_resume_extractor.extract(parsed_row.normalized_text)
+            except Exception:
+                pass
+            from app.services.extractors.resume_merge import merge_resume_extractions
+            extracted = merge_resume_extractions(deterministic, ai_extracted)
             from app.schemas.extracted_info import ExtractedResumeCreate
             await ext_repo.create_or_update_resume(ExtractedResumeCreate(document_id=doc_id, **extracted), commit=False, refresh=False)
             await doc_repo.update_processing(doc_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED, document=doc2, refresh=False)
@@ -246,9 +230,8 @@ async def setup_project() -> tuple:
             doc3 = await norm_service._get_document(doc_id)
             extracted_row = await norm_service._get_extracted(doc3)
             await doc_repo.update_processing(doc_id, ProcessingStage.NORMALIZATION, ProcessingStatus.IN_PROGRESS, document=doc3, refresh=False)
-            affinda_values = (getattr(extracted_row, "raw_metadata", {}) or {}).get("affinda_normalized_profile")
             from app.services.normalizers import ResumeNormalizer
-            values = affinda_values or ResumeNormalizer().normalize(extracted_row)
+            values = ResumeNormalizer().normalize(extracted_row)
             from app.schemas.normalized_info import NormalizedResumeCreate
             await norm_repo.create_or_update_resume(NormalizedResumeCreate(document_id=doc_id, extracted_resume_id=extracted_row.id, **values), commit=False, refresh=False)
             await doc_repo.update_processing(doc_id, ProcessingStage.COMPLETED, ProcessingStatus.COMPLETED, document=doc3, refresh=False)

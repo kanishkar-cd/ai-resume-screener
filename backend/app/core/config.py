@@ -138,16 +138,6 @@ class Settings(BaseSettings):
     COSINE_NGRAM_WEIGHT: float = Field(default=0.5, ge=0.0, le=5.0)
     COSINE_GENERIC_TOKEN_WEIGHT: float = Field(default=0.05, ge=0.0, le=1.0)
 
-    ENABLE_AFFINDA: bool = False
-    AFFINDA_API_KEY: str | None = None
-    AFFINDA_API_BASE_URL: str = "https://api.affinda.com"
-    AFFINDA_WORKSPACE_ID: str | None = None
-    AFFINDA_RESUME_DOCUMENT_TYPE_ID: str | None = None
-    AFFINDA_JD_DOCUMENT_TYPE_ID: str | None = None
-    AFFINDA_TIMEOUT_SECONDS: float = 30.0
-    AFFINDA_POLL_TIMEOUT_SECONDS: float = 15.0
-    AFFINDA_CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = 60.0
-
     CD_RECRUIT_BASE_URL: str = "http://localhost:3001"
     CD_RECRUIT_API_KEY: str = "pk_live_1ade99d824febf6f016c83f29443b3e95efe8cfdf50e87e4"
     CD_RECRUIT_TIMEOUT_SECONDS: float = 15.0

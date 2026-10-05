@@ -120,8 +120,10 @@ def reconstruct_layout_text(text: str) -> str:
         stripped = line.strip()
         if not stripped:
             continue
-        if "   " in stripped or " | " in stripped:
-            parts = re.split(r"\s{3,}|\s*\|\s*", stripped, maxsplit=1)
+        # Only wide whitespace gaps signal flattened side-by-side columns; " | " is an
+        # ordinary inline separator (contact lines, skill lists, "Title | Company").
+        if "   " in stripped:
+            parts = re.split(r"\s{3,}", stripped, maxsplit=1)
             if len(parts) == 2 and parts[0].strip() and parts[1].strip():
                 interleaved_count += 1
                 col1_lines.append(parts[0].strip())
@@ -135,14 +137,14 @@ def reconstruct_layout_text(text: str) -> str:
     return "\n".join(lines)
 
 
-def segment_sections(text: str) -> dict[str, str]:
+def segment_sections(text: str, extra_aliases: dict[str, set[str]] | None = None) -> dict[str, str]:
     """Split normalized text hierarchically at known section headings."""
     reconstructed_text = reconstruct_layout_text(text)
     sections: dict[str, list[str]] = {"header": []}
     current = "header"
 
     alias_map: dict[str, str] = {}
-    for canonical, aliases in SECTION_ALIASES.items():
+    for canonical, aliases in {**SECTION_ALIASES, **(extra_aliases or {})}.items():
         for alias in aliases:
             alias_map[alias.lower()] = canonical
 
@@ -156,7 +158,9 @@ def segment_sections(text: str) -> dict[str, str]:
 
         matched_section = alias_map.get(clean_heading)
 
-        if not matched_section:
+        # Sentence fragments ("problem-solving and technical skills.") are never headings.
+        looks_like_sentence = line.rstrip().endswith(".") or line[:1].islower()
+        if not matched_section and not looks_like_sentence:
             heading_words = len(clean_heading.split())
             # Only attempt fuzzy heading matching if line is short (<= 6 words) and doesn't look like a standard descriptive sentence
             if heading_words <= 6:

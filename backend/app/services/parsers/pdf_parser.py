@@ -8,6 +8,7 @@ import structlog
 from app.schemas.parsed_document import ParserEngine
 from app.services.ocr.ocr_service import OCRService
 from app.services.parsers.base import ParseOutput
+from app.services.parsers.pdf_layout import page_text as layout_page_text, reflow_plain_text
 
 logger = structlog.get_logger(__name__)
 
@@ -21,12 +22,14 @@ def parse_pdf(path: Path) -> ParseOutput:
     try:
         with fitz.open(path) as document:
             for page in document:
-                # Use block extraction sorted by vertical then horizontal position to preserve column layout
-                blocks = page.get_text("blocks")
-                # Sort text blocks by top-to-bottom (y0), then left-to-right (x0)
-                sorted_blocks = sorted(blocks, key=lambda b: (round(b[1] / 10) * 10, b[0]))
-                page_text = "\n".join(b[4].strip() for b in sorted_blocks if len(b) >= 5 and b[4].strip())
-                pages.append(page_text)
+                try:
+                    pages.append(layout_page_text(page))
+                except Exception as exc:
+                    logger.warning("pdf_layout_reconstruction_failed", path=str(path), error=str(exc))
+                    # Fall back to block order sorted top-to-bottom, then left-to-right
+                    blocks = page.get_text("blocks")
+                    sorted_blocks = sorted(blocks, key=lambda b: (round(b[1] / 10) * 10, b[0]))
+                    pages.append("\n".join(b[4].strip() for b in sorted_blocks if len(b) >= 5 and b[4].strip()))
             page_count = len(document) if hasattr(document, "__len__") else getattr(document, "page_count", 0)
     except Exception as exc:
         logger.warning("pymupdf_text_extraction_error", path=str(path), error=str(exc))
@@ -71,7 +74,7 @@ def parse_pdf(path: Path) -> ParseOutput:
         ocr_service.provider, "engine_name", type(ocr_service.provider).__name__.lower().replace("provider", "")
     )
 
-    ocr_text = ocr_service.process_page_images(images).strip()
+    ocr_text = reflow_plain_text(ocr_service.process_page_images(images).strip())
     if not ocr_text:
         raise RuntimeError("PDF text extraction and OCR fallback both produced empty text.")
 

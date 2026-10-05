@@ -887,17 +887,11 @@ class JDExtractionService:
         parsed_repository: ParsedDocumentRepository,
         extracted_repository: ExtractedJDRepository,
         ai_extractor: AIJDExtractor | None = None,
-        affinda_service=None,
-        storage=None,
     ) -> None:
         self.document_repository = document_repository
         self.parsed_repository = parsed_repository
         self.extracted_repository = extracted_repository
         self.ai_extractor = ai_extractor or AIJDExtractor()
-        from app.services.affinda_service import AffindaService
-        from app.services.storage_service import StorageService
-        self.affinda_service = affinda_service or AffindaService()
-        self.storage = storage or StorageService()
 
     async def extract_from_raw_text(
         self,
@@ -1015,7 +1009,6 @@ class JDExtractionService:
             "jd_pipeline_trace",
             document_id=str(document_id),
             raw_jd_text_snippet=raw_text[:200],
-            affinda_used=False,
             ai_used=ai_recovered,
             extracted_skills=skills,
             extracted_required_skills=required_skills,
@@ -1075,13 +1068,6 @@ class JDExtractionService:
         )
         t_status_in_progress = (perf_counter() - t_sub0) * 1000
         logger.info("[EXTRACT_SUB_TIMING] Status IN_PROGRESS DB commit", duration_ms=round(t_status_in_progress, 2))
-
-        t_aff0 = perf_counter()
-        affinda_result = await self._try_affinda(document, metadata)
-        t_aff = (perf_counter() - t_aff0) * 1000
-        logger.info("[EXTRACT_SUB_TIMING] Affinda check", duration_ms=round(t_aff, 2))
-        if affinda_result is not None:
-            return affinda_result
 
         try:
             t_extract0 = perf_counter()
@@ -1150,49 +1136,6 @@ class JDExtractionService:
             processing_status=ProcessingStatus.COMPLETED,
             message=f"Extracted {len(skills)} skills, {len(responsibilities)} responsibilities, domain={domain!r}.",
         )
-
-    async def _try_affinda(self, document, metadata: dict) -> JDExtractResult | None:
-        if not self.affinda_service.configured:
-            return None
-        try:
-            from app.services.affinda_mapper import map_affinda_jd
-            from app.services.affinda_service import AffindaError
-
-            response = (document.metadata_json or {}).get("affinda_payload")
-            if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
-                return None
-
-            provider_meta = response.get("meta") or {}
-            mapped = map_affinda_jd(
-                response["data"], provider_meta.get("identifier")
-            )
-            await self.extracted_repository.upsert(
-                ExtractedJDCreate(document_id=document.id, **mapped),
-                commit=False,
-                refresh=False,
-            )
-            await self._set_status(
-                document.id,
-                ProcessingStatus.COMPLETED,
-                {**metadata, "extraction_error": None, "extraction_provider": "affinda"},
-                refresh=False,
-                document=document,
-            )
-            logger.info("affinda_jd_succeeded", document_id=str(document.id))
-            return JDExtractResult(
-                document_id=document.id,
-                document_type=DocumentType.JOB_DESCRIPTION,
-                processing_stage=ProcessingStage.EXTRACTION,
-                processing_status=ProcessingStatus.COMPLETED,
-                message="Job Description processed successfully.",
-            )
-        except Exception as exc:
-            logger.warning(
-                "affinda_jd_fallback",
-                document_id=str(document.id),
-                error_type=type(exc).__name__,
-            )
-            return None
 
     async def get_extracted_document(self, document_id: UUID) -> ExtractedJDRead:
         await self._load_document(document_id)

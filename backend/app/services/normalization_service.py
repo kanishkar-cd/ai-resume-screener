@@ -73,10 +73,7 @@ class NormalizationService:
                 document=document, refresh=False,
             )
             if document.document_type == DocumentTypeEnum.RESUME:
-                affinda_values = (getattr(extracted, "raw_metadata", {}) or {}).get(
-                    "affinda_normalized_profile"
-                )
-                values = affinda_values or ResumeNormalizer().normalize(extracted)
+                values = ResumeNormalizer().normalize(extracted)
                 await self.normalizations.create_or_update_resume(
                     NormalizedResumeCreate(document_id=document_id, extracted_resume_id=extracted.id, **values),
                     commit=False, refresh=False,

@@ -300,10 +300,6 @@ class EvidenceBuilder:
     @staticmethod
     def _projects(extracted: Any) -> list[dict[str, Any]]:
         raw_projs = list(getattr(extracted, "projects", None) or [])
-        if not raw_projs:
-            meta = getattr(extracted, "raw_metadata", None) or {}
-            if isinstance(meta, dict):
-                raw_projs = list((meta.get("affinda_normalized_profile") or {}).get("projects") or [])
         projects = [dict(item) if isinstance(item, dict) else item for item in raw_projs]
         if len(projects) <= 1:
             return projects
@@ -361,10 +357,6 @@ class EvidenceBuilder:
                 canonical_terms=list(skills),
             ))
         summary = getattr(extracted, "summary", None) or (getattr(extracted, "raw_metadata", None) or {}).get("summary")
-        if not summary:
-            meta = getattr(extracted, "raw_metadata", None) or {}
-            if isinstance(meta, dict):
-                summary = (meta.get("affinda_normalized_profile") or {}).get("summary")
         if summary and str(summary).strip():
             result.append(Evidence(
                 evidence_id="summary:1", kind="summary", text=str(summary).strip(),

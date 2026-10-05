@@ -1,6 +1,14 @@
+from types import SimpleNamespace
+from app.services.normalizers.resume_normalizer import ResumeNormalizer
 import pytest
 from app.services.extractors.resume_extractor import ResumeExtractor
-from app.services.affinda_mapper import map_affinda_resume, _normalize_technology_entries
+
+
+def _local_extract(source_text: str) -> tuple[dict, dict]:
+    """Run the deterministic resume extraction + normalization path used in production."""
+    extracted = ResumeExtractor().extract(source_text)
+    normalized = ResumeNormalizer().normalize(SimpleNamespace(**extracted))
+    return extracted, normalized
 
 
 def test_sri_geethani_three_projects_extracted_cleanly():
@@ -21,7 +29,7 @@ def test_sri_geethani_three_projects_extracted_cleanly():
         "C++, HTML, CSS, JavaScript, React.js, Node.js"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 3
 
@@ -51,7 +59,7 @@ def test_priya_sharma_embedded_experience_project_extracted():
         "SOC, Splunk, Microsoft Sentinel, KQL, Python, PowerShell"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 1
     assert projs[0]["name"] == "SIEM-Based Threat Detection & Incident Response"
@@ -76,7 +84,7 @@ def test_arjun_cloud_monitoring_technologies_extracted():
         "• Built automated alert notification bot integrated with Slack.\n"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 1
     assert projs[0]["name"] == "Cloud Infrastructure Monitoring & Automation"
@@ -104,12 +112,11 @@ def test_rahul_menon_no_invented_technologies():
         "Project Planning, Jira, Confluence, MS Project, Power BI"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 1
     assert projs[0]["name"] == "Enterprise IT Transformation Program"
     assert projs[0]["technologies"] == []
-
 
 
 def test_rahul_menon_embedded_experience_project_extracted():
@@ -126,7 +133,7 @@ def test_rahul_menon_embedded_experience_project_extracted():
         "Project Planning, Jira, Confluence, MS Project, Power BI"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 1
     assert projs[0]["name"] == "Enterprise IT Transformation Program"
@@ -146,7 +153,7 @@ def test_internship_and_education_not_contaminated_into_projects():
         "AWS Certified Solutions Architect"
     )
 
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 1
     assert projs[0]["name"] == "Microservice Engine"
@@ -163,7 +170,7 @@ def test_no_duplicate_projects_generated():
         "Project: Payment Gateway | Stripe, FastAPI\n"
         "• Handled webhook events and payment intents.\n"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     # Duplicate projects with identical name should be deduplicated
     names = [p["name"] for p in projs]
@@ -178,13 +185,8 @@ def test_no_technology_only_fake_projects():
         "EDUCATION\n"
         "MIT - Computer Science\n"
     )
-    mapped, _ = map_affinda_resume({}, source_text=source_text)
+    mapped, _ = _local_extract(source_text)
     projs = mapped.get("projects", [])
     assert len(projs) == 0
 
 
-def test_technology_character_splitting_never_occurs():
-    techs = _normalize_technology_entries("React.js, Node.js, Express.js, MongoDB, REST APIs")
-    assert techs == ["React.js", "Node.js", "Express.js", "MongoDB", "REST APIs"]
-    assert "R" not in techs
-    assert "e" not in techs
