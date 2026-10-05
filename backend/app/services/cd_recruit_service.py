@@ -22,6 +22,13 @@ class CDRecruitService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    @property
+    def base_url(self) -> str:
+        url = self.settings.CD_RECRUIT_BASE_URL.rstrip("/")
+        if "localhost" in url:
+            url = url.replace("localhost", "127.0.0.1")
+        return url
+
     async def send_candidates(
         self,
         department_code: str | None = None,
@@ -36,7 +43,7 @@ class CDRecruitService:
         Expects HTTP 201 Created.
         Reuses the exact same idempotency_key for retries.
         """
-        base_url = self.settings.CD_RECRUIT_BASE_URL.rstrip("/")
+        base_url = self.base_url
         url = f"{base_url}/api/v1/partner/candidates"
         api_key = self.settings.CD_RECRUIT_API_KEY or ""
 
@@ -155,7 +162,7 @@ class CDRecruitService:
         and enrich with real assessment results (module scores, composite score, score band, decisions)
         from CD-Recruit admin results API.
         """
-        base_url = self.settings.CD_RECRUIT_BASE_URL.rstrip("/")
+        base_url = self.base_url
         url = f"{base_url}/api/v1/partner/requisitions/{requisition_ref}/status"
         api_key = self.settings.CD_RECRUIT_API_KEY or ""
 

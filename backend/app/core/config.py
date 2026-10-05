@@ -138,10 +138,10 @@ class Settings(BaseSettings):
     COSINE_NGRAM_WEIGHT: float = Field(default=0.5, ge=0.0, le=5.0)
     COSINE_GENERIC_TOKEN_WEIGHT: float = Field(default=0.05, ge=0.0, le=1.0)
 
-    CD_RECRUIT_BASE_URL: str = "http://localhost:3001"
-    CD_RECRUIT_API_KEY: str = "pk_live_1ade99d824febf6f016c83f29443b3e95efe8cfdf50e87e4"
+    CD_RECRUIT_BASE_URL: str = "http://127.0.0.1:3001"
+    CD_RECRUIT_API_KEY: str | None = None  # secret: set in .env
     CD_RECRUIT_TIMEOUT_SECONDS: float = 15.0
-    CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "ENG"
+    CD_RECRUIT_DEFAULT_DEPARTMENT_CODE: str = "SOFTWARE_ENGINEERING"
     CD_RECRUIT_DEFAULT_LEVEL: str = "EXPERIENCED"
 
     # Amazon SES & Standard SMTP Email Configuration
