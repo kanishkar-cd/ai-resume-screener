@@ -67,3 +67,5 @@ storage/
 # Docker
 *.log
 backend/test-tmp/
+# Resumes downloaded by scripts/zoho_fetch_resumes.py (candidate personal data)
+backend/zoho_resumes/

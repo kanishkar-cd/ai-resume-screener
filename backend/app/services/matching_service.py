@@ -3661,7 +3661,8 @@ class SmartMatchEvaluator:
                     available_tokens=groq_available,
                     resume_id=resume_id,
                 )
-                secured = await groq_gate.wait_for_budget(estimated_tokens, max_wait_seconds=65.0)
+                budget_timeout = getattr(self.settings, "GROQ_BUDGET_WAIT_TIMEOUT_SECONDS", 90.0)
+                secured = await groq_gate.wait_for_budget(estimated_tokens, max_wait_seconds=budget_timeout)
                 if secured:
                     provider_selected = "groq"
                     selection_reason = "budget_replenished_after_wait"

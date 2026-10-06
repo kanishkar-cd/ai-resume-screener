@@ -138,6 +138,16 @@ class Settings(BaseSettings):
     COSINE_NGRAM_WEIGHT: float = Field(default=0.5, ge=0.0, le=5.0)
     COSINE_GENERIC_TOKEN_WEIGHT: float = Field(default=0.05, ge=0.0, le=1.0)
 
+    # Zoho Recruit (candidate resume source). India data center by default; secrets live in .env.
+    ZOHO_ACCOUNTS_URL: str = "https://accounts.zoho.in"
+    ZOHO_RECRUIT_API_URL: str = "https://recruit.zoho.in/recruit/v2"
+    ZOHO_CLIENT_ID: str | None = None
+    ZOHO_CLIENT_SECRET: str | None = None
+    ZOHO_REFRESH_TOKEN: str | None = None
+    ZOHO_TIMEOUT_SECONDS: float = 30.0
+    ZOHO_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    ZOHO_DOWNLOAD_CONCURRENCY: int = Field(default=4, ge=1, le=10)
+
     CD_RECRUIT_BASE_URL: str = "http://127.0.0.1:3001"
     CD_RECRUIT_API_KEY: str | None = None  # secret: set in .env
     CD_RECRUIT_TIMEOUT_SECONDS: float = 15.0
