@@ -7,6 +7,10 @@ import {
   FileCheck,
   Users,
   Loader2,
+  Sparkles,
+  Briefcase,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
@@ -16,9 +20,10 @@ import {
   ResumeProcessingState,
 } from '@/types'
 import { useNavigate } from 'react-router-dom'
-import { api, ApiError } from '@/api'
+import { api, ApiError, ZohoJobOpening } from '@/api'
 import type { Document as ApiDocument, ExtractedResume, NormalizedResume } from '@/api'
 import { CandidateProfile } from '@/components/ui/DocumentProfiles'
+import ZohoImportModal from '@/components/ui/ZohoImportModal'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -66,6 +71,10 @@ export default function ResumeUpload() {
   const [isProcessingResumes, setIsProcessingResumes] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
+  const [isZohoModalOpen, setIsZohoModalOpen] = useState(false)
+  const [isZohoSyncing, setIsZohoSyncing] = useState(false)
+  const [selectedZohoJobId, setSelectedZohoJobId] = useState<string | undefined>()
+  const [zohoFeedback, setZohoFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const processingRef = useRef<Set<string>>(new Set())
   const inFlightListRef = useRef<Promise<void> | null>(null)
   const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; document?: ApiDocument; error?: string; loading?: boolean }>>({})
@@ -75,7 +84,7 @@ export default function ResumeUpload() {
     (id) => state.resumeProcessing[id]?.normalized,
   ).length
   const failedCount = state.upload.resumes.filter((r: UploadedFile) => r.status === 'error').length
-  const busy = isUploading || isProcessingResumes
+  const busy = isUploading || isProcessingResumes || isZohoSyncing
 
   const refreshResumes = useCallback(async () => {
     if (!state.projectId) return
@@ -496,6 +505,43 @@ export default function ResumeUpload() {
     await refreshResumes()
   }
 
+  const handleSelectZohoJob = async (job: ZohoJobOpening) => {
+    if (!state.projectId) return
+    setIsZohoSyncing(true)
+    setSelectedZohoJobId(job.id)
+    setZohoFeedback(null)
+    setUploadError(null)
+
+    try {
+      const res = await api.importZohoApplicants(state.projectId, job.id)
+      await refreshResumes()
+
+      if (res.imported_count === 0) {
+        setZohoFeedback({
+          type: 'error',
+          message: `No new candidate resumes found in Zoho for "${job.posting_title}". (Checked ${res.candidates_seen} applicants, ${res.skipped_count} skipped).`,
+        })
+      } else {
+        setZohoFeedback({
+          type: 'success',
+          message: `Imported ${res.imported_count} candidate resumes from Zoho Recruit for "${job.posting_title}". Processing profiles...`,
+        })
+        if (res.document_ids.length > 0) {
+          await processResumes(res.document_ids)
+          await refreshResumes()
+        }
+      }
+      setIsZohoModalOpen(false)
+    } catch (err: any) {
+      setZohoFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to sync candidate resumes from Zoho.',
+      })
+    } finally {
+      setIsZohoSyncing(false)
+    }
+  }
+
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
 
@@ -537,7 +583,55 @@ export default function ResumeUpload() {
             Upload and process resumes for this project. Each candidate remains isolated to the active project.
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setIsZohoModalOpen(true)}
+          disabled={busy}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:from-amber-400 hover:to-orange-400 shadow-sm transition-all disabled:opacity-50"
+        >
+          {isZohoSyncing ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <span>Syncing from Zoho…</span>
+            </>
+          ) : (
+            <>
+              <Sparkles size={16} />
+              <span>Sync Applicants from Zoho</span>
+            </>
+          )}
+        </button>
       </motion.div>
+
+      {/* Zoho Feedback Notification */}
+      {zohoFeedback && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`mb-4 p-4 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+            zohoFeedback.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {zohoFeedback.type === 'success' ? (
+              <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle size={18} className="text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{zohoFeedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setZohoFeedback(null)}
+            className="text-xs font-bold underline opacity-70 hover:opacity-100"
+          >
+            Dismiss
+          </button>
+        </motion.div>
+      )}
 
       {/* Info Strip */}
       <motion.div
@@ -739,6 +833,17 @@ export default function ResumeUpload() {
           </motion.button>
         </div>
       </motion.div>
+
+      {/* Zoho Recruit Sync Applicants Modal */}
+      <ZohoImportModal
+        isOpen={isZohoModalOpen}
+        onClose={() => setIsZohoModalOpen(false)}
+        mode="applicants"
+        onSelectJob={handleSelectZohoJob}
+        isProcessing={isZohoSyncing}
+        selectedJobId={selectedZohoJobId}
+      />
     </motion.div>
   )
 }
+

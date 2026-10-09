@@ -15,10 +15,12 @@ import {
   ListChecks,
   Info,
   Loader2,
+  Sparkles,
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
-import { api, ApiError, ExtractedJobDescription } from '@/api'
+import { api, ApiError, ExtractedJobDescription, ZohoJobOpening } from '@/api'
+import ZohoImportModal from '@/components/ui/ZohoImportModal'
 
 // ─── Step labels ──────────────────────────────────────────────────────────────
 const STEP_LABELS = [
@@ -83,12 +85,91 @@ export default function CreateRequisition() {
   const [jdError, setJdError] = useState<string | null>(null)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [extractedJd, setExtractedJd] = useState<ExtractedJobDescription | null>(null)
+  const [isZohoModalOpen, setIsZohoModalOpen] = useState(false)
+  const [isZohoImporting, setIsZohoImporting] = useState(false)
+  const [selectedZohoJobId, setSelectedZohoJobId] = useState<string | undefined>()
 
   // In-flight and cached processing refs
   const inFlightPromiseRef = useRef<Promise<void> | null>(null)
   const processedFileRef = useRef<File | null>(null)
   const extractedJdRef = useRef<ExtractedJobDescription | null>(null)
   const projectIdRef = useRef<string | null>(null)
+
+  const handleSelectZohoJob = async (job: ZohoJobOpening) => {
+    setIsZohoImporting(true)
+    setSelectedZohoJobId(job.id)
+    setJdError(null)
+    try {
+      let projId = projectIdRef.current || createdProjectId
+      const safeRole = job.posting_title || jobTitle.trim() || `${department.name} Role`
+      const safeTitle = `${reqRef} - ${job.posting_title || department.name}`
+
+      if (!projId) {
+        const proj = await api.createProject({
+          title: safeTitle,
+          target_role: safeRole,
+          department: department.name || 'Software Engineering',
+          description: `Requisition ${reqRef} imported from Zoho Recruit (${job.id})`,
+          metadata_json: { experience_level: expLevel, req_ref: reqRef, zoho_job_id: job.id },
+          status: 'DRAFT',
+        })
+        projId = proj.id
+        projectIdRef.current = projId
+        setCreatedProjectId(projId)
+        dispatch({
+          type: 'SELECT_PROJECT',
+          payload: {
+            id: proj.id,
+            title: proj.title,
+            target_role: proj.target_role,
+            department: proj.department,
+            description: proj.description,
+            status: proj.status,
+            metadata_json: proj.metadata_json,
+            created_at: proj.created_at,
+            updated_at: proj.updated_at,
+          },
+        })
+      }
+
+      setJobTitle(job.posting_title)
+      const res = await api.importZohoJobDescription(projId, job.id)
+      const docId = res.document_id
+      dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
+      dispatch({
+        type: 'SET_JD_PROCESSING',
+        payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+      })
+
+      if (res.extracted && ('required_skills' in res.extracted || 'skills' in res.extracted)) {
+        setExtractedJd(res.extracted)
+        extractedJdRef.current = res.extracted
+      }
+
+      const dummyFile = new File(['Zoho JD Content'], `Zoho_${job.id}_${job.posting_title}.txt`, {
+        type: 'text/plain',
+      })
+      setJdFile(dummyFile)
+      processedFileRef.current = dummyFile
+
+      api.createWeightConfig(projId, {
+        passing_score: passingScore,
+        weights: defaultWeights,
+        min_experience_years: expLevel === 'Fresher' ? 0 : 1,
+        mandatory_skills: [],
+        preferred_skills: [],
+        knockout_rules: [],
+        custom_keywords: [],
+      }).catch(() => {})
+
+      setIsZohoModalOpen(false)
+      setCurrentStep(3)
+    } catch (err: any) {
+      setJdError(err?.message || 'Failed to import Job Description from Zoho.')
+    } finally {
+      setIsZohoImporting(false)
+    }
+  }
 
   // Threshold State — weights are kept for backend compatibility but not shown in UI
   const [passingScore, setPassingScore] = useState(30.0)
@@ -423,48 +504,82 @@ export default function CreateRequisition() {
         {/* ── Step 2: Upload JD ── */}
         {currentStep === 2 && (
           <div className="space-y-6">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Upload size={18} className="text-blue-600" />
-              2. Upload Job Description
-            </h2>
-
-            <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-slate-50/50 transition-all">
-              <Upload size={32} className="mx-auto text-blue-500 mb-3" />
-              <p className="text-sm font-bold text-slate-900">Upload Job Description Document</p>
-              <p className="text-xs text-slate-400 mt-1">Supports PDF, DOCX, TXT formats (Max 10MB)</p>
-
-              <input
-                type="file"
-                id="jd-upload"
-                accept=".pdf,.docx,.txt"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    handleFileChange(e.target.files[0])
-                  }
-                }}
-                className="hidden"
-              />
-              <label
-                htmlFor="jd-upload"
-                className="inline-block mt-4 px-5 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-sm hover:bg-slate-50 cursor-pointer"
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Upload size={18} className="text-blue-600" />
+                2. Job Description
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsZohoModalOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:from-amber-400 hover:to-orange-400 shadow-sm transition-all"
               >
-                Choose File
-              </label>
+                <Sparkles size={14} />
+                Import from Zoho Recruit
+              </button>
+            </div>
 
-              {jdFile && (
-                <div className="mt-4 p-3 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold inline-flex items-center gap-2">
-                  <FileText size={15} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Option A: Upload File */}
+              <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-6 text-center bg-slate-50/50 transition-all flex flex-col items-center justify-center">
+                <Upload size={28} className="text-blue-500 mb-2" />
+                <p className="text-xs font-bold text-slate-900">Upload JD File</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">PDF, DOCX, TXT (Max 10MB)</p>
+
+                <input
+                  type="file"
+                  id="jd-upload"
+                  accept=".pdf,.docx,.txt"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFileChange(e.target.files[0])
+                    }
+                  }}
+                  className="hidden"
+                />
+                <label
+                  htmlFor="jd-upload"
+                  className="inline-block mt-3 px-4 py-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-sm hover:bg-slate-50 cursor-pointer"
+                >
+                  Choose File
+                </label>
+              </div>
+
+              {/* Option B: Import from Zoho */}
+              <div
+                onClick={() => setIsZohoModalOpen(true)}
+                className="border-2 border-dashed border-amber-200/80 hover:border-amber-400 rounded-2xl p-6 text-center bg-amber-50/30 hover:bg-amber-50/60 transition-all cursor-pointer flex flex-col items-center justify-center"
+              >
+                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 flex items-center justify-center mb-2">
+                  <Briefcase size={18} />
+                </div>
+                <p className="text-xs font-bold text-slate-900">Import from Zoho Recruit</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Select from active Zoho Job Openings</p>
+                <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-sm">
+                  Browse Openings
+                  <ArrowRight size={13} />
+                </span>
+              </div>
+            </div>
+
+            {jdFile && (
+              <div className="p-3.5 bg-blue-50 border border-blue-200/80 text-blue-700 rounded-xl text-xs font-bold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText size={16} />
                   <span>{jdFile.name}</span>
                 </div>
-              )}
+                <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  Attached
+                </span>
+              </div>
+            )}
 
-              {jdError && (
-                <div className="mt-4 p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2 text-left">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span>{jdError}</span>
-                </div>
-              )}
-            </div>
+            {jdError && (
+              <div className="p-3.5 bg-red-50 text-red-700 text-xs rounded-xl font-medium border border-red-200/80 flex items-center gap-2 text-left">
+                <AlertCircle size={14} className="shrink-0" />
+                <span>{jdError}</span>
+              </div>
+            )}
 
             <div className="pt-4 border-t border-slate-100 flex justify-between">
               <button
@@ -723,6 +838,17 @@ export default function CreateRequisition() {
           </div>
         )}
       </div>
+
+      {/* Zoho Recruit Import Modal */}
+      <ZohoImportModal
+        isOpen={isZohoModalOpen}
+        onClose={() => setIsZohoModalOpen(false)}
+        mode="jd"
+        onSelectJob={handleSelectZohoJob}
+        isProcessing={isZohoImporting}
+        selectedJobId={selectedZohoJobId}
+      />
     </div>
   )
 }
+

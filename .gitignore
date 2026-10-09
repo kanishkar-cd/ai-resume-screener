@@ -69,3 +69,5 @@ storage/
 backend/test-tmp/
 # Resumes downloaded by scripts/zoho_fetch_resumes.py (candidate personal data)
 backend/zoho_resumes/
+.zoho_token_cache.json
+*.zoho_token_cache.json

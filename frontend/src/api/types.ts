@@ -785,3 +785,44 @@ export interface AssessmentStatusResponse {
   decision?: string | null
   candidates?: CandidateAssessmentItem[]
 }
+
+// ─── Zoho Recruit Integration ───────────────────────────────────
+
+export interface ZohoStatusResponse {
+  configured: boolean
+  accounts_url: string
+  api_url: string
+  has_job_token: boolean
+  has_candidate_token: boolean
+  has_attachment_token: boolean
+}
+
+export interface ZohoJobOpening {
+  id: string
+  posting_title: string
+  job_opening_id: string | null
+  job_description: string | null
+  required_skills: string | null
+  job_status: string | null
+  target_date: string | null
+  city: string | null
+  department: string | null
+  modified_time: string | null
+  no_of_candidates_associated?: number
+}
+
+export interface ZohoJobOpeningListResponse {
+  items: ZohoJobOpening[]
+  total: number
+}
+
+export interface ZohoImportApplicantsResponse {
+  project_id: string
+  job_id: string
+  candidates_seen: number
+  imported_count: number
+  skipped_count: number
+  document_ids: string[]
+  skipped: Array<{ candidate_id: string; reason: string }>
+}
+

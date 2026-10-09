@@ -215,8 +215,36 @@ export const api = {
   },
 
 
+  // ── Zoho Recruit Integration ──────────────────────────────
+  getZohoStatus(): Promise<import('./types').ZohoStatusResponse> {
+    return apiRequest<import('./types').ZohoStatusResponse>('/zoho/status')
+  },
+
+  listZohoJobOpenings(params?: { status?: string; limit?: number }): Promise<import('./types').ZohoJobOpeningListResponse> {
+    return apiRequest<import('./types').ZohoJobOpeningListResponse>('/zoho/job-openings', {}, params)
+  },
+
+  getZohoJobOpening(jobId: string): Promise<import('./types').ZohoJobOpening> {
+    return apiRequest<import('./types').ZohoJobOpening>(`/zoho/job-openings/${jobId}`)
+  },
+
+  importZohoJobDescription(projectId: string, jobId: string): Promise<JobDescriptionProcessResponse> {
+    return apiRequest<JobDescriptionProcessResponse>(`/projects/${projectId}/zoho/import-jd`, {
+      method: 'POST',
+      body: { job_id: jobId },
+    })
+  },
+
+  importZohoApplicants(projectId: string, jobId: string, limit?: number): Promise<import('./types').ZohoImportApplicantsResponse> {
+    return apiRequest<import('./types').ZohoImportApplicantsResponse>(`/projects/${projectId}/zoho/import-applicants`, {
+      method: 'POST',
+      body: { job_id: jobId, limit },
+    })
+  },
+
   async exportProjectData(projectId: string, format: 'csv' | 'excel' | 'json' | 'pdf'): Promise<Blob> {
     const res = await apiRequest<Response>(`/projects/${projectId}/export/${format}`, { raw: true })
     return res.blob()
   },
 }
+

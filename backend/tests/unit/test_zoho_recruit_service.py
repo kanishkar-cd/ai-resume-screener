@@ -6,6 +6,8 @@ import pytest
 from app.core.config import Settings
 from app.services.zoho_recruit_service import (
     ZohoAttachment,
+    ZohoJobOpening,
+    ZohoJobWithResumes,
     ZohoRecruitClient,
     ZohoRecruitException,
     ZohoRecruitNotConfiguredException,
@@ -19,6 +21,9 @@ def _settings(**overrides) -> Settings:
         "ZOHO_CLIENT_ID": "client-id",
         "ZOHO_CLIENT_SECRET": "client-secret",
         "ZOHO_REFRESH_TOKEN": "refresh-token",
+        "ZOHO_JOB_OPENINGS_REFRESH_TOKEN": None,
+        "ZOHO_CANDIDATES_REFRESH_TOKEN": None,
+        "ZOHO_ATTACHMENTS_REFRESH_TOKEN": None,
         "ZOHO_MAX_RETRIES": 2,
         **overrides,
     }
@@ -31,6 +36,59 @@ class FakeZoho:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.token_calls = 0
+        self.job_openings = [
+            {
+                "id": "5001",
+                "Job_Opening_ID": "JOB_101",
+                "Posting_Title": "Senior Python Backend Engineer",
+                "Job_Description": "Looking for FastAPI & Python expert with AI experience.",
+                "Required_Skills": "Python, FastAPI, Postgres, Docker",
+                "Job_Opening_Status": "In-progress",
+                "Department": "Engineering",
+                "Target_Date": "2026-11-01",
+                "City": "Bengaluru",
+                "Modified_Time": "2026-10-01T08:00:00+05:30",
+            },
+            {
+                "id": "5002",
+                "Job_Opening_ID": "JOB_102",
+                "Posting_Title": "Frontend React Developer",
+                "Job_Description": "React and TypeScript developer.",
+                "Required_Skills": "React, TypeScript, CSS",
+                "Job_Opening_Status": "Closed",
+                "Department": "Frontend",
+                "Target_Date": "2026-09-01",
+                "City": "Remote",
+                "Modified_Time": "2026-10-02T08:00:00+05:30",
+            },
+        ]
+        self.job_candidates = {
+            "5001": [
+                {
+                    "id": "101",
+                    "Candidate_ID": "ZR_1",
+                    "First_Name": "Priya",
+                    "Last_Name": "Sharma",
+                    "Email": "priya@example.com",
+                    "Mobile": "+91 9876543210",
+                    "Source": "Naukri",
+                    "Modified_Time": "2026-10-01T10:00:00+05:30",
+                },
+                {
+                    "id": "102",
+                    "Full_Name": "Arun K",
+                    "Email": "arun@example.com",
+                    "Modified_Time": "2026-10-02T10:00:00+05:30",
+                },
+            ],
+            "5002": [
+                {
+                    "id": "103",
+                    "Full_Name": "No Resume",
+                    "Modified_Time": "2026-10-03T10:00:00+05:30",
+                }
+            ],
+        }
         self.candidates = [
             {"id": "101", "Candidate_ID": "ZR_1", "First_Name": "Priya", "Last_Name": "Sharma",
              "Email": "priya@example.com", "Mobile": "+91 9876543210", "Source": "Naukri",
@@ -62,6 +120,30 @@ class FakeZoho:
             return self.fail_next.pop(0)
         assert request.headers["Authorization"].startswith("Zoho-oauthtoken token-")
         parts = request.url.path.split("/recruit/v2/")[1].split("/")
+
+        # JobOpenings endpoints
+        if parts == ["JobOpenings"]:
+            page = int(request.url.params.get("page", 1))
+            since = request.headers.get("If-Modified-Since")
+            rows = [j for j in self.job_openings if not since or j["Modified_Time"] > since]
+            if not rows:
+                return httpx.Response(304)
+            chunk = rows[(page - 1) * self.per_page: page * self.per_page]
+            more = page * self.per_page < len(rows)
+            return httpx.Response(200, json={"data": chunk, "info": {"page": page, "more_records": more}})
+
+        if len(parts) == 2 and parts[0] == "JobOpenings":
+            job = next((j for j in self.job_openings if j["id"] == parts[1]), None)
+            if not job:
+                return httpx.Response(404, json={"code": "INVALID_DATA", "message": "Job Opening not found"})
+            return httpx.Response(200, json={"data": [job]})
+
+        if len(parts) == 3 and parts[0] in ("JobOpenings", "Job_Openings") and parts[2] in ("Candidates", "associate"):
+            job_id = parts[1]
+            candidates = self.job_candidates.get(job_id, [])
+            return httpx.Response(200, json={"data": candidates, "info": {"page": 1, "more_records": False}})
+
+        # Candidates endpoints
         if parts == ["Candidates"]:
             page = int(request.url.params["page"])
             since = request.headers.get("If-Modified-Since")
@@ -71,13 +153,18 @@ class FakeZoho:
             chunk = rows[(page - 1) * self.per_page: page * self.per_page]
             more = page * self.per_page < len(rows)
             return httpx.Response(200, json={"data": chunk, "info": {"page": page, "more_records": more}})
-        if len(parts) == 3 and parts[2] == "Attachments":
-            return httpx.Response(200, json={"data": self.attachments[parts[1]], "info": {"more_records": False}})
-        if len(parts) == 4:
+
+        if len(parts) == 3 and parts[0] == "Candidates" and parts[2] == "Attachments":
+            return httpx.Response(200, json={"data": self.attachments.get(parts[1], []), "info": {"more_records": False}})
+
+        if len(parts) == 4 and parts[0] == "Candidates" and parts[2] == "Attachments":
             return httpx.Response(
-                200, content=f"file:{parts[3]}".encode(),
-                headers={"Content-Type": "application/octet-stream",
-                         "Content-Disposition": f'attachment; filename="{parts[3]}.bin"'},
+                200,
+                content=f"file:{parts[3]}".encode(),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": f'attachment; filename="{parts[3]}.bin"',
+                },
             )
         return httpx.Response(404, json={"code": "INVALID_URL_PATTERN"})
 
@@ -97,23 +184,60 @@ def client(fake: FakeZoho, monkeypatch: pytest.MonkeyPatch) -> ZohoRecruitClient
 
 
 @pytest.mark.asyncio
+async def test_iter_job_openings_and_filtering(client: ZohoRecruitClient) -> None:
+    jobs = [job async for job in client.iter_job_openings()]
+    assert len(jobs) == 2
+    assert jobs[0].id == "5001"
+    assert jobs[0].posting_title == "Senior Python Backend Engineer"
+    assert jobs[0].required_skills == "Python, FastAPI, Postgres, Docker"
+    assert jobs[0].job_status == "In-progress"
+
+    # Filter by status
+    in_progress = [job async for job in client.iter_job_openings(status="In-progress")]
+    assert len(in_progress) == 1
+    assert in_progress[0].id == "5001"
+
+
+@pytest.mark.asyncio
+async def test_get_job_opening(client: ZohoRecruitClient) -> None:
+    job = await client.get_job_opening("5001")
+    assert job.id == "5001"
+    assert job.posting_title == "Senior Python Backend Engineer"
+    assert job.city == "Bengaluru"
+
+
+@pytest.mark.asyncio
+async def test_fetch_job_with_applicant_resumes(client: ZohoRecruitClient) -> None:
+    result: ZohoJobWithResumes = await client.fetch_job_with_applicant_resumes("5001")
+    assert result.job_opening.id == "5001"
+    assert result.job_opening.posting_title == "Senior Python Backend Engineer"
+    assert result.candidates_seen == 2
+    assert len(result.resumes) == 2
+
+    priya, arun = result.resumes
+    assert priya.candidate_id == "101"
+    assert priya.file_name == "Priya_updated.docx"
+    assert priya.content == b"file:a3"
+    assert arun.candidate_id == "102"
+    assert arun.file_name == "arun_resume.pdf"
+    assert arun.content == b"file:b1"
+
+
+@pytest.mark.asyncio
 async def test_fetches_resumes_across_pages_and_picks_latest_resume(client: ZohoRecruitClient, fake: FakeZoho) -> None:
     result = await client.fetch_candidate_resumes()
 
     assert result.candidates_seen == 3
     assert [r.candidate_id for r in result.resumes] == ["101", "102"]
     priya, arun = result.resumes
-    # Newest attachment in the "Resume" category wins over an older resume and a cover letter.
     assert priya.attachment.id == "a3"
     assert priya.file_name == "Priya_updated.docx"
     assert priya.content == b"file:a3"
     assert priya.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     assert (priya.full_name, priya.email, priya.phone, priya.source) == (
         "Priya Sharma", "priya@example.com", "+91 9876543210", "Naukri")
-    # Without a category, a PDF named like a resume is chosen.
     assert arun.attachment.id == "b1" and arun.content_type == "application/pdf"
     assert result.skipped == [{"candidate_id": "103", "reason": "no PDF/DOCX resume attached"}]
-    # One token for the whole run; two candidate pages.
     assert fake.token_calls == 1
     assert [r.url.params.get("page") for r in fake.requests if r.url.path.endswith("/Candidates")] == ["1", "2"]
 
@@ -200,3 +324,34 @@ async def test_missing_credentials_raise_not_configured() -> None:
 def test_select_resume_ignores_unsupported_files() -> None:
     files = [ZohoAttachment("1", "photo.jpg", None, None, None), ZohoAttachment("2", "old.doc", None, None, "Resume")]
     assert ZohoRecruitClient.select_resume(files) is None
+
+
+@pytest.mark.asyncio
+async def test_separate_refresh_tokens_per_scope(fake: FakeZoho) -> None:
+    settings = _settings(
+        ZOHO_REFRESH_TOKEN=None,
+        ZOHO_JOB_OPENINGS_REFRESH_TOKEN="rt-jobs",
+        ZOHO_CANDIDATES_REFRESH_TOKEN="rt-candidates",
+        ZOHO_ATTACHMENTS_REFRESH_TOKEN="rt-attachments",
+    )
+    client = ZohoRecruitClient(settings, transport=httpx.MockTransport(fake.handler))
+    assert client.configured is True
+
+    # 1. Fetch job opening (uses rt-jobs)
+    job = await client.get_job_opening("5001")
+    assert job.id == "5001"
+
+    # 2. Fetch standalone candidates (uses rt-candidates)
+    candidates = [c async for c in client.iter_candidates()]
+    assert len(candidates) == 3
+
+    # 3. Fetch candidate attachments (uses rt-attachments)
+    attachments = await client.list_attachments("101")
+    assert len(attachments) == 3
+
+    # Verify that token exchange was called for each distinct refresh token
+    token_requests = [r for r in fake.requests if r.url.path == "/oauth/v2/token"]
+    refresh_tokens_used = {r.url.params["refresh_token"] for r in token_requests}
+    assert refresh_tokens_used == {"rt-jobs", "rt-candidates", "rt-attachments"}
+
+

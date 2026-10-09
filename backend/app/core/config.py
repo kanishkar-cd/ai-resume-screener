@@ -144,6 +144,9 @@ class Settings(BaseSettings):
     ZOHO_CLIENT_ID: str | None = None
     ZOHO_CLIENT_SECRET: str | None = None
     ZOHO_REFRESH_TOKEN: str | None = None
+    ZOHO_JOB_OPENINGS_REFRESH_TOKEN: str | None = None
+    ZOHO_CANDIDATES_REFRESH_TOKEN: str | None = None
+    ZOHO_ATTACHMENTS_REFRESH_TOKEN: str | None = None
     ZOHO_TIMEOUT_SECONDS: float = 30.0
     ZOHO_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
     ZOHO_DOWNLOAD_CONCURRENCY: int = Field(default=4, ge=1, le=10)

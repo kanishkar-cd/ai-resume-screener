@@ -56,6 +56,28 @@ class StorageService:
             raise StorageIOException() from exc
         return stored_filename, str(destination), size, digest.hexdigest()
 
+    def save_bytes(
+        self,
+        content: bytes,
+        project_id: uuid.UUID,
+        subfolder: str,
+        extension: str,
+    ) -> tuple[str, str, int, str]:
+        """Write raw bytes to a UUID filename while calculating its SHA-256 hash."""
+        directory = self.project_directory(project_id, subfolder)
+        stored_filename = f"{uuid.uuid4()}{extension}"
+        destination = directory / stored_filename
+        digest = hashlib.sha256(content)
+        size = len(content)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as output:
+                output.write(content)
+        except OSError as exc:
+            destination.unlink(missing_ok=True)
+            raise StorageIOException() from exc
+        return stored_filename, str(destination), size, digest.hexdigest()
+
     def get_file_path(
         self, stored_filename: str, project_id: uuid.UUID, subfolder: str
     ) -> Path:
