@@ -428,8 +428,16 @@ async def import_zoho_applicants(
                 file_size_bytes=file_size,
                 file_hash=file_hash,
                 mime_type=resume.content_type,
-                processing_status=ProcessingStatusEnum.PENDING,
-                processing_stage=ProcessingStageEnum.PARSING,
+                processing_status=ProcessingStatusEnum.UPLOADED,
+                processing_stage=ProcessingStageEnum.INGESTION,
+                metadata_json={
+                    "zoho_candidate_id": resume.candidate_id,
+                    "zoho_candidate_number": resume.candidate_number,
+                    "candidate_name": resume.full_name,
+                    "email": resume.email,
+                    "phone": resume.phone,
+                    "source": resume.source,
+                },
                 created_at=now,
                 updated_at=now,
             )
