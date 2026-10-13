@@ -393,14 +393,23 @@ function reducer(state: PipelineState, action: Action): PipelineState {
       const ids = action.payload.map((resume) => resume.id)
       const nextProcessing = { ...state.resumeProcessing }
       for (const resume of action.payload) {
+        const isCompleted = resume.statusLabel === 'COMPLETED'
         if (!nextProcessing[resume.id]) {
           nextProcessing[resume.id] = {
             documentId: resume.id,
-            phase: resume.status === 'error' ? 'failed' : 'uploaded',
-            status: resume.status === 'error' ? 'FAILED' : 'UPLOADED',
-            stage: resume.status === 'error' ? 'FAILED' : 'INGESTION',
-            normalized: false,
+            phase: isCompleted ? 'normalized' : resume.status === 'error' ? 'failed' : 'uploaded',
+            status: (resume.statusLabel as any) ?? (resume.status === 'error' ? 'FAILED' : 'UPLOADED'),
+            stage: isCompleted ? 'COMPLETED' : resume.status === 'error' ? 'FAILED' : 'INGESTION',
+            normalized: isCompleted,
             errorMessage: resume.errorMessage,
+          }
+        } else if (isCompleted && !nextProcessing[resume.id].normalized) {
+          nextProcessing[resume.id] = {
+            ...nextProcessing[resume.id],
+            phase: 'normalized',
+            status: 'COMPLETED',
+            stage: 'COMPLETED',
+            normalized: true,
           }
         }
       }

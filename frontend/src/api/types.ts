@@ -820,9 +820,11 @@ export interface ZohoImportApplicantsResponse {
   project_id: string
   job_id: string
   candidates_seen: number
+  total_resumes?: number
   imported_count: number
   skipped_count: number
+  failed_count?: number
   document_ids: string[]
-  skipped: Array<{ candidate_id: string; reason: string }>
+  skipped: Array<{ candidate_id: string; reason: string; attachment_id?: string }>
 }
 

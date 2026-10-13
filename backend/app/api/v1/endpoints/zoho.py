@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -32,6 +33,7 @@ from app.repositories.parsed_document_repository import ParsedDocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.document import (
     DocumentResponse,
+    DocumentType,
     JobDescriptionProcessRead,
     JobDescriptionProcessResponse,
     ProcessingStage,
@@ -363,12 +365,23 @@ async def import_zoho_job_description(
     )
 
 
+_PROJECT_SYNC_LOCKS: dict[UUID, asyncio.Lock] = {}
+_PROJECT_SYNC_LOCK_MUTEX = asyncio.Lock()
+
+
+async def _get_project_sync_lock(project_id: UUID) -> asyncio.Lock:
+    async with _PROJECT_SYNC_LOCK_MUTEX:
+        if project_id not in _PROJECT_SYNC_LOCKS:
+            _PROJECT_SYNC_LOCKS[project_id] = asyncio.Lock()
+        return _PROJECT_SYNC_LOCKS[project_id]
+
+
 @router.post(
     "/projects/{project_id}/zoho/import-applicants",
     response_model=ZohoImportApplicantsResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Import Zoho Candidate Resumes into Project",
-    description="Fetch and download all candidate resumes applied to a Zoho Job Opening and attach them to the project.",
+    description="Fetch and download candidate resumes applied to a Zoho Job Opening and attach newly discovered resumes to the project.",
     responses={
         404: {"model": ErrorResponsePayload, "description": "Project not found."},
         502: {"model": ErrorResponsePayload, "description": "Zoho API integration failed."},
@@ -384,80 +397,169 @@ async def import_zoho_applicants(
     if not client.configured:
         raise ZohoRecruitNotConfiguredException("Zoho Recruit credentials are not configured in backend/.env.")
 
-    # 1. Verify project
-    project_repo = ProjectRepository(db)
-    project = await project_repo.get_by_id(project_id)
-    if project is None:
-        raise ProjectNotFoundException()
+    # 1. Acquire per-project lock to serialize concurrent syncs for the same project
+    project_lock = await _get_project_sync_lock(project_id)
+    async with project_lock:
+        # 2. Verify project
+        project_repo = ProjectRepository(db)
+        project = await project_repo.get_by_id(project_id)
+        if project is None:
+            raise ProjectNotFoundException()
 
-    # 2. Fetch applicant resumes from Zoho
-    try:
-        fetch_result = await client.fetch_job_with_applicant_resumes(
-            job_id=request.job_id,
-            limit=request.limit,
+        # 3. Query existing active resumes in the project
+        existing_stmt = select(DocumentModel).where(
+            DocumentModel.project_id == project_id,
+            DocumentModel.document_type == DocumentTypeEnum.RESUME,
+            DocumentModel.deleted_at.is_(None),
         )
-    except ZohoRecruitException as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        existing_docs = (await db.scalars(existing_stmt)).all()
 
-    storage_service = StorageService()
-    now = datetime.now(UTC)
-    saved_document_ids: list[UUID] = []
-    created_file_paths: list[str] = []
+        existing_candidates: dict[str, str | None] = {}
+        existing_attachment_ids: set[str] = set()
+        existing_hashes: set[str] = set()
+        failed_attachment_docs: dict[str, DocumentModel] = {}
+        total_active_resumes = 0
 
-    try:
-        for resume in fetch_result.resumes:
-            doc_id = uuid4()
-            safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", resume.file_name)
-            original_filename = f"{resume.candidate_id}_{safe_name}"
+        for doc in existing_docs:
+            if doc.file_hash:
+                existing_hashes.add(doc.file_hash)
+            meta = doc.metadata_json or {}
+            att_id = str(meta.get("zoho_attachment_id") or "")
+            cand_id = str(meta.get("zoho_candidate_id") or "")
+            cand_mod = meta.get("zoho_candidate_modified_time")
+            if doc.processing_status == ProcessingStatusEnum.FAILED:
+                if att_id:
+                    failed_attachment_docs[att_id] = doc
+            else:
+                total_active_resumes += 1
+                if att_id:
+                    existing_attachment_ids.add(att_id)
+                if cand_id:
+                    existing_candidates[cand_id] = cand_mod
 
-            stored_filename, file_path, file_size, file_hash = storage_service.save_bytes(
-                content=resume.content,
-                project_id=project_id,
-                subfolder="resumes",
-                extension=resume.attachment.extension,
+        # 4. Fetch applicant resumes from Zoho with already-imported candidates & attachment IDs
+        try:
+            fetch_result = await client.fetch_job_with_applicant_resumes(
+                job_id=request.job_id,
+                limit=request.limit,
+                existing_attachment_ids=existing_attachment_ids,
+                existing_candidates=existing_candidates,
             )
-            created_file_paths.append(file_path)
+        except ZohoRecruitException as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-            doc_model = DocumentModel(
-                id=doc_id,
-                project_id=project_id,
-                document_type=DocumentTypeEnum.RESUME,
-                original_filename=original_filename,
-                stored_filename=stored_filename,
-                file_path=file_path,
-                file_size_bytes=file_size,
-                file_hash=file_hash,
-                mime_type=resume.content_type,
-                processing_status=ProcessingStatusEnum.UPLOADED,
-                processing_stage=ProcessingStageEnum.INGESTION,
-                metadata_json={
-                    "zoho_candidate_id": resume.candidate_id,
-                    "zoho_candidate_number": resume.candidate_number,
-                    "candidate_name": resume.full_name,
-                    "email": resume.email,
-                    "phone": resume.phone,
-                    "source": resume.source,
-                },
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(doc_model)
-            saved_document_ids.append(doc_id)
+        storage_service = StorageService()
+        now = datetime.now(UTC)
+        saved_document_ids: list[UUID] = []
+        created_file_paths: list[str] = []
+        doc_repo = DocumentRepository(db)
 
-        await db.commit()
-    except Exception as exc:
-        await db.rollback()
-        for fp in created_file_paths:
-            storage_service.delete_file(fp)
-        logger.exception("zoho_applicants_import_commit_failed", project_id=str(project_id), error=str(exc))
-        raise InternalServerException("Unable to persist imported Zoho candidate resumes.") from exc
+        try:
+            for resume in fetch_result.resumes:
+                att_id = str(resume.attachment.id)
 
-    return ZohoImportApplicantsResponse(
-        project_id=project_id,
-        job_id=request.job_id,
-        candidates_seen=fetch_result.candidates_seen,
-        imported_count=len(saved_document_ids),
-        skipped_count=len(fetch_result.skipped),
-        document_ids=saved_document_ids,
-        skipped=fetch_result.skipped,
-    )
+                # If this attachment was previously failed, clean up the old failed document
+                if att_id in failed_attachment_docs:
+                    old_doc = failed_attachment_docs[att_id]
+                    try:
+                        storage_service.delete_file(old_doc.file_path)
+                    except Exception:
+                        pass
+                    await doc_repo.cleanup_pipeline_data(old_doc.id, DocumentType.RESUME)
+                    await db.delete(old_doc)
+                    await db.flush()
+                    if old_doc.file_hash in existing_hashes:
+                        existing_hashes.remove(old_doc.file_hash)
+
+                doc_id = uuid4()
+                safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", resume.file_name)
+                original_filename = f"{resume.candidate_id}_{safe_name}"
+
+                stored_filename, file_path, file_size, file_hash = storage_service.save_bytes(
+                    content=resume.content,
+                    project_id=project_id,
+                    subfolder="resumes",
+                    extension=resume.attachment.extension,
+                )
+                created_file_paths.append(file_path)
+
+                # Check for duplicate file hash in project
+                if file_hash in existing_hashes:
+                    storage_service.delete_file(file_path)
+                    created_file_paths.pop()
+                    fetch_result.skipped.append({
+                        "candidate_id": resume.candidate_id,
+                        "attachment_id": att_id,
+                        "reason": "duplicate content already imported",
+                    })
+                    continue
+
+                existing_hashes.add(file_hash)
+
+                doc_model = DocumentModel(
+                    id=doc_id,
+                    project_id=project_id,
+                    document_type=DocumentTypeEnum.RESUME,
+                    original_filename=original_filename,
+                    stored_filename=stored_filename,
+                    file_path=file_path,
+                    file_size_bytes=file_size,
+                    file_hash=file_hash,
+                    mime_type=resume.content_type,
+                    processing_status=ProcessingStatusEnum.UPLOADED,
+                    processing_stage=ProcessingStageEnum.INGESTION,
+                    metadata_json={
+                        "zoho_candidate_id": resume.candidate_id,
+                        "zoho_candidate_number": resume.candidate_number,
+                        "zoho_attachment_id": att_id,
+                        "zoho_job_opening_id": str(request.job_id),
+                        "zoho_attachment_modified_time": resume.attachment.modified_time,
+                        "zoho_candidate_modified_time": resume.modified_time,
+                        "candidate_name": resume.full_name,
+                        "email": resume.email,
+                        "phone": resume.phone,
+                        "source": resume.source,
+                    },
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(doc_model)
+                saved_document_ids.append(doc_id)
+
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            for fp in created_file_paths:
+                storage_service.delete_file(fp)
+            logger.exception("zoho_applicants_import_commit_failed", project_id=str(project_id), error=str(exc))
+            raise InternalServerException("Unable to persist imported Zoho candidate resumes.") from exc
+
+        # 5. Handle optional auto_process if requested
+        if request.auto_process and saved_document_ids:
+            try:
+                parsing_service = ParsingService(doc_repo, ParsedDocumentRepository(db), storage_service)
+                for s_id in saved_document_ids:
+                    try:
+                        await parsing_service.parse_document(s_id)
+                    except Exception as p_exc:
+                        logger.warning("zoho_auto_parse_failed", document_id=str(s_id), error=str(p_exc))
+            except Exception as auto_exc:
+                logger.warning("zoho_auto_process_failed", error=str(auto_exc))
+
+        total_unique_resumes = total_active_resumes + len(saved_document_ids)
+        failed_count = sum(
+            1 for s in fetch_result.skipped
+            if "fail" in s.get("reason", "").lower() or "error" in s.get("reason", "").lower()
+        )
+
+        return ZohoImportApplicantsResponse(
+            project_id=project_id,
+            job_id=request.job_id,
+            candidates_seen=fetch_result.candidates_seen,
+            total_resumes=total_unique_resumes,
+            imported_count=len(saved_document_ids),
+            skipped_count=len(fetch_result.skipped),
+            failed_count=failed_count,
+            document_ids=saved_document_ids,
+            skipped=fetch_result.skipped,
+        )

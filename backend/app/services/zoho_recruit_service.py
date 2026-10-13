@@ -430,7 +430,7 @@ class ZohoRecruitClient:
                     for record in records:
                         has_records = True
                         yield record
-                    if not (body.get("info") or {}).get("more_records"):
+                    if not records or not (body.get("info") or {}).get("more_records"):
                         return
                     page += 1
                 if has_records:
@@ -523,7 +523,11 @@ class ZohoRecruitClient:
         return max(files, key=rank)
 
     async def _download_single_resume(
-        self, record: dict[str, Any]
+        self,
+        record: dict[str, Any],
+        *,
+        existing_attachment_ids: set[str] | None = None,
+        existing_candidates: dict[str, str | None] | set[str] | None = None,
     ) -> tuple[ZohoCandidateResume | None, dict[str, str] | None]:
         cand_obj = record.get("Candidate") or record.get("candidate")
         candidate_id = str(
@@ -537,15 +541,27 @@ class ZohoRecruitClient:
             return None, {"candidate_id": "unknown", "reason": "No candidate ID found in record"}
 
         try:
-            attachment = self.select_resume(await self.list_attachments(candidate_id))
+            attachments = await self.list_attachments(candidate_id)
+            attachment = self.select_resume(attachments)
             if attachment is None:
                 return None, {"candidate_id": candidate_id, "reason": "no PDF/DOCX resume attached"}
+
+            # Check if this exact attachment ID has already been successfully imported
+            if existing_attachment_ids and str(attachment.id) in existing_attachment_ids:
+                return None, {
+                    "candidate_id": candidate_id,
+                    "attachment_id": str(attachment.id),
+                    "reason": "already imported",
+                }
+
             content, content_type, header_name = await self.download_attachment(candidate_id, attachment.id)
         except ZohoRecruitException as exc:
             return None, {"candidate_id": candidate_id, "reason": exc.message}
+        except Exception as exc:
+            return None, {"candidate_id": candidate_id, "reason": f"Download failed: {exc}"}
 
         if not content:
-            return None, {"candidate_id": candidate_id, "reason": "empty resume file"}
+            return None, {"candidate_id": candidate_id, "attachment_id": str(attachment.id), "reason": "empty resume file"}
 
         file_name = attachment.file_name or header_name or f"{candidate_id}{attachment.extension}"
         raw_full_name = (
@@ -573,7 +589,12 @@ class ZohoRecruitClient:
         return resume, None
 
     async def fetch_candidate_resumes(
-        self, modified_since: datetime | None = None, *, limit: int | None = None
+        self,
+        modified_since: datetime | None = None,
+        *,
+        limit: int | None = None,
+        existing_attachment_ids: set[str] | None = None,
+        existing_candidates: dict[str, str | None] | set[str] | None = None,
     ) -> ZohoResumeFetchResult:
         """Fetch candidates (optionally changed since a time) together with their resume files."""
         result = ZohoResumeFetchResult()
@@ -588,7 +609,11 @@ class ZohoRecruitClient:
 
         async def worker(record: dict[str, Any]) -> None:
             async with semaphore:
-                resume, skip_reason = await self._download_single_resume(record)
+                resume, skip_reason = await self._download_single_resume(
+                    record,
+                    existing_attachment_ids=existing_attachment_ids,
+                    existing_candidates=existing_candidates,
+                )
                 if skip_reason:
                     result.skipped.append(skip_reason)
                 elif resume:
@@ -606,7 +631,12 @@ class ZohoRecruitClient:
         return result
 
     async def fetch_job_with_applicant_resumes(
-        self, job_id: str, *, limit: int | None = None
+        self,
+        job_id: str,
+        *,
+        limit: int | None = None,
+        existing_attachment_ids: set[str] | None = None,
+        existing_candidates: dict[str, str | None] | set[str] | None = None,
     ) -> ZohoJobWithResumes:
         """Fetch a Job Description and all attached candidate resumes who applied for this opening."""
         job_opening = await self.get_job_opening(job_id)
@@ -623,7 +653,11 @@ class ZohoRecruitClient:
 
         async def worker(record: dict[str, Any]) -> None:
             async with semaphore:
-                resume, skip_reason = await self._download_single_resume(record)
+                resume, skip_reason = await self._download_single_resume(
+                    record,
+                    existing_attachment_ids=existing_attachment_ids,
+                    existing_candidates=existing_candidates,
+                )
                 if skip_reason:
                     result.skipped.append(skip_reason)
                 elif resume:

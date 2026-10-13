@@ -82,7 +82,9 @@ class ParsingService:
         word_count, character_count = text_metrics(parsed.raw_text)
         return parsed, word_count, character_count, duration_ms
 
-    async def parse_document(self, document_id: UUID) -> DocumentParseRead:
+    async def parse_document(
+        self, document_id: UUID, *, force: bool = False
+    ) -> DocumentParseRead:
         document = await self._load_document(document_id)
         logger.info(
             "[DOCUMENT] processing started",
@@ -91,6 +93,20 @@ class ParsingService:
             document_type=document.document_type.value,
         )
         current_status = ProcessingStatus(document.processing_status.value)
+        if not force and current_status in (ProcessingStatus.PARSED, ProcessingStatus.COMPLETED):
+            try:
+                existing_parsed = await self.parsed_repository.get_by_document_id(document_id)
+                if existing_parsed is not None:
+                    logger.info("document_parse_already_completed_skipping", document_id=str(document.id))
+                    return DocumentParseRead(
+                        document_id=document_id,
+                        processing_status=ProcessingStatus(document.processing_status.value),
+                        processing_stage=ProcessingStage(document.processing_stage.value),
+                        message="Document already parsed.",
+                    )
+            except Exception:
+                pass
+
         if current_status == ProcessingStatus.PARSING_PENDING:
             raise DocumentNotParseableException(
                 "Document parsing is already in progress."

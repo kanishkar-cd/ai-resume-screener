@@ -163,3 +163,20 @@ async def test_get_parsed_document_not_found() -> None:
     parsed.get_by_document_id.return_value = None
     with pytest.raises(ParsedDocumentNotFoundException):
         await service.get_parsed_document(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_parse_document_idempotent_when_already_completed() -> None:
+    service, documents, parsed, storage = service_fixture()
+    doc = document_record(status=ProcessingStatusEnum.COMPLETED)
+    documents.get_document.return_value = doc
+    existing_parsed = SimpleNamespace(id=uuid4(), document_id=doc.id)
+    parsed.get_by_document_id.return_value = existing_parsed
+
+    res = await service.parse_document(doc.id)
+    assert res.document_id == doc.id
+    assert res.processing_status == ProcessingStatus.COMPLETED
+    assert res.message == "Document already parsed."
+    # Physical file resolution should NOT be called
+    storage.resolve_file.assert_not_called()
+

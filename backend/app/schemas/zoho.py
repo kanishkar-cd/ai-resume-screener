@@ -41,13 +41,16 @@ class ZohoImportJDRequest(BaseModel):
 class ZohoImportApplicantsRequest(BaseModel):
     job_id: str = Field(..., description="Zoho Job Opening ID to fetch candidate resumes for")
     limit: int | None = Field(default=None, ge=1, le=200, description="Optional cap on number of resumes to import")
+    auto_process: bool = Field(default=False, description="Whether to run parsing, extraction, and normalization on imported resumes")
 
 
 class ZohoImportApplicantsResponse(BaseModel):
     project_id: UUID
     job_id: str
     candidates_seen: int
+    total_resumes: int = 0
     imported_count: int
     skipped_count: int
+    failed_count: int = 0
     document_ids: list[UUID]
     skipped: list[dict[str, str]] = Field(default_factory=list)

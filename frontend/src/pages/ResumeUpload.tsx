@@ -517,14 +517,16 @@ export default function ResumeUpload() {
       await refreshResumes()
 
       if (res.imported_count === 0) {
-        setZohoFeedback({
-          type: 'error',
-          message: `No new candidate resumes found in Zoho for "${job.posting_title}". (Checked ${res.candidates_seen} applicants, ${res.skipped_count} skipped).`,
-        })
-      } else {
+        const total = res.total_resumes ?? res.candidates_seen
         setZohoFeedback({
           type: 'success',
-          message: `Imported ${res.imported_count} candidate resumes from Zoho Recruit for "${job.posting_title}". Processing profiles...`,
+          message: `All candidates up to date. Found ${total} candidate resumes in project (0 new resumes to import).`,
+        })
+      } else {
+        const total = res.total_resumes ?? res.imported_count
+        setZohoFeedback({
+          type: 'success',
+          message: `Imported ${res.imported_count} new candidate resumes (Total: ${total}) from Zoho Recruit for "${job.posting_title}". Processing profiles...`,
         })
         if (res.document_ids.length > 0) {
           await processResumes(res.document_ids)

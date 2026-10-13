@@ -46,3 +46,24 @@ async def test_extraction_requires_parsed_text_without_changing_stage() -> None:
     with pytest.raises(ParsedTextNotFoundException):
         await service.extract_document_data(uuid4())
     assert documents.updates == []
+
+
+@pytest.mark.asyncio
+async def test_extraction_service_skips_when_already_completed() -> None:
+    doc_id = uuid4()
+    doc = SimpleNamespace(
+        id=doc_id,
+        document_type=DocumentTypeEnum.RESUME,
+        processing_status="COMPLETED",
+    )
+    documents = StubDocuments(doc)
+    extracted = StubExtraction()
+    async def get_existing(did):
+        return SimpleNamespace(id=uuid4(), document_id=did)
+    extracted.get_resume_by_document_id = get_existing
+    service = ExtractionService(documents, StubParsed("raw text"), extracted)
+    res = await service.extract_document_data(doc_id)
+    assert res.document_id == doc_id
+    assert res.message == "Information already extracted."
+    assert documents.updates == []
+

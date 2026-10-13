@@ -58,9 +58,34 @@ class ExtractionService:
         self.extraction_repository = extraction_repository
         self.ai_resume_extractor = ai_resume_extractor or AIResumeExtractor()
 
-    async def extract_document_data(self, document_id: UUID) -> ExtractDocumentResponse:
+    async def extract_document_data(
+        self, document_id: UUID, *, force: bool = False
+    ) -> ExtractDocumentResponse:
         total_started = perf_counter()
         document = await self._get_document(document_id)
+        doc_status = getattr(document, "processing_status", None)
+        is_completed = (
+            doc_status == ProcessingStatus.COMPLETED
+            or getattr(doc_status, "value", None) == "COMPLETED"
+            or str(doc_status) == "COMPLETED"
+        )
+        if not force and is_completed:
+            try:
+                if document.document_type == DocumentTypeEnum.RESUME:
+                    existing_ext = await self.extraction_repository.get_resume_by_document_id(document_id)
+                else:
+                    existing_ext = await self.extraction_repository.get_job_description_by_document_id(document_id)
+                if existing_ext is not None:
+                    logger.info("document_extraction_already_completed_skipping", document_id=str(document_id))
+                    return ExtractDocumentResponse(
+                        document_id=document_id,
+                        document_type=DocumentType(document.document_type.value),
+                        processing_stage=ProcessingStage.COMPLETED,
+                        message="Information already extracted.",
+                    )
+            except Exception:
+                pass
+
         try:
             parsed = await self.parsed_repository.get_by_document_id(document_id)
         except SQLAlchemyError as exc:

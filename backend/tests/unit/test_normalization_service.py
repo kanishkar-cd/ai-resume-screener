@@ -45,3 +45,24 @@ async def test_service_requires_stage3_output_without_transition() -> None:
     with pytest.raises(ExtractedDataNotFoundException):
         await NormalizationService(documents, StubExtractions(None), StubNormalizations()).normalize_document_data(document_id)
     assert documents.updates == []
+
+
+@pytest.mark.asyncio
+async def test_normalization_service_skips_when_already_completed() -> None:
+    doc_id = uuid4()
+    doc = SimpleNamespace(
+        id=doc_id,
+        document_type=DocumentTypeEnum.RESUME,
+        processing_status="COMPLETED",
+    )
+    documents = StubDocuments(doc)
+    normalizations = StubNormalizations()
+    async def get_existing(did):
+        return SimpleNamespace(id=uuid4(), document_id=did)
+    normalizations.get_resume_by_document_id = get_existing
+    service = NormalizationService(documents, StubExtractions(None), normalizations)
+    res = await service.normalize_document_data(doc_id)
+    assert res.document_id == doc_id
+    assert res.message == "Document data already normalized."
+    assert documents.updates == []
+

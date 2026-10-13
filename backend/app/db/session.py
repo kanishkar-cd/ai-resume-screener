@@ -45,13 +45,24 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield a request-scoped async database session."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        except Exception:
-            await session.rollback()
+        except Exception as exc:
+            try:
+                await session.rollback()
+            except Exception as rb_exc:
+                logger.warning("db_session_rollback_failed", error=str(rb_exc))
             raise
         finally:
-            await session.close()
+            try:
+                await session.close()
+            except Exception as close_exc:
+                logger.warning("db_session_close_failed", error=str(close_exc))

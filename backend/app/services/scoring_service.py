@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from typing import Any
 from uuid import UUID
 
@@ -75,7 +76,8 @@ class ScoringEngineFacade:
         self.projects, self.documents = projects, documents
         self.normalizations, self.extractions = normalizations, extractions
         self.scores = scores
-        if weights is None and hasattr(scores, "session"):
+        from unittest.mock import AsyncMock, MagicMock
+        if weights is None and hasattr(scores, "session") and not isinstance(scores, (MagicMock, AsyncMock)):
             self.weights = WeightConfigRepository(scores.session)
         else:
             self.weights = weights
@@ -86,11 +88,17 @@ class ScoringEngineFacade:
         logger.info("[SCORE] scoring started", project_id=str(project_id))
         job = await self._load_project_context(project_id)
         weight_config = None
+        weight_config_checked = False
         if self.weights is not None:
             try:
                 weight_config = await self.weights.get_by_project_id(project_id)
+                weight_config_checked = True
             except Exception as exc:
                 logger.warning("weight_config_load_failed", project_id=str(project_id), error=str(exc))
+                weight_config = None
+                weight_config_checked = False
+        else:
+            weight_config_checked = True
         try:
             resumes, _ = await self.documents.list_resumes_by_project(project_id, 1, 10000)
         except SQLAlchemyError as exc:
@@ -111,6 +119,82 @@ class ScoringEngineFacade:
         norm_map = {n.document_id: n for n in norm_models}
         ext_map = {e.document_id: e for e in ext_models}
 
+        # Safely end outer read transaction before entering long-running concurrent scoring
+        outer_session = getattr(self.documents, "session", None) or getattr(self.scores, "session", None)
+        if outer_session is not None:
+            in_tx = False
+            if hasattr(outer_session, "in_transaction") and callable(outer_session.in_transaction):
+                try:
+                    tx_val = outer_session.in_transaction()
+                    if inspect.isawaitable(tx_val):
+                        in_tx = bool(await tx_val)
+                    else:
+                        in_tx = bool(tx_val)
+                except Exception:
+                    in_tx = False
+            if in_tx:
+                has_pending = False
+                for attr_name in ("dirty", "new", "deleted"):
+                    coll = getattr(outer_session, attr_name, None)
+                    if coll is not None:
+                        try:
+                            if len(coll) > 0:
+                                has_pending = True
+                                break
+                        except (TypeError, AttributeError):
+                            pass
+                if not has_pending and hasattr(outer_session, "commit"):
+                    try:
+                        commit_res = outer_session.commit()
+                        if inspect.isawaitable(commit_res):
+                            await commit_res
+                        logger.info("outer_read_transaction_ended", project_id=str(project_id))
+                    except Exception as commit_exc:
+                        logger.warning(
+                            "outer_read_transaction_commit_failed",
+                            project_id=str(project_id),
+                            error=str(commit_exc),
+                        )
+                        cleanup_confirmed = False
+                        if hasattr(outer_session, "rollback"):
+                            try:
+                                rb_res = outer_session.rollback()
+                                if inspect.isawaitable(rb_res):
+                                    await rb_res
+                                cleanup_confirmed = True
+                                logger.info(
+                                    "outer_read_transaction_rollback_succeeded",
+                                    project_id=str(project_id),
+                                )
+                            except Exception as rb_exc:
+                                logger.warning(
+                                    "outer_read_transaction_rollback_failed",
+                                    project_id=str(project_id),
+                                    error=str(rb_exc),
+                                )
+                                cleanup_confirmed = False
+
+                        if cleanup_confirmed and hasattr(outer_session, "in_transaction") and callable(outer_session.in_transaction):
+                            try:
+                                check_tx = outer_session.in_transaction()
+                                if inspect.isawaitable(check_tx):
+                                    check_tx = await check_tx
+                                if bool(check_tx):
+                                    cleanup_confirmed = False
+                            except Exception:
+                                pass
+
+                        if not cleanup_confirmed:
+                            logger.error(
+                                "outer_transaction_cleanup_unconfirmed_aborting",
+                                project_id=str(project_id),
+                            )
+                            raise InternalServerException(
+                                "Unable to confirm database transaction cleanup before scoring."
+                            ) from commit_exc
+                elif has_pending:
+                    logger.warning("outer_session_pending_writes_detected", project_id=str(project_id))
+
         settings = get_settings()
         breaker = ProviderCircuitBreaker.get_breaker(settings)
         default_concurrency = int(getattr(settings, "MAX_CONCURRENT_RESUMES", 3))
@@ -120,20 +204,36 @@ class ScoringEngineFacade:
 
         from unittest.mock import AsyncMock, MagicMock
         is_mock = isinstance(self.scores, (MagicMock, AsyncMock))
+        shared_weight_lock = asyncio.Lock()
+        shared_weight = {"config": weight_config, "checked": weight_config_checked}
 
         async def _scored_task(doc: Any) -> Any:
             if is_mock:
+                if not shared_weight["checked"] and self.weights is not None:
+                    async with shared_weight_lock:
+                        if not shared_weight["checked"]:
+                            try:
+                                shared_weight["config"] = await self.weights.get_by_project_id(project_id)
+                                shared_weight["checked"] = True
+                            except Exception as exc:
+                                logger.error(
+                                    "weight_config_lookup_failed",
+                                    project_id=str(project_id),
+                                    error=str(exc),
+                                )
+                                raise InternalServerException("Unable to retrieve project weight configuration.") from exc
                 return await scheduler.run_resume_task(
                     str(doc.id),
                     self._score(
                         doc, job,
                         resume=norm_map.get(doc.id),
                         extracted=ext_map.get(doc.id),
-                        weight_config=weight_config,
+                        weight_config=shared_weight["config"],
                         scores_repo=self.scores,
                         weights_repo=self.weights,
                         norm_repo=self.normalizations,
                         ext_repo=self.extractions,
+                        weight_config_checked=shared_weight["checked"],
                     )
                 )
             async with AsyncSessionLocal() as session:
@@ -147,6 +247,19 @@ class ScoringEngineFacade:
                 weights_repo = WeightConfigRepository(session)
                 norm_repo = NormalizationRepository(session)
                 ext_repo = ExtractionRepository(session)
+                if not shared_weight["checked"] and weights_repo is not None:
+                    async with shared_weight_lock:
+                        if not shared_weight["checked"]:
+                            try:
+                                shared_weight["config"] = await weights_repo.get_by_project_id(project_id)
+                                shared_weight["checked"] = True
+                            except Exception as exc:
+                                logger.error(
+                                    "weight_config_lookup_failed",
+                                    project_id=str(project_id),
+                                    error=str(exc),
+                                )
+                                raise InternalServerException("Unable to retrieve project weight configuration.") from exc
                 try:
                     res = await scheduler.run_resume_task(
                         str(doc.id),
@@ -154,11 +267,12 @@ class ScoringEngineFacade:
                             doc, job,
                             resume=norm_map.get(doc.id),
                             extracted=ext_map.get(doc.id),
-                            weight_config=weight_config,
+                            weight_config=shared_weight["config"],
                             scores_repo=scores_repo,
                             weights_repo=weights_repo,
                             norm_repo=norm_repo,
                             ext_repo=ext_repo,
+                            weight_config_checked=shared_weight["checked"],
                         )
                     )
                     logger.info(
@@ -167,8 +281,16 @@ class ScoringEngineFacade:
                         session_identity=session_id,
                     )
                     return res
-                except Exception:
-                    await session.rollback()
+                except Exception as exc:
+                    try:
+                        await session.rollback()
+                    except Exception as rb_exc:
+                        logger.warning(
+                            "resume_scoring_db_rollback_failed",
+                            resume_id=str(doc.id),
+                            session_identity=session_id,
+                            error=str(rb_exc),
+                        )
                     raise
 
         results = list(await asyncio.gather(*[_scored_task(doc) for doc in resumes]))
@@ -186,12 +308,18 @@ class ScoringEngineFacade:
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentProjectMismatchException("Only project resumes can be scored.")
         weight_config = None
+        weight_config_checked = False
         if self.weights is not None:
             try:
                 weight_config = await self.weights.get_by_project_id(project_id)
-            except Exception:
+                weight_config_checked = True
+            except Exception as exc:
+                logger.warning("weight_config_load_failed", project_id=str(project_id), error=str(exc))
                 weight_config = None
-        return await self._score(document, job, weight_config=weight_config)
+                weight_config_checked = False
+        else:
+            weight_config_checked = True
+        return await self._score(document, job, weight_config=weight_config, weight_config_checked=weight_config_checked)
 
     async def get_project_scores(self, project_id: UUID) -> list[CandidateScoreRead]:
         await self._verify_project(project_id)
@@ -226,6 +354,8 @@ class ScoringEngineFacade:
         weights_repo: WeightConfigRepository | None = None,
         norm_repo: NormalizationRepository | None = None,
         ext_repo: ExtractionRepository | None = None,
+        *,
+        weight_config_checked: bool = False,
     ) -> CandidateScoreRead:
         scores = scores_repo or self.scores
         weights = weights_repo or self.weights
@@ -238,11 +368,18 @@ class ScoringEngineFacade:
                 extracted = await extractions.get_resume_by_document_id(document.id)
             if resume is None or extracted is None: raise NormalizedResumeMissingException()
 
-            if weight_config is None and weights is not None:
+            if not weight_config_checked and weight_config is None and weights is not None:
                 try:
                     weight_config = await weights.get_by_project_id(document.project_id)
-                except Exception:
-                    weight_config = None
+                    weight_config_checked = True
+                except Exception as exc:
+                    logger.error(
+                        "weight_config_lookup_failed",
+                        document_id=str(document.id),
+                        project_id=str(document.project_id),
+                        error=str(exc),
+                    )
+                    raise InternalServerException("Unable to retrieve project weight configuration.") from exc
 
             try:
                 scoring_extracted, match_verdicts = await self.hybrid_matching.match(

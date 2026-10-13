@@ -58,9 +58,35 @@ class NormalizationService:
         self.extractions = extractions
         self.normalizations = normalizations
 
-    async def normalize_document_data(self, document_id: UUID) -> NormalizeDocumentResponse:
+    async def normalize_document_data(
+        self, document_id: UUID, *, force: bool = False
+    ) -> NormalizeDocumentResponse:
         started_at = perf_counter()
         document = await self._get_document(document_id)
+        doc_status = getattr(document, "processing_status", None)
+        is_completed = (
+            doc_status == ProcessingStatus.COMPLETED
+            or getattr(doc_status, "value", None) == "COMPLETED"
+            or str(doc_status) == "COMPLETED"
+        )
+        if not force and is_completed:
+            try:
+                if document.document_type == DocumentTypeEnum.RESUME:
+                    existing_norm = await self.normalizations.get_resume_by_document_id(document_id)
+                else:
+                    existing_norm = await self.normalizations.get_job_description_by_document_id(document_id)
+                if existing_norm is not None:
+                    logger.info("document_normalization_already_completed_skipping", document_id=str(document_id))
+                    return NormalizeDocumentResponse(
+                        document_id=document_id,
+                        document_type=DocumentType(document.document_type.value),
+                        processing_stage=ProcessingStage.COMPLETED,
+                        ruleset_version=RULESET_VERSION,
+                        message="Document data already normalized.",
+                    )
+            except Exception:
+                pass
+
         extracted = await self._get_extracted(document)
         logger.info(
             "[NORMALIZE] normalization started",

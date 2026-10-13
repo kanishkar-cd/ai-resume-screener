@@ -69,6 +69,15 @@ class DocumentModel(UUIDMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        Index(
+            "uq_project_zoho_attachment_id",
+            "project_id",
+            text("(metadata_json->>'zoho_attachment_id')"),
+            unique=True,
+            postgresql_where=text(
+                "deleted_at IS NULL AND (metadata_json->>'zoho_attachment_id') IS NOT NULL"
+            ),
+        ),
     )
 
     project_id: Mapped[UUID] = mapped_column(
