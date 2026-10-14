@@ -424,9 +424,8 @@ class DocumentService:
             document = await self.repository.get_document(document_id)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
+        if document is None or document.deleted_at is not None:
             raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
         return DocumentRead.model_validate(document)
 
     async def download_document(self, document_id: UUID) -> DocumentDownload:
@@ -434,9 +433,8 @@ class DocumentService:
             document = await self.repository.download_document(document_id)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
+        if document is None or document.deleted_at is not None:
             raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
         path = self.storage.resolve_file(document.file_path)
         if path is None:
             raise DocumentFileMissingException()
@@ -451,103 +449,8 @@ class DocumentService:
             document = await self.repository.get_document(document_id)
         except SQLAlchemyError as exc:
             raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
+        if document is None or document.deleted_at is not None:
             raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
-        if self.storage.resolve_file(document.file_path) is None:
-            raise DocumentFileMissingException()
-
-        try:
-            deleted = await self.repository.delete_document(document_id, commit=False)
-            if deleted is None:
-                raise DocumentNotFoundException()
-            if not self.storage.delete_file(document.file_path):
-                raise DocumentFileMissingException()
-            await self.repository.session.commit()
-        except (DocumentNotFoundException, DocumentFileMissingException):
-            await self.repository.session.rollback()
-            raise
-        except SQLAlchemyError as exc:
-            await self.repository.session.rollback()
-
-    async def _verify_project(self, project_id: UUID) -> None:
-        try:
-            project = await self.project_repository.get_by_id(project_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to verify project.") from exc
-        if project is None:
-            raise ProjectNotFoundException()
-
-    async def list_documents(
-        self,
-        project_id: UUID | None,
-        document_type: DocumentType | None,
-        processing_status: ProcessingStatus | None,
-        search: str | None,
-        page: int,
-        page_size: int,
-        sort_order: SortOrder,
-        *,
-        verify_project: bool = False,
-    ) -> DocumentPaginatedResponse:
-        if verify_project and project_id is not None:
-            await self._verify_project(project_id)
-        normalized_search = search.strip() if search else None
-        try:
-            documents, total = await self.repository.list_documents(
-                document_type,
-                processing_status,
-                page,
-                page_size,
-                project_id=project_id,
-                search=normalized_search,
-                sort_order=sort_order,
-            )
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to list documents.") from exc
-        return DocumentPaginatedResponse(
-            items=[DocumentRead.model_validate(document) for document in documents],
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=math.ceil(total / page_size),
-        )
-
-    async def get_document(self, document_id: UUID) -> DocumentRead:
-        try:
-            document = await self.repository.get_document(document_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
-            raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
-        return DocumentRead.model_validate(document)
-
-    async def download_document(self, document_id: UUID) -> DocumentDownload:
-        try:
-            document = await self.repository.download_document(document_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
-            raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
-        path = self.storage.resolve_file(document.file_path)
-        if path is None:
-            raise DocumentFileMissingException()
-        return DocumentDownload(
-            path=path,
-            filename=document.original_filename,
-            mime_type=document.mime_type,
-        )
-
-    async def delete_document(self, document_id: UUID) -> None:
-        try:
-            document = await self.repository.get_document(document_id)
-        except SQLAlchemyError as exc:
-            raise InternalServerException("Unable to retrieve document.") from exc
-        if document is None:
-            raise DocumentNotFoundException()
-        await self._verify_project(document.project_id)
         if self.storage.resolve_file(document.file_path) is None:
             raise DocumentFileMissingException()
 

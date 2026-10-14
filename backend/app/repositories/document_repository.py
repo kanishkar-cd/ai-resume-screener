@@ -2,10 +2,11 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from app.models.project import ProjectModel
 from app.models.document import (
     DocumentModel,
     DocumentTypeEnum,
@@ -198,12 +199,24 @@ class DocumentRepository:
         page_size: int,
         *,
         project_id: UUID | None = None,
+        zoho_job_opening_id: str | None = None,
         search: str | None = None,
         sort_order: SortOrder = SortOrder.DESC,
     ) -> tuple[list[DocumentModel], int]:
         filters = [DocumentModel.deleted_at.is_(None)]
         if project_id is not None:
-            filters.append(DocumentModel.project_id == project_id)
+            if zoho_job_opening_id:
+                filters.append(
+                    or_(
+                        DocumentModel.project_id == project_id,
+                        and_(
+                            DocumentModel.metadata_json["zoho_job_opening_id"].astext == zoho_job_opening_id,
+                            DocumentModel.document_type == DocumentTypeEnum.RESUME,
+                        ),
+                    )
+                )
+            else:
+                filters.append(DocumentModel.project_id == project_id)
         if document_type is not None:
             filters.append(
                 DocumentModel.document_type == DocumentTypeEnum(document_type.value)

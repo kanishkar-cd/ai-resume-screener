@@ -43,6 +43,7 @@ from app.schemas.error import ErrorResponsePayload
 from app.schemas.extracted_jd import ExtractedJDRead
 from app.schemas.normalized_jd import NormalizedJDRead
 from app.schemas.zoho import (
+    ZohoFetchSummary,
     ZohoImportApplicantsRequest,
     ZohoImportApplicantsResponse,
     ZohoImportJDRequest,
@@ -366,7 +367,10 @@ async def import_zoho_job_description(
 
 
 _PROJECT_SYNC_LOCKS: dict[UUID, asyncio.Lock] = {}
+_PROJECT_SYNC_LOCKS: dict[UUID, asyncio.Lock] = {}
 _PROJECT_SYNC_LOCK_MUTEX = asyncio.Lock()
+_JOB_SYNC_LOCKS: dict[str, asyncio.Lock] = {}
+_JOB_SYNC_LOCK_MUTEX = asyncio.Lock()
 
 
 async def _get_project_sync_lock(project_id: UUID) -> asyncio.Lock:
@@ -374,6 +378,13 @@ async def _get_project_sync_lock(project_id: UUID) -> asyncio.Lock:
         if project_id not in _PROJECT_SYNC_LOCKS:
             _PROJECT_SYNC_LOCKS[project_id] = asyncio.Lock()
         return _PROJECT_SYNC_LOCKS[project_id]
+
+
+async def _get_job_sync_lock(job_id: str) -> asyncio.Lock:
+    async with _JOB_SYNC_LOCK_MUTEX:
+        if job_id not in _JOB_SYNC_LOCKS:
+            _JOB_SYNC_LOCKS[job_id] = asyncio.Lock()
+        return _JOB_SYNC_LOCKS[job_id]
 
 
 @router.post(
@@ -397,45 +408,72 @@ async def import_zoho_applicants(
     if not client.configured:
         raise ZohoRecruitNotConfiguredException("Zoho Recruit credentials are not configured in backend/.env.")
 
-    # 1. Acquire per-project lock to serialize concurrent syncs for the same project
+    # 1. Acquire per-project and per-job locks to serialize concurrent syncs
     project_lock = await _get_project_sync_lock(project_id)
-    async with project_lock:
+    job_lock = await _get_job_sync_lock(str(request.job_id))
+    async with project_lock, job_lock:
         # 2. Verify project
         project_repo = ProjectRepository(db)
         project = await project_repo.get_by_id(project_id)
         if project is None:
             raise ProjectNotFoundException()
 
-        # 3. Query existing active resumes in the project
+        # 3. Query existing active resumes across the ATS (global deduplication)
         existing_stmt = select(DocumentModel).where(
-            DocumentModel.project_id == project_id,
             DocumentModel.document_type == DocumentTypeEnum.RESUME,
             DocumentModel.deleted_at.is_(None),
         )
         existing_docs = (await db.scalars(existing_stmt)).all()
 
+        job_id_str = str(request.job_id)
+        job_opening = None
+        valid_job_ids = {job_id_str}
+        try:
+            job_opening = await client.get_job_opening(request.job_id)
+            if job_opening.id:
+                valid_job_ids.add(str(job_opening.id))
+            if job_opening.job_opening_id:
+                valid_job_ids.add(str(job_opening.job_opening_id))
+        except Exception as job_err:
+            logger.warning("zoho_get_job_opening_details_warning", job_id=job_id_str, error=str(job_err))
+
         existing_candidates: dict[str, str | None] = {}
-        existing_attachment_ids: set[str] = set()
+        existing_attachment_ids: dict[str, str | None] = {}
         existing_hashes: set[str] = set()
         failed_attachment_docs: dict[str, DocumentModel] = {}
-        total_active_resumes = 0
+        total_active_resumes_for_job = 0
 
         for doc in existing_docs:
             if doc.file_hash:
                 existing_hashes.add(doc.file_hash)
             meta = doc.metadata_json or {}
             att_id = str(meta.get("zoho_attachment_id") or "")
+            att_mod = meta.get("zoho_attachment_modified_time")
             cand_id = str(meta.get("zoho_candidate_id") or "")
             cand_mod = meta.get("zoho_candidate_modified_time")
-            if doc.processing_status == ProcessingStatusEnum.FAILED:
-                if att_id:
-                    failed_attachment_docs[att_id] = doc
+            doc_job_id = str(meta.get("zoho_job_opening_id") or "")
+            doc_job_code = str(meta.get("zoho_job_opening_code") or "")
+
+            # Deduplication scoped specifically to the selected Zoho Job Opening
+            is_same_job = (
+                doc_job_id in valid_job_ids
+                or (doc_job_code and doc_job_code in valid_job_ids)
+                or (not doc_job_id and bool(att_id))
+            )
+            if is_same_job:
+                if doc.processing_status == ProcessingStatusEnum.FAILED:
+                    if att_id:
+                        failed_attachment_docs[att_id] = doc
+                else:
+                    total_active_resumes_for_job += 1
+                    if att_id:
+                        existing_attachment_ids[att_id] = att_mod
+                    if cand_id:
+                        existing_candidates[cand_id] = cand_mod
             else:
-                total_active_resumes += 1
-                if att_id:
-                    existing_attachment_ids.add(att_id)
-                if cand_id:
-                    existing_candidates[cand_id] = cand_mod
+                # Active resumes from other jobs in the ATS: track attachment ID so attachments aren't re-downloaded
+                if doc.processing_status != ProcessingStatusEnum.FAILED and att_id:
+                    existing_attachment_ids[att_id] = att_mod
 
         # 4. Fetch applicant resumes from Zoho with already-imported candidates & attachment IDs
         try:
@@ -455,6 +493,17 @@ async def import_zoho_applicants(
         doc_repo = DocumentRepository(db)
 
         try:
+            canonical_job_id = str(job_opening.id) if (job_opening and job_opening.id) else job_id_str
+            opening_code = (job_opening.job_opening_id if job_opening else None) or None
+
+            # Associate project with this Zoho Job Opening
+            project.metadata_json = {
+                **(project.metadata_json or {}),
+                "zoho_job_opening_id": canonical_job_id,
+                "zoho_job_opening_code": opening_code,
+                "zoho_job_opening_title": job_opening.posting_title if job_opening else None,
+            }
+
             for resume in fetch_result.resumes:
                 att_id = str(resume.attachment.id)
 
@@ -483,7 +532,7 @@ async def import_zoho_applicants(
                 )
                 created_file_paths.append(file_path)
 
-                # Check for duplicate file hash in project
+                # Check for duplicate file hash in project / ATS
                 if file_hash in existing_hashes:
                     storage_service.delete_file(file_path)
                     created_file_paths.pop()
@@ -492,6 +541,7 @@ async def import_zoho_applicants(
                         "attachment_id": att_id,
                         "reason": "duplicate content already imported",
                     })
+                    fetch_result.already_fetched += 1
                     continue
 
                 existing_hashes.add(file_hash)
@@ -512,7 +562,8 @@ async def import_zoho_applicants(
                         "zoho_candidate_id": resume.candidate_id,
                         "zoho_candidate_number": resume.candidate_number,
                         "zoho_attachment_id": att_id,
-                        "zoho_job_opening_id": str(request.job_id),
+                        "zoho_job_opening_id": canonical_job_id,
+                        "zoho_job_opening_code": opening_code,
                         "zoho_attachment_modified_time": resume.attachment.modified_time,
                         "zoho_candidate_modified_time": resume.modified_time,
                         "candidate_name": resume.full_name,
@@ -546,10 +597,22 @@ async def import_zoho_applicants(
             except Exception as auto_exc:
                 logger.warning("zoho_auto_process_failed", error=str(auto_exc))
 
-        total_unique_resumes = total_active_resumes + len(saved_document_ids)
-        failed_count = sum(
+        total_unique_resumes = total_active_resumes_for_job + len(saved_document_ids)
+        new_resumes = len(saved_document_ids)
+        already_fetched = max(fetch_result.already_fetched, total_active_resumes_for_job)
+        failed_resumes = fetch_result.failed_downloads + (len(fetch_result.resumes) - new_resumes)
+        total_found = max(fetch_result.total_found, already_fetched + new_resumes + failed_resumes)
+
+        failed_count = failed_resumes or sum(
             1 for s in fetch_result.skipped
             if "fail" in s.get("reason", "").lower() or "error" in s.get("reason", "").lower()
+        )
+
+        summary = ZohoFetchSummary(
+            total_found=total_found,
+            already_fetched=already_fetched,
+            new_resumes=new_resumes,
+            failed_resumes=failed_resumes,
         )
 
         return ZohoImportApplicantsResponse(
@@ -557,9 +620,15 @@ async def import_zoho_applicants(
             job_id=request.job_id,
             candidates_seen=fetch_result.candidates_seen,
             total_resumes=total_unique_resumes,
-            imported_count=len(saved_document_ids),
+            imported_count=new_resumes,
             skipped_count=len(fetch_result.skipped),
             failed_count=failed_count,
             document_ids=saved_document_ids,
             skipped=fetch_result.skipped,
+            total_found=total_found,
+            already_fetched=already_fetched,
+            new_resumes=new_resumes,
+            failed_resumes=failed_resumes,
+            summary=summary,
         )
+

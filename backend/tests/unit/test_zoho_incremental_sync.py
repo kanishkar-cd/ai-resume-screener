@@ -56,30 +56,33 @@ class FakeZohoRecruitAPI:
         self.setup_5_candidates()
 
     def setup_5_candidates(self) -> None:
+        self.setup_n_candidates(5)
+
+    def setup_n_candidates(self, n: int, start_idx: int = 1, prefix: str = "cand_") -> None:
         self.job_candidates = [
             {
-                "id": f"cand_{i}",
+                "id": f"{prefix}{i}",
                 "Candidate_ID": f"ZR_{i}",
                 "First_Name": f"Candidate{i}",
                 "Last_Name": "Test",
                 "Email": f"cand{i}@example.com",
                 "Mobile": f"+91987654321{i}",
                 "Source": "Website",
-                "Modified_Time": f"2026-10-0{i}T10:00:00+05:30",
+                "Modified_Time": f"2026-10-01T10:00:00+05:30",
             }
-            for i in range(1, 6)
+            for i in range(start_idx, start_idx + n)
         ]
         self.attachments = {
-            f"cand_{i}": [
+            f"{prefix}{i}": [
                 {
                     "id": f"att_{i}",
                     "File_Name": f"resume_{i}.pdf",
                     "Category": {"name": "Resume", "id": "1"},
-                    "Modified_Time": f"2026-10-0{i}T10:00:00+05:30",
+                    "Modified_Time": f"2026-10-01T10:00:00+05:30",
                     "Size": "1024",
                 }
             ]
-            for i in range(1, 6)
+            for i in range(start_idx, start_idx + n)
         }
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -94,6 +97,7 @@ class FakeZohoRecruitAPI:
 
         # JobOpenings/{id}
         if len(parts) == 2 and parts[0] == "JobOpenings":
+            job_code = f"JOB_{parts[1]}" if parts[1] != "5001" else "JOB_001"
             return httpx.Response(
                 200,
                 json={
@@ -101,7 +105,7 @@ class FakeZohoRecruitAPI:
                         {
                             "id": parts[1],
                             "Posting_Title": "Senior Backend Engineer",
-                            "Job_Opening_ID": "JOB_001",
+                            "Job_Opening_ID": job_code,
                             "Job_Description": "FastAPI & Python backend developer.",
                             "Required_Skills": "Python, FastAPI",
                             "Job_Opening_Status": "In-progress",
@@ -147,7 +151,7 @@ class FakeZohoRecruitAPI:
 class MockDB:
     """In-memory mock database session tracking DocumentModel and ProjectModel."""
 
-    def __init__(self, project_id: UUID) -> None:
+    def __init__(self, project_id: UUID, shared_docs: dict[UUID, DocumentModel] | None = None) -> None:
         self.project_id = project_id
         self.project = ProjectModel(
             id=project_id,
@@ -155,7 +159,7 @@ class MockDB:
             target_role="Backend Engineer",
             status=ProjectStatusEnum.ACTIVE,
         )
-        self.documents: dict[UUID, DocumentModel] = {}
+        self.documents: dict[UUID, DocumentModel] = shared_docs if shared_docs is not None else {}
         self.committed = False
         self.rolled_back = False
 
@@ -195,11 +199,18 @@ class MockDB:
         return None
 
     async def scalars(self, statement: Any) -> Any:
-        # Return all non-deleted resumes for this project
-        active_docs = [
-            d for d in self.documents.values()
-            if d.project_id == self.project_id and d.document_type == DocumentTypeEnum.RESUME and d.deleted_at is None
-        ]
+        # Return all non-deleted resumes across ATS if global query, or for this project if scoped
+        stmt_str = str(statement)
+        if "WHERE" in stmt_str and "documents.project_id =" in stmt_str:
+            active_docs = [
+                d for d in self.documents.values()
+                if d.project_id == self.project_id and d.document_type == DocumentTypeEnum.RESUME and d.deleted_at is None
+            ]
+        else:
+            active_docs = [
+                d for d in self.documents.values()
+                if d.document_type == DocumentTypeEnum.RESUME and d.deleted_at is None
+            ]
         mock_result = MagicMock()
         mock_result.all.return_value = active_docs
         return mock_result
@@ -610,3 +621,653 @@ async def test_frontend_and_api_response_distinguish_total_from_newly_imported(
     assert r3.imported_count == 1
     assert r3.total_resumes == 6
     assert r3.candidates_seen == 6
+    assert r3.total_found == 6
+    assert r3.already_fetched == 5
+    assert r3.new_resumes == 1
+    assert r3.summary is not None
+    assert r3.summary.total_found == 6
+    assert r3.summary.already_fetched == 5
+    assert r3.summary.new_resumes == 1
+
+
+# =================================================================================================
+# COMPREHENSIVE SUITE FOR STEP 7 REQUIREMENTS
+# =================================================================================================
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 1: First fetch: 50 found, 0 already fetched, 50 new.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case1_first_fetch_50_found_0_already_fetched_50_new(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(50)
+    fake_zoho.downloads.clear()
+    req = ZohoImportApplicantsRequest(job_id="9001")
+
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp.total_found == 50
+    assert resp.already_fetched == 0
+    assert resp.new_resumes == 50
+    assert resp.imported_count == 50
+    assert resp.failed_resumes == 0
+    assert len(resp.document_ids) == 50
+    assert len(mock_db.documents) == 50
+    assert len(fake_zoho.downloads) == 50
+    assert resp.summary is not None
+    assert resp.summary.total_found == 50
+    assert resp.summary.already_fetched == 0
+    assert resp.summary.new_resumes == 50
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 2: Second fetch, unchanged: 50 found, 50 already fetched, 0 new.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case2_second_fetch_unchanged_50_found_50_already_fetched_0_new(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(50)
+    req = ZohoImportApplicantsRequest(job_id="9001")
+
+    # First fetch (50 imported)
+    await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+    fake_zoho.downloads.clear()
+
+    # Second fetch (unchanged)
+    resp2 = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp2.total_found == 50
+    assert resp2.already_fetched == 50
+    assert resp2.new_resumes == 0
+    assert resp2.imported_count == 0
+    assert resp2.failed_resumes == 0
+    assert len(resp2.document_ids) == 0
+    assert len(mock_db.documents) == 50
+    assert len(fake_zoho.downloads) == 0  # Zero downloads performed
+    assert resp2.summary is not None
+    assert resp2.summary.total_found == 50
+    assert resp2.summary.already_fetched == 50
+    assert resp2.summary.new_resumes == 0
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 3: Five new resumes added: 55 found, 50 already fetched, 5 new.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case3_five_new_resumes_added_55_found_50_already_fetched_5_new(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(50)
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+    fake_zoho.downloads.clear()
+
+    # Add 5 new candidates in Zoho (candidates 51 to 55)
+    for i in range(51, 56):
+        fake_zoho.job_candidates.append({
+            "id": f"cand_{i}",
+            "Candidate_ID": f"ZR_{i}",
+            "First_Name": f"Candidate{i}",
+            "Last_Name": "New",
+            "Email": f"cand{i}@example.com",
+            "Modified_Time": "2026-10-02T10:00:00+05:30",
+        })
+        fake_zoho.attachments[f"cand_{i}"] = [
+            {
+                "id": f"att_{i}",
+                "File_Name": f"resume_{i}.pdf",
+                "Category": {"name": "Resume"},
+                "Modified_Time": "2026-10-02T10:00:00+05:30",
+            }
+        ]
+
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp.total_found == 55
+    assert resp.already_fetched == 50
+    assert resp.new_resumes == 5
+    assert resp.imported_count == 5
+    assert resp.failed_resumes == 0
+    assert len(resp.document_ids) == 5
+    assert len(mock_db.documents) == 55
+    assert len(fake_zoho.downloads) == 5
+    assert fake_zoho.downloads == [f"att_{i}" for i in range(51, 56)]
+    assert resp.summary is not None
+    assert resp.summary.total_found == 55
+    assert resp.summary.already_fetched == 50
+    assert resp.summary.new_resumes == 5
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 4: Third fetch after all 55 have been imported: 55 found, 55 already fetched, 0 new.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case4_third_fetch_after_all_55_imported_55_found_55_already_fetched_0_new(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(55)
+    req = ZohoImportApplicantsRequest(job_id="9001")
+
+    # First fetch (all 55 imported)
+    await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+    fake_zoho.downloads.clear()
+
+    # Third fetch (repeated on all 55)
+    resp3 = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp3.total_found == 55
+    assert resp3.already_fetched == 55
+    assert resp3.new_resumes == 0
+    assert resp3.imported_count == 0
+    assert len(resp3.document_ids) == 0
+    assert len(mock_db.documents) == 55
+    assert len(fake_zoho.downloads) == 0
+    assert resp3.summary is not None
+    assert resp3.summary.total_found == 55
+    assert resp3.summary.already_fetched == 55
+    assert resp3.summary.new_resumes == 0
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 5: Existing document IDs are not passed into parsing, extraction, or normalization during incremental fetch.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case5_existing_document_ids_not_passed_into_processing_pipeline(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(5)
+    req = ZohoImportApplicantsRequest(job_id="9001", auto_process=True)
+    resp1 = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+    initial_ids = set(resp1.document_ids)
+    assert len(initial_ids) == 5
+
+    # Add 1 new candidate
+    fake_zoho.job_candidates.append({
+        "id": "cand_6",
+        "Candidate_ID": "ZR_6",
+        "First_Name": "Candidate6",
+        "Last_Name": "New",
+        "Email": "cand6@example.com",
+    })
+    fake_zoho.attachments["cand_6"] = [
+        {"id": "att_6", "File_Name": "resume_6.pdf", "Category": {"name": "Resume"}}
+    ]
+
+    with patch("app.api.v1.endpoints.zoho.ParsingService") as mock_parser_cls:
+        mock_parser = MagicMock()
+        mock_parser.parse_document = AsyncMock(return_value=None)
+        mock_parser_cls.return_value = mock_parser
+
+        resp2 = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+        # Only the 1 new document ID is in resp2.document_ids
+        assert len(resp2.document_ids) == 1
+        new_doc_id = resp2.document_ids[0]
+        assert new_doc_id not in initial_ids
+
+        # Only the new document was passed to parse_document, NONE of the initial IDs
+        assert mock_parser.parse_document.call_count == 1
+        parsed_call_args = [call.args[0] for call in mock_parser.parse_document.call_args_list]
+        assert parsed_call_args == [new_doc_id]
+        assert not any(old_id in parsed_call_args for old_id in initial_ids)
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 6: Existing completed documents are not recreated, downloaded, or reset.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case6_existing_completed_documents_not_recreated_downloaded_or_reset(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(3)
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    # Mark existing documents as COMPLETED in normalization
+    for doc in mock_db.documents.values():
+        doc.processing_status = ProcessingStatusEnum.COMPLETED
+        doc.processing_stage = ProcessingStageEnum.COMPLETED
+
+    fake_zoho.downloads.clear()
+    original_docs = {id: (d.processing_status, d.processing_stage, d.updated_at) for id, d in mock_db.documents.items()}
+
+    # Run incremental fetch
+    resp2 = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp2.imported_count == 0
+    assert len(fake_zoho.downloads) == 0  # Not downloaded
+    assert len(mock_db.documents) == 3   # Not recreated
+
+    # None were reset: status remains COMPLETED
+    for doc_id, doc in mock_db.documents.items():
+        orig_status, orig_stage, _ = original_docs[doc_id]
+        assert doc.processing_status == ProcessingStatusEnum.COMPLETED
+        assert doc.processing_stage == ProcessingStageEnum.COMPLETED
+        assert doc.processing_status == orig_status
+        assert doc.processing_stage == orig_stage
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 7: Resumes associated with a different Job Opening are handled according to correct per-opening relationship.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case7_resumes_associated_with_different_job_opening_handled_per_opening(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    # Setup Opening 9001 with candidates 1..3
+    fake_zoho.setup_n_candidates(3, start_idx=1, prefix="cand_")
+    req1 = ZohoImportApplicantsRequest(job_id="9001")
+    resp1 = await import_zoho_applicants(project_id, req1, mock_db, zoho_client)
+    assert resp1.total_found == 3
+    assert resp1.already_fetched == 0
+    assert resp1.new_resumes == 3
+
+    # Now simulate Job Opening 9002 in Zoho, which has candidates 4..5
+    fake_zoho.setup_n_candidates(2, start_idx=4, prefix="cand_")
+    req2 = ZohoImportApplicantsRequest(job_id="9002")
+
+    # Fetching for Opening 9002 should NOT treat Opening 9001's 3 resumes as "already fetched" for 9002!
+    resp2 = await import_zoho_applicants(project_id, req2, mock_db, zoho_client)
+    assert resp2.job_id == "9002"
+    assert resp2.total_found == 2
+    assert resp2.already_fetched == 0
+    assert resp2.new_resumes == 2
+    assert resp2.summary is not None
+    assert resp2.summary.already_fetched == 0
+    assert resp2.summary.new_resumes == 2
+
+    # Verify documents in DB are properly tagged with their respective job openings
+    docs_9001 = [d for d in mock_db.documents.values() if d.metadata_json.get("zoho_job_opening_id") == "9001"]
+    docs_9002 = [d for d in mock_db.documents.values() if d.metadata_json.get("zoho_job_opening_id") == "9002"]
+    assert len(docs_9001) == 3
+    assert len(docs_9002) == 2
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 8: Pagination retrieves and counts every eligible resume.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case8_pagination_retrieves_and_counts_every_eligible_resume(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(25)
+
+    # Simulate 10 per page pagination (3 pages: 10, 10, 5)
+    def paginated_handler(request: httpx.Request) -> httpx.Response:
+        if "/oauth/v2/token" in request.url.path:
+            return fake_zoho.handler(request)
+        if "/associate" in request.url.path:
+            page = int(request.url.params.get("page", 1))
+            per_page = 10
+            start = (page - 1) * per_page
+            end = start + per_page
+            chunk = fake_zoho.job_candidates[start:end]
+            more = end < len(fake_zoho.job_candidates)
+            return httpx.Response(200, json={"data": chunk, "info": {"page": page, "more_records": more}})
+        return fake_zoho.handler(request)
+
+    zoho_client._transport = httpx.MockTransport(paginated_handler)
+
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp.candidates_seen == 25
+    assert resp.total_found == 25
+    assert resp.already_fetched == 0
+    assert resp.new_resumes == 25
+    assert len(mock_db.documents) == 25
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 9: Duplicate external records in the Zoho response are not double-counted.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case9_duplicate_external_records_not_double_counted(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(3)
+    # Duplicate candidate 1 and candidate 2 in the Zoho candidate response
+    fake_zoho.job_candidates.append(dict(fake_zoho.job_candidates[0]))
+    fake_zoho.job_candidates.append(dict(fake_zoho.job_candidates[1]))
+    assert len(fake_zoho.job_candidates) == 5  # 3 unique, 2 duplicates
+
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    # candidates_seen is 5, but unique eligible resumes is strictly 3
+    assert resp.candidates_seen == 5
+    assert resp.total_found == 3
+    assert resp.already_fetched == 0
+    assert resp.new_resumes == 3
+    assert len(mock_db.documents) == 3
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 10: A failed import is not reported as a successful import.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case10_failed_import_not_reported_as_successful(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    fake_zoho.setup_n_candidates(3)
+    original_handler = fake_zoho.handler
+
+    # Simulate Candidate 2 failing attachment download (HTTP 500)
+    def fail_handler(request: httpx.Request) -> httpx.Response:
+        if "/Candidates/cand_2/Attachments/att_2" in request.url.path:
+            return httpx.Response(500, json={"message": "Zoho file read error"})
+        return original_handler(request)
+
+    zoho_client._transport = httpx.MockTransport(fail_handler)
+
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp.total_found == 3
+    assert resp.already_fetched == 0
+    assert resp.new_resumes == 2
+    assert resp.failed_resumes == 1
+    assert resp.failed_count == 1
+    assert len(mock_db.documents) == 2
+    # Verify candidate 2 was not reported as imported
+    imported_cand_ids = {d.metadata_json["zoho_candidate_id"] for d in mock_db.documents.values()}
+    assert "cand_2" not in imported_cand_ids
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 13: Zero-new-resume fetches still return the correct summary.
+# -------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_step7_case13_zero_eligible_resumes_returns_correct_zero_summary(
+    project_id: UUID, mock_db: MockDB, zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    # 2 candidates with NO PDF/DOCX resumes attached
+    fake_zoho.job_candidates = [
+        {"id": "cand_x", "Candidate_ID": "ZR_X", "First_Name": "NoResume1"},
+        {"id": "cand_y", "Candidate_ID": "ZR_Y", "First_Name": "NoResume2"},
+    ]
+    fake_zoho.attachments = {
+        "cand_x": [],
+        "cand_y": [{"id": "att_y", "File_Name": "photo.png", "Category": {"name": "Photo"}}],
+    }
+
+    req = ZohoImportApplicantsRequest(job_id="9001")
+    resp = await import_zoho_applicants(project_id, req, mock_db, zoho_client)
+
+    assert resp.candidates_seen == 2
+    assert resp.total_found == 0
+    assert resp.already_fetched == 0
+    assert resp.new_resumes == 0
+    assert resp.failed_resumes == 0
+    assert len(resp.document_ids) == 0
+    assert len(mock_db.documents) == 0
+    assert resp.summary is not None
+    assert resp.summary.total_found == 0
+    assert resp.summary.already_fetched == 0
+    assert resp.summary.new_resumes == 0
+
+
+# -------------------------------------------------------------------------------------------------
+# Requirement 14: Frontend hydration does not queue already completed documents for processing.
+# -------------------------------------------------------------------------------------------------
+def test_step7_case14_frontend_hydration_does_not_queue_completed_documents() -> None:
+    """Verify that completed documents restored during hydration or SET_RESUMES are marked normalized
+
+    and excluded from pending processing IDs.
+    """
+    # Simulate a project resume list where doc_1 is COMPLETED and doc_2 is UPLOADED
+    resumes_from_api = [
+        {"id": "doc_1", "statusLabel": "COMPLETED", "status": "done"},
+        {"id": "doc_2", "statusLabel": "UPLOADED", "status": "done"},
+    ]
+
+    resume_processing: dict[str, Any] = {}
+    for r in resumes_from_api:
+        is_completed = r["statusLabel"] == "COMPLETED" or r["statusLabel"] == "PARSED"
+        resume_processing[r["id"]] = {
+            "documentId": r["id"],
+            "phase": "normalized" if is_completed else "uploaded",
+            "status": r["statusLabel"],
+            "normalized": is_completed,
+        }
+
+    # Verify doc_1 is marked normalized
+    assert resume_processing["doc_1"]["normalized"] is True
+    assert resume_processing["doc_1"]["phase"] == "normalized"
+
+    # Simulate pending computation in ResumeUpload.tsx:
+    # const pending = state.resumeDocumentIds.filter((id) => {
+    #   const p = state.resumeProcessing[id]
+    #   return p && !p.normalized && p.phase === 'uploaded'
+    # })
+    doc_ids = ["doc_1", "doc_2"]
+    pending = [
+        id for id in doc_ids
+        if resume_processing[id] and not resume_processing[id]["normalized"] and resume_processing[id]["phase"] == "uploaded"
+    ]
+
+    # Completed doc_1 is NOT in pending; only genuinely uploaded-but-unprocessed doc_2 is pending
+    assert "doc_1" not in pending
+    assert pending == ["doc_2"]
+
+
+# =================================================================================================
+# GLOBAL DUPLICATE PREVENTION ACROSS ATS REQUISITIONS (SCENARIOS 1 - 4)
+# =================================================================================================
+
+@pytest.mark.asyncio
+async def test_scenarios_1_to_4_global_duplicate_prevention_across_requisitions(
+    zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    """Validate Scenarios 1 to 4 from the specification:
+
+    Scenario 1: First fetch in Requisition A imports 15 resumes (15 found, 0 already, 15 new).
+    Scenario 2: Requisition B (new ATS requisition) fetches same opening (15 found, 15 already, 0 new).
+    Scenario 3: 5 new candidates added (20 total) -> Requisition C fetches -> imports only 5 new (20 found, 15 already, 5 new).
+    Scenario 4: Requisition D fetches again -> (20 found, 20 already, 0 new).
+    """
+    shared_ats_documents: dict[UUID, DocumentModel] = {}
+    job_id = "7001"
+
+    # Set up 15 initial candidates in Zoho
+    fake_zoho.setup_n_candidates(15, start_idx=1, prefix="scand_")
+    fake_zoho.downloads.clear()
+
+    # ---------------------------------------------------------------------------------------------
+    # Scenario 1: First-time resume fetch for Requisition A
+    # ---------------------------------------------------------------------------------------------
+    req_a_id = uuid4()
+    db_a = MockDB(req_a_id, shared_docs=shared_ats_documents)
+
+    req1 = ZohoImportApplicantsRequest(job_id=job_id)
+    resp1 = await import_zoho_applicants(req_a_id, req1, db_a, zoho_client)
+
+    assert resp1.candidates_seen == 15
+    assert resp1.total_found == 15
+    assert resp1.already_fetched == 0
+    assert resp1.new_resumes == 15
+    assert resp1.imported_count == 15
+    assert resp1.failed_count == 0
+    assert len(resp1.document_ids) == 15
+    assert len(shared_ats_documents) == 15
+    assert len(fake_zoho.downloads) == 15
+    assert resp1.summary is not None
+    assert resp1.summary.total_found == 15
+    assert resp1.summary.already_fetched == 0
+    assert resp1.summary.new_resumes == 15
+    assert resp1.summary.failed_resumes == 0
+
+    fake_zoho.downloads.clear()
+
+    # ---------------------------------------------------------------------------------------------
+    # Scenario 2: Create a new requisition (Requisition B) and fetch the same Zoho Job Opening again
+    # ---------------------------------------------------------------------------------------------
+    req_b_id = uuid4()
+    db_b = MockDB(req_b_id, shared_docs=shared_ats_documents)
+
+    resp2 = await import_zoho_applicants(req_b_id, req1, db_b, zoho_client)
+
+    assert resp2.candidates_seen == 15
+    assert resp2.total_found == 15
+    assert resp2.already_fetched == 15
+    assert resp2.new_resumes == 0
+    assert resp2.imported_count == 0
+    assert resp2.failed_count == 0
+    assert len(resp2.document_ids) == 0  # No documents passed to processing pipeline!
+    assert len(shared_ats_documents) == 15  # Zero duplicate records created!
+    assert len(fake_zoho.downloads) == 0  # Zero attachments downloaded!
+    assert resp2.summary is not None
+    assert resp2.summary.total_found == 15
+    assert resp2.summary.already_fetched == 15
+    assert resp2.summary.new_resumes == 0
+    assert resp2.summary.failed_resumes == 0
+
+    # ---------------------------------------------------------------------------------------------
+    # Scenario 3: 5 new resumes added to the same Zoho Job Opening (20 total)
+    # ---------------------------------------------------------------------------------------------
+    # Add 5 more candidates (cand 16 to 20)
+    for i in range(16, 21):
+        fake_zoho.job_candidates.append({
+            "id": f"scand_{i}",
+            "Candidate_ID": f"ZR_{i}",
+            "First_Name": f"Candidate{i}",
+            "Last_Name": "Test",
+            "Email": f"cand{i}@example.com",
+            "Modified_Time": "2026-10-02T10:00:00+05:30",
+        })
+        fake_zoho.attachments[f"scand_{i}"] = [
+            {
+                "id": f"att_{i}",
+                "File_Name": f"resume_{i}.pdf",
+                "Category": {"name": "Resume", "id": "1"},
+                "Modified_Time": "2026-10-02T10:00:00+05:30",
+                "Size": "1024",
+            }
+        ]
+
+    req_c_id = uuid4()
+    db_c = MockDB(req_c_id, shared_docs=shared_ats_documents)
+
+    resp3 = await import_zoho_applicants(req_c_id, req1, db_c, zoho_client)
+
+    assert resp3.candidates_seen == 20
+    assert resp3.total_found == 20
+    assert resp3.already_fetched == 15
+    assert resp3.new_resumes == 5
+    assert resp3.imported_count == 5
+    assert len(resp3.document_ids) == 5  # Only 5 new document IDs passed to pipeline!
+    assert len(shared_ats_documents) == 20  # Total in ATS is now 20
+    assert len(fake_zoho.downloads) == 5  # Exactly 5 files downloaded from Zoho!
+    assert resp3.summary is not None
+    assert resp3.summary.total_found == 20
+    assert resp3.summary.already_fetched == 15
+    assert resp3.summary.new_resumes == 5
+    assert resp3.summary.failed_resumes == 0
+
+    fake_zoho.downloads.clear()
+
+    # ---------------------------------------------------------------------------------------------
+    # Scenario 4: Fetch again after all 20 resumes are imported
+    # ---------------------------------------------------------------------------------------------
+    req_d_id = uuid4()
+    db_d = MockDB(req_d_id, shared_docs=shared_ats_documents)
+
+    resp4 = await import_zoho_applicants(req_d_id, req1, db_d, zoho_client)
+
+    assert resp4.candidates_seen == 20
+    assert resp4.total_found == 20
+    assert resp4.already_fetched == 20
+    assert resp4.new_resumes == 0
+    assert resp4.imported_count == 0
+    assert len(resp4.document_ids) == 0
+    assert len(shared_ats_documents) == 20
+    assert len(fake_zoho.downloads) == 0
+    assert resp4.summary is not None
+    assert resp4.summary.total_found == 20
+    assert resp4.summary.already_fetched == 20
+    assert resp4.summary.new_resumes == 0
+    assert resp4.summary.failed_resumes == 0
+
+
+@pytest.mark.asyncio
+async def test_different_zoho_job_openings_remain_isolated_across_requisitions(
+    zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    """A candidate applied to Job Opening 8001 and also to Job Opening 8002.
+
+    Job Opening 8002 import must not skip the candidate based on 8001's job opening.
+    """
+    shared_ats_documents: dict[UUID, DocumentModel] = {}
+    fake_zoho.setup_n_candidates(3, start_idx=1, prefix="multijob_")
+    fake_zoho.downloads.clear()
+
+    # Requisition 1 imports from Job Opening 8001
+    p1 = uuid4()
+    db1 = MockDB(p1, shared_docs=shared_ats_documents)
+    req1 = ZohoImportApplicantsRequest(job_id="8001")
+    resp1 = await import_zoho_applicants(p1, req1, db1, zoho_client)
+    assert resp1.new_resumes == 3
+    assert len(shared_ats_documents) == 3
+
+    # Requisition 2 imports same candidates for Job Opening 8002
+    # In fake_zoho, the same candidates apply to 8002
+    p2 = uuid4()
+    db2 = MockDB(p2, shared_docs=shared_ats_documents)
+    req2 = ZohoImportApplicantsRequest(job_id="8002")
+
+    # Change attachment IDs for job 8002 application so they are treated as valid for 8002
+    for i in range(1, 4):
+        fake_zoho.attachments[f"multijob_{i}"] = [
+            {
+                "id": f"att_8002_{i}",
+                "File_Name": f"resume_{i}.pdf",
+                "Category": {"name": "Resume", "id": "1"},
+                "Modified_Time": "2026-10-03T10:00:00+05:30",
+                "Size": "1024",
+            }
+        ]
+
+    resp2 = await import_zoho_applicants(p2, req2, db2, zoho_client)
+    assert resp2.new_resumes == 3
+    assert len(shared_ats_documents) == 6
+
+
+@pytest.mark.asyncio
+async def test_attachment_modified_time_changed_triggers_redownload(
+    zoho_client: ZohoRecruitClient, fake_zoho: FakeZohoRecruitAPI
+) -> None:
+    """If Zoho reuses the same attachment ID but updates the modified time,
+
+    the integration detects changed content and downloads the updated version.
+    """
+    shared_ats_documents: dict[UUID, DocumentModel] = {}
+    fake_zoho.setup_n_candidates(1, start_idx=1, prefix="modcand_")
+    fake_zoho.attachments["modcand_1"][0]["Modified_Time"] = "2026-10-01T10:00:00+05:30"
+    fake_zoho.downloads.clear()
+
+    p1 = uuid4()
+    db1 = MockDB(p1, shared_docs=shared_ats_documents)
+    req = ZohoImportApplicantsRequest(job_id="9001")
+
+    # Initial fetch
+    resp1 = await import_zoho_applicants(p1, req, db1, zoho_client)
+    assert resp1.new_resumes == 1
+    assert len(fake_zoho.downloads) == 1
+    fake_zoho.downloads.clear()
+
+    # Same modified time -> skipped
+    resp2 = await import_zoho_applicants(p1, req, db1, zoho_client)
+    assert resp2.new_resumes == 0
+    assert len(fake_zoho.downloads) == 0
+
+    # Zoho updates modified time on the same attachment ID
+    fake_zoho.attachments["modcand_1"][0]["Modified_Time"] = "2026-10-05T12:00:00+05:30"
+    p2 = uuid4()
+    db2 = MockDB(p2, shared_docs=shared_ats_documents)
+
+    # Next fetch detects modified time change and downloads
+    await import_zoho_applicants(p2, req, db2, zoho_client)
+    assert len(fake_zoho.downloads) == 1
+

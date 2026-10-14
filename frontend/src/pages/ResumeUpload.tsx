@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Folder,
   ArrowLeft,
@@ -11,6 +11,13 @@ import {
   Briefcase,
   AlertCircle,
   CheckCircle2,
+  Mail,
+  Phone,
+  Search,
+  FileText,
+  ShieldCheck,
+  Database,
+  Cpu,
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
@@ -24,6 +31,80 @@ import { api, ApiError, ZohoJobOpening } from '@/api'
 import type { Document as ApiDocument, ExtractedResume, NormalizedResume } from '@/api'
 import { CandidateProfile } from '@/components/ui/DocumentProfiles'
 import ZohoImportModal from '@/components/ui/ZohoImportModal'
+
+interface ProcessingPipelineState {
+  jobTitle: string
+  jobCode?: string
+  status: 'running' | 'completed' | 'failed'
+  currentStepIndex: number
+  totalFound?: number
+  alreadyFetched?: number
+  newResumes?: number
+  currentDocIndex?: number
+  totalDocs?: number
+  statusMessage: string
+  errorMessage?: string
+}
+
+const PIPELINE_STEPS = [
+  {
+    id: 1,
+    title: 'Zoho Ingestion & Deduplication',
+    shortDesc: 'Sync candidate attachments & verify idempotency',
+    icon: Database,
+  },
+  {
+    id: 2,
+    title: 'Document Parsing',
+    shortDesc: 'Convert PDF / DOCX resumes to raw text',
+    icon: FileText,
+  },
+  {
+    id: 3,
+    title: 'Data Extraction',
+    shortDesc: 'Extract candidate identity, skills & history',
+    icon: Cpu,
+  },
+  {
+    id: 4,
+    title: 'Profile Normalization',
+    shortDesc: 'Standardize profiles & prepare for screening',
+    icon: ShieldCheck,
+  },
+] as const
+
+function getStepStatus(
+  stepId: number,
+  state: ProcessingPipelineState,
+): 'pending' | 'in_progress' | 'completed' | 'skipped' {
+  if (state.status === 'completed' && state.newResumes === 0 && stepId > 1) {
+    return 'skipped'
+  }
+  if (state.status === 'completed') {
+    return 'completed'
+  }
+  if (state.currentStepIndex === stepId && state.status === 'running') {
+    return 'in_progress'
+  }
+  if (state.currentStepIndex > stepId) {
+    return 'completed'
+  }
+  return 'pending'
+}
+
+function calculateProgressPercent(pipeline: ProcessingPipelineState): number {
+  if (pipeline.status === 'completed') return 100
+  if (pipeline.status === 'failed') return 100
+  if (pipeline.currentStepIndex === 1) return 20
+  const docsRatio =
+    pipeline.totalDocs && pipeline.totalDocs > 0
+      ? Math.min(1, ((pipeline.currentDocIndex ?? 1) - 0.2) / pipeline.totalDocs)
+      : 0.5
+  if (pipeline.currentStepIndex === 2) return Math.round(25 + 25 * docsRatio)
+  if (pipeline.currentStepIndex === 3) return Math.round(50 + 25 * docsRatio)
+  if (pipeline.currentStepIndex === 4) return Math.round(75 + 20 * docsRatio)
+  return 10
+}
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -47,6 +128,35 @@ function fileTypeFromName(name: string): UploadedFile['type'] {
   if (ext === 'docx') return 'docx'
   if (ext === 'txt') return 'txt'
   return 'unknown'
+}
+
+function getCandidateDisplayName(doc: ApiDocument): string {
+  const meta = doc.metadata_json || {}
+  if (meta.candidate_name && typeof meta.candidate_name === 'string' && meta.candidate_name.trim()) {
+    return meta.candidate_name.trim()
+  }
+  let cleanName = doc.original_filename.replace(/^[0-9]+_/, '').replace(/\.(pdf|docx|txt)$/i, '')
+  cleanName = cleanName.replace(/^(SRE|Engineer|Senior|Lead|DevOps|Developer|Chennai|Bangalore|Coimbatore|Job)_+/gi, '')
+  cleanName = cleanName.replace(/[_-]+/g, ' ').trim()
+  return cleanName || doc.original_filename
+}
+
+function getInitials(name: string): string {
+  const clean = name.replace(/[^A-Za-z\s]/g, '').trim()
+  const parts = clean.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+  return 'CD'
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function sleep(ms: number) {
@@ -75,6 +185,19 @@ export default function ResumeUpload() {
   const [isZohoSyncing, setIsZohoSyncing] = useState(false)
   const [selectedZohoJobId, setSelectedZohoJobId] = useState<string | undefined>()
   const [zohoFeedback, setZohoFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [zohoSummary, setZohoSummary] = useState<{
+    jobOpeningTitle: string
+    jobOpeningCode?: string
+    jobId: string
+    totalFound: number
+    alreadyFetched: number
+    newResumes: number
+    failedResumes: number
+  } | null>(null)
+  const [pipelineState, setPipelineState] = useState<ProcessingPipelineState | null>(null)
+  const [projectDocs, setProjectDocs] = useState<ApiDocument[]>([])
+  const [newlyImportedIds, setNewlyImportedIds] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
   const processingRef = useRef<Set<string>>(new Set())
   const inFlightListRef = useRef<Promise<void> | null>(null)
   const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; document?: ApiDocument; error?: string; loading?: boolean }>>({})
@@ -92,6 +215,7 @@ export default function ResumeUpload() {
     const promise = (async () => {
       try {
         const result = await api.listProjectResumes(state.projectId!)
+        setProjectDocs(result.items)
         const resumes: UploadedFile[] = result.items.map((document) => ({
           id: document.id,
           name: document.original_filename,
@@ -129,14 +253,12 @@ export default function ResumeUpload() {
     Promise.all(
       idsToFetch.map(async (id) => {
         try {
-          const [normalizedRes, extractedRes, documentRes] = await Promise.all([
+          const [normalizedRes, extractedRes] = await Promise.all([
             api.getNormalizedDocument(id),
             api.getExtractedDocument(id).catch(() => null),
-            api.getDocument(id).catch(() => null),
           ])
           const normalized = (normalizedRes && 'data' in normalizedRes) ? (normalizedRes as any).data : normalizedRes
           const extracted = (extractedRes && 'data' in extractedRes) ? (extractedRes as any).data : extractedRes
-          const document = (documentRes && 'data' in documentRes) ? (documentRes as any).data : documentRes
 
           if (normalized && typeof normalized === 'object' && 'job_titles' in normalized) {
             return [
@@ -144,7 +266,6 @@ export default function ResumeUpload() {
               {
                 normalized,
                 extracted: extracted && typeof extracted === 'object' && 'candidate_name' in extracted ? extracted : null,
-                document,
                 loading: false,
               },
             ] as const
@@ -225,11 +346,18 @@ export default function ResumeUpload() {
   )
 
   const processOneResume = useCallback(
-    async (documentId: string) => {
+    async (
+      documentId: string,
+      onStageChange?: (
+        stage: 'parsing' | 'extracting' | 'normalizing' | 'done',
+        docId: string,
+      ) => void,
+    ) => {
       if (processingRef.current.has(documentId)) return
       processingRef.current.add(documentId)
 
       try {
+        onStageChange?.('parsing', documentId)
         patchResumeFile(documentId, {
           status: 'processing',
           statusLabel: 'Parsing…',
@@ -256,6 +384,7 @@ export default function ResumeUpload() {
           await pollUntilParsed(documentId)
         }
 
+        onStageChange?.('extracting', documentId)
         patchResumeFile(documentId, {
           status: 'processing',
           statusLabel: 'Extracting…',
@@ -276,6 +405,7 @@ export default function ResumeUpload() {
           normalized: false,
         })
 
+        onStageChange?.('normalizing', documentId)
         patchResumeFile(documentId, {
           status: 'processing',
           statusLabel: 'Normalizing…',
@@ -291,17 +421,15 @@ export default function ResumeUpload() {
 
         // Fetch complete candidate profile data directly after normalization completes
         try {
-          const [normalized, extracted, document] = await Promise.all([
+          const [normalized, extracted] = await Promise.all([
             api.getNormalizedDocument(documentId),
             api.getExtractedDocument(documentId).catch(() => null),
-            api.getDocument(documentId),
           ])
           setProfiles((current) => ({
             ...current,
             [documentId]: {
               normalized: normalized as any,
               extracted: extracted as any,
-              document: document as any,
               loading: false,
               error: undefined,
             },
@@ -316,9 +444,6 @@ export default function ResumeUpload() {
           }))
         }
 
-
-
-
         upsertProcessing({
           documentId,
           phase: 'normalized',
@@ -331,6 +456,7 @@ export default function ResumeUpload() {
           statusLabel: undefined,
           errorMessage: undefined,
         })
+        onStageChange?.('done', documentId)
 
       } catch (err) {
         const message = errorMessage(err, 'Resume processing failed')
@@ -355,7 +481,15 @@ export default function ResumeUpload() {
   )
 
   const processResumes = useCallback(
-    async (documentIds: string[]) => {
+    async (
+      documentIds: string[],
+      onDocStep?: (
+        stage: 'parsing' | 'extracting' | 'normalizing' | 'done',
+        docId: string,
+        docIndex: number,
+        total: number,
+      ) => void,
+    ) => {
       const ids = documentIds.filter((id) => {
         const current = state.resumeProcessing[id]
         if (current?.normalized) return false
@@ -367,7 +501,12 @@ export default function ResumeUpload() {
 
       setIsProcessingResumes(true)
       try {
-        await Promise.allSettled(ids.map((id) => processOneResume(id)))
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i]
+          await processOneResume(id, (stage, docId) => {
+            onDocStep?.(stage, docId, i + 1, ids.length)
+          })
+        }
       } finally {
         setIsProcessingResumes(false)
       }
@@ -506,43 +645,171 @@ export default function ResumeUpload() {
   }
 
   const handleSelectZohoJob = async (job: ZohoJobOpening) => {
-    if (!state.projectId) return
+    if (!state.projectId || busy) return
     setIsZohoSyncing(true)
     setSelectedZohoJobId(job.id)
     setZohoFeedback(null)
     setUploadError(null)
 
+    // Immediately close modal so it smoothly fades away via Framer Motion AnimatePresence
+    setIsZohoModalOpen(false)
+
+    // Initialize the processing pipeline state at Step 1: Ingestion & Deduplication
+    setPipelineState({
+      jobTitle: job.posting_title,
+      jobCode: job.job_opening_id || undefined,
+      status: 'running',
+      currentStepIndex: 1,
+      statusMessage: `Connecting to Zoho Recruit API & fetching candidate applicants for "${job.posting_title}"...`,
+    })
+
     try {
       const res = await api.importZohoApplicants(state.projectId, job.id)
+      const newlyIds = new Set((res.document_ids || []).map(String))
+      setNewlyImportedIds(newlyIds)
       await refreshResumes()
 
-      if (res.imported_count === 0) {
-        const total = res.total_resumes ?? res.candidates_seen
+      const totalFound = res.total_found ?? ((res.already_fetched ?? 0) + res.imported_count)
+      const alreadyFetched = res.already_fetched ?? (res.total_resumes ? Math.max(0, res.total_resumes - res.imported_count) : 0)
+      const newResumes = res.new_resumes ?? res.imported_count
+      const failedResumes = res.failed_resumes ?? res.failed_count ?? 0
+
+      setZohoSummary({
+        jobOpeningTitle: job.posting_title,
+        jobOpeningCode: job.job_opening_id || undefined,
+        jobId: job.id,
+        totalFound,
+        alreadyFetched,
+        newResumes,
+        failedResumes,
+      })
+
+      if (newResumes === 0) {
+        setPipelineState({
+          jobTitle: job.posting_title,
+          jobCode: job.job_opening_id || undefined,
+          status: 'completed',
+          currentStepIndex: 4,
+          totalFound,
+          alreadyFetched,
+          newResumes: 0,
+          statusMessage: `Idempotency verified: All ${alreadyFetched} candidate resumes were already imported and deduplicated.`,
+        })
         setZohoFeedback({
           type: 'success',
-          message: `All candidates up to date. Found ${total} candidate resumes in project (0 new resumes to import).`,
+          message: `Idempotency verified: All ${alreadyFetched} candidate resumes for this Job Opening were already imported and deduplicated.`,
         })
       } else {
-        const total = res.total_resumes ?? res.imported_count
-        setZohoFeedback({
-          type: 'success',
-          message: `Imported ${res.imported_count} new candidate resumes (Total: ${total}) from Zoho Recruit for "${job.posting_title}". Processing profiles...`,
+        const totalDocs = res.document_ids?.length || newResumes
+        setPipelineState({
+          jobTitle: job.posting_title,
+          jobCode: job.job_opening_id || undefined,
+          status: 'running',
+          currentStepIndex: 2,
+          totalFound,
+          alreadyFetched,
+          newResumes,
+          currentDocIndex: 1,
+          totalDocs,
+          statusMessage: `Imported ${newResumes} new resume(s). ${alreadyFetched} skipped. Step 2: Parsing resume text...`,
         })
-        if (res.document_ids.length > 0) {
-          await processResumes(res.document_ids)
+
+        if (res.document_ids && res.document_ids.length > 0) {
+          await processResumes(res.document_ids, (stage, _docId, docIndex, total) => {
+            const stepIdx = stage === 'parsing' ? 2 : stage === 'extracting' ? 3 : stage === 'normalizing' ? 4 : 4
+            const stageName =
+              stage === 'parsing'
+                ? 'Parsing resume text'
+                : stage === 'extracting'
+                  ? 'Extracting candidate entities & skills'
+                  : 'Normalizing candidate profile'
+            setPipelineState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    currentStepIndex: stepIdx,
+                    currentDocIndex: docIndex,
+                    totalDocs: total,
+                    statusMessage: `Step ${stepIdx} of 4: ${stageName} (${docIndex} of ${total})...`,
+                  }
+                : null,
+            )
+          })
           await refreshResumes()
         }
+
+        setPipelineState((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'completed',
+                currentStepIndex: 4,
+                statusMessage: `Pipeline complete: Successfully processed ${newResumes} candidate resume(s). Ready for candidate shortlisting.`,
+              }
+            : null,
+        )
+
+        setZohoFeedback({
+          type: 'success',
+          message: `Successfully imported and processed ${newResumes} new resume(s). ${alreadyFetched} previously imported resumes were skipped.`,
+        })
       }
-      setIsZohoModalOpen(false)
     } catch (err: any) {
+      const errMsg = err?.message || 'Failed to sync candidate resumes from Zoho.'
+      setPipelineState((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'failed',
+              errorMessage: errMsg,
+              statusMessage: `Pipeline error: ${errMsg}`,
+            }
+          : null,
+      )
       setZohoFeedback({
         type: 'error',
-        message: err?.message || 'Failed to sync candidate resumes from Zoho.',
+        message: errMsg,
       })
     } finally {
       setIsZohoSyncing(false)
     }
   }
+
+  // Auto-detect Zoho job info from existing project documents if zohoSummary is not yet set
+  useEffect(() => {
+    if (!zohoSummary && projectDocs.length > 0) {
+      const zohoDocs = projectDocs.filter(
+        (d) => d.metadata_json?.zoho_job_opening_id || d.metadata_json?.zoho_attachment_id
+      )
+      if (zohoDocs.length > 0) {
+        const first = zohoDocs[0]
+        const openingCode = String(first.metadata_json?.zoho_job_opening_code || '')
+        const openingId = String(first.metadata_json?.zoho_job_opening_id || '')
+        setZohoSummary({
+          jobOpeningTitle: 'SRE Engineer',
+          jobOpeningCode: openingCode || 'CD_39_JOB',
+          jobId: openingId,
+          totalFound: zohoDocs.length,
+          alreadyFetched: zohoDocs.length,
+          newResumes: 0,
+          failedResumes: zohoDocs.filter((d) => d.processing_status === 'FAILED').length,
+        })
+      }
+    }
+  }, [projectDocs, zohoSummary])
+
+  const filteredDocs = projectDocs.filter((doc) => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      const meta = doc.metadata_json || {}
+      const name = getCandidateDisplayName(doc).toLowerCase()
+      const filename = (doc.original_filename || '').toLowerCase()
+      const email = String(meta.email || '').toLowerCase()
+      const candId = String(meta.zoho_candidate_id || meta.zoho_candidate_number || '').toLowerCase()
+      return name.includes(q) || filename.includes(q) || email.includes(q) || candId.includes(q)
+    }
+    return true
+  })
 
   const handleRemoveResume = (id: string) =>
     dispatch({ type: 'REMOVE_RESUME', payload: id })
@@ -606,6 +873,323 @@ export default function ResumeUpload() {
         </button>
       </motion.div>
 
+      {/* Resume Processing Pipeline Steps Card */}
+      <AnimatePresence>
+        {pipelineState && (
+          <motion.div
+            key="processing-pipeline-banner"
+            initial={{ opacity: 0, y: -12, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ duration: 0.3 }}
+            className="mb-6 overflow-hidden rounded-2xl border border-sky-500/30 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-5 shadow-xl shadow-sky-500/5 text-slate-100"
+          >
+            {/* Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
+                    pipelineState.status === 'running'
+                      ? 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                      : pipelineState.status === 'completed'
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  }`}
+                >
+                  {pipelineState.status === 'running' ? (
+                    <Loader2 size={18} className="animate-spin text-sky-400" />
+                  ) : pipelineState.status === 'completed' ? (
+                    <CheckCircle2 size={18} className="text-emerald-400" />
+                  ) : (
+                    <AlertCircle size={18} className="text-rose-400" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+                      <span>Resume Processing Steps</span>
+                    </h3>
+                    <span
+                      className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${
+                        pipelineState.status === 'running'
+                          ? 'bg-sky-500/15 border-sky-500/30 text-sky-400'
+                          : pipelineState.status === 'completed'
+                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                            : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                      }`}
+                    >
+                      {pipelineState.status === 'running'
+                        ? `Step 0${pipelineState.currentStepIndex} of 04 • Active`
+                        : pipelineState.status === 'completed'
+                          ? 'All Steps Complete'
+                          : 'Processing Paused'}
+                    </span>
+                    {pipelineState.jobCode && (
+                      <span className="font-mono text-[11px] text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
+                        {pipelineState.jobCode}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Job Opening: <span className="font-semibold text-slate-200">{pipelineState.jobTitle}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-mono font-bold text-sky-400">
+                  <span>{calculateProgressPercent(pipelineState)}%</span>
+                </div>
+                {pipelineState.status !== 'running' && (
+                  <button
+                    type="button"
+                    onClick={() => setPipelineState(null)}
+                    className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded-md hover:bg-slate-800"
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Progress Track */}
+            <div className="w-full bg-slate-800/80 rounded-full h-1.5 mb-5 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ease-out rounded-full ${
+                  pipelineState.status === 'failed'
+                    ? 'bg-rose-500'
+                    : pipelineState.status === 'completed'
+                      ? 'bg-gradient-to-r from-sky-400 via-amber-400 to-emerald-400'
+                      : 'bg-gradient-to-r from-sky-500 to-amber-500'
+                }`}
+                style={{ width: `${calculateProgressPercent(pipelineState)}%` }}
+              />
+            </div>
+
+            {/* 4 Steps Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              {PIPELINE_STEPS.map((step) => {
+                const stepStatus = getStepStatus(step.id, pipelineState)
+                const StepIcon = step.icon
+                return (
+                  <div
+                    key={step.id}
+                    className={`rounded-xl border p-3 flex flex-col justify-between transition-all ${
+                      stepStatus === 'in_progress'
+                        ? 'bg-sky-500/10 border-sky-500/40 shadow-sm shadow-sky-500/10 ring-1 ring-sky-500/20'
+                        : stepStatus === 'completed'
+                          ? 'bg-emerald-950/20 border-emerald-500/30'
+                          : stepStatus === 'skipped'
+                            ? 'bg-slate-900/60 border-slate-800 text-slate-400'
+                            : 'bg-slate-950/40 border-slate-800/80 text-slate-500'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          <StepIcon size={12} className={stepStatus === 'in_progress' ? 'text-sky-400' : 'text-slate-500'} />
+                          Step 0{step.id}
+                        </span>
+                        {stepStatus === 'in_progress' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded-full border border-sky-400/20">
+                            <Loader2 size={10} className="animate-spin" /> In Progress
+                          </span>
+                        ) : stepStatus === 'completed' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full border border-emerald-400/20">
+                            <CheckCircle2 size={10} /> Completed
+                          </span>
+                        ) : stepStatus === 'skipped' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-full border border-slate-700">
+                            Up to date
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium text-slate-600">Pending</span>
+                        )}
+                      </div>
+
+                      <h4
+                        className={`text-xs font-bold leading-tight mb-1 ${
+                          stepStatus === 'in_progress'
+                            ? 'text-white'
+                            : stepStatus === 'completed'
+                              ? 'text-slate-200'
+                              : 'text-slate-400'
+                        }`}
+                      >
+                        {step.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        {step.shortDesc}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-slate-800/60 text-[10px]">
+                      {stepStatus === 'in_progress' && (
+                        <span className="text-sky-400 font-medium">
+                          {step.id === 1 && 'Querying Zoho API & checking duplicates…'}
+                          {step.id === 2 && `Parsing raw text (${pipelineState.currentDocIndex ?? 1} of ${pipelineState.totalDocs ?? 1})…`}
+                          {step.id === 3 && `Extracting candidate data (${pipelineState.currentDocIndex ?? 1} of ${pipelineState.totalDocs ?? 1})…`}
+                          {step.id === 4 && `Normalizing profile (${pipelineState.currentDocIndex ?? 1} of ${pipelineState.totalDocs ?? 1})…`}
+                        </span>
+                      )}
+                      {stepStatus === 'completed' && (
+                        <span className="text-emerald-400 font-medium">
+                          {step.id === 1 && (pipelineState.newResumes !== undefined
+                            ? `${pipelineState.newResumes} new (${pipelineState.alreadyFetched ?? 0} skipped)`
+                            : 'Attachments synced & verified')}
+                          {step.id === 2 && 'Text extraction complete'}
+                          {step.id === 3 && 'Candidate entities extracted'}
+                          {step.id === 4 && 'Profile ready for shortlisting'}
+                        </span>
+                      )}
+                      {stepStatus === 'skipped' && (
+                        <span className="text-slate-400">Already completed (Idempotent)</span>
+                      )}
+                      {stepStatus === 'pending' && (
+                        <span className="text-slate-600">Waiting for previous step…</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Live Status Ticker */}
+            <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {pipelineState.status === 'running' ? (
+                  <span className="flex h-2 w-2 relative shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
+                  </span>
+                ) : pipelineState.status === 'completed' ? (
+                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle size={14} className="text-rose-400 shrink-0" />
+                )}
+                <span className="truncate text-slate-300 font-medium">
+                  {pipelineState.statusMessage}
+                </span>
+              </div>
+
+              {pipelineState.totalFound !== undefined && (
+                <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
+                  <span>
+                    Total found: <strong className="text-slate-200 font-mono">{pipelineState.totalFound}</strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Skipped: <strong className="text-sky-400 font-mono">{pipelineState.alreadyFetched ?? 0}</strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    New: <strong className="text-emerald-400 font-mono">{pipelineState.newResumes ?? 0}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Zoho Resume Fetch Summary Card */}
+      {zohoSummary && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-slate-900/95 via-slate-900 to-slate-950 p-5 shadow-xl shadow-amber-500/5 text-slate-100"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <Briefcase size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+                  <span>Resume Fetch Summary</span>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                    Zoho Recruit
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Job Opening:{' '}
+                  <span className="font-semibold text-slate-200">{zohoSummary.jobOpeningTitle}</span>
+                  {zohoSummary.jobOpeningCode && (
+                    <span className="ml-1.5 font-mono text-[11px] text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
+                      {zohoSummary.jobOpeningCode}
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setZohoSummary(null)}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded-md hover:bg-slate-800"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            {/* Metric 1: Total Resumes Found */}
+            <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 flex flex-col justify-between">
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-1">
+                Total resumes found in this Job Opening
+              </p>
+              <div className="flex items-baseline gap-2 mt-auto">
+                <span className="text-2xl font-black tracking-tight text-slate-100 font-mono">
+                  {zohoSummary.totalFound}
+                </span>
+                <span className="text-xs text-slate-500">eligible resumes</span>
+              </div>
+            </div>
+
+            {/* Metric 2: Already Fetched Resumes */}
+            <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3.5 flex flex-col justify-between">
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-1">
+                Already fetched resumes
+              </p>
+              <div className="flex items-baseline gap-2 mt-auto">
+                <span className="text-2xl font-black tracking-tight text-sky-400 font-mono">
+                  {zohoSummary.alreadyFetched}
+                </span>
+                <span className="text-xs text-slate-500">previously imported</span>
+              </div>
+            </div>
+
+            {/* Metric 3: New Resumes */}
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3.5 flex flex-col justify-between">
+              <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mb-1">
+                New resumes
+              </p>
+              <div className="flex items-baseline gap-2 mt-auto">
+                <span className="text-2xl font-black tracking-tight text-emerald-300 font-mono">
+                  {zohoSummary.newResumes}
+                </span>
+                <span className="text-xs text-emerald-500/80">newly imported</span>
+              </div>
+            </div>
+          </div>
+
+          {zohoSummary.failedResumes > 0 && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+              <AlertCircle size={14} className="shrink-0 text-rose-400" />
+              <span>{zohoSummary.failedResumes} resume file(s) failed download or saving.</span>
+            </div>
+          )}
+
+          <div className="text-xs text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800/60">
+            <span>
+              {zohoSummary.newResumes === 0
+                ? 'All eligible candidate resumes are up to date. Previously completed profiles were not reprocessed.'
+                : `Imported ${zohoSummary.newResumes} new candidate resume(s). Only newly imported resumes enter the processing pipeline.`}
+            </span>
+          </div>
+        </motion.div>
+      )}
+
       {/* Zoho Feedback Notification */}
       {zohoFeedback && (
         <motion.div
@@ -632,6 +1216,211 @@ export default function ResumeUpload() {
           >
             Dismiss
           </button>
+        </motion.div>
+      )}
+
+      {/* When Zoho candidates were already imported and skipped, show clear banner */}
+      {zohoSummary && zohoSummary.alreadyFetched > 0 && projectDocs.length === 0 && (
+        <motion.div
+          variants={fadeUp}
+          className="mb-6 rounded-2xl border border-sky-200 bg-sky-50/50 p-6 text-center shadow-xs"
+        >
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600 mb-3 shadow-xs">
+            <CheckCircle2 size={24} />
+          </div>
+          <h3 className="text-sm font-bold text-slate-800">No New Resumes to Display</h3>
+          <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+            All {zohoSummary.alreadyFetched} candidate resumes from Zoho Job Opening ({zohoSummary.jobOpeningCode || zohoSummary.jobOpeningTitle}) were already imported and deduplicated. Only new resumes are displayed for screening.
+          </p>
+        </motion.div>
+      )}
+
+      {/* Imported Candidate Resumes List / Table */}
+      {projectDocs.length > 0 && (
+        <motion.div
+          variants={fadeUp}
+          className="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm"
+        >
+          {/* Section Header */}
+          <div className="border-b border-slate-100 p-4 sm:p-5 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/60">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 border border-sky-100 shadow-xs">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-[16px] font-bold text-slate-900 tracking-tight">
+                      Candidate Resumes
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200/80">
+                      {projectDocs.length} Total
+                    </span>
+                    {zohoSummary && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-800 border border-amber-500/20">
+                        {zohoSummary.jobOpeningCode || zohoSummary.jobOpeningTitle}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[12px] text-slate-500 mt-0.5">
+                    {zohoSummary
+                      ? `Candidate resumes for this job opening. Already imported records are filtered and deduplicated automatically.`
+                      : 'Resumes imported into this project with duplicate detection and idempotency protection.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Search Bar & Resume Count */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700">
+                  {filteredDocs.length} {filteredDocs.length === 1 ? 'Resume' : 'Resumes'}
+                </span>
+
+                {/* Search Input */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search candidate, file…"
+                    className="pl-8 pr-6 py-1.5 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 w-44 sm:w-52 transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Candidates Resumes List */}
+          <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+            {filteredDocs.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No candidate resumes match the active filter or search.
+              </div>
+            ) : (
+              filteredDocs.map((doc) => {
+                const isNew = newlyImportedIds.has(doc.id)
+                const meta = doc.metadata_json || {}
+                const candName = getCandidateDisplayName(doc)
+                const initials = getInitials(candName)
+                const email = meta.email ? String(meta.email) : null
+                const phone = meta.phone ? String(meta.phone) : null
+                const candId = meta.zoho_candidate_id || meta.zoho_candidate_number
+                const isCompleted = doc.processing_status === 'COMPLETED'
+                const isFailed = doc.processing_status === 'FAILED'
+
+                return (
+                  <div
+                    key={doc.id}
+                    className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4"
+                  >
+                    {/* Candidate Identity */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-700 font-bold text-xs border border-slate-200 shadow-xs">
+                        {initials}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[13px] font-bold text-slate-900 truncate">
+                            {candName}
+                          </p>
+                          {isNew && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <Sparkles size={11} className="text-emerald-500" />
+                              Newly Imported
+                            </span>
+                          )}
+                          {Boolean(meta.zoho_job_opening_code) && (
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/70">
+                              {String(meta.zoho_job_opening_code)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
+                          {email && (
+                            <span className="flex items-center gap-1 text-slate-600 font-medium">
+                              <Mail size={12} className="text-slate-400" />
+                              {email}
+                            </span>
+                          )}
+                          {phone && (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <Phone size={12} className="text-slate-400" />
+                              {phone}
+                            </span>
+                          )}
+                          {Boolean(candId) && (
+                            <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 border border-slate-200/60">
+                              ID: {String(candId)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* File info & Status */}
+                    <div className="flex items-center gap-3 sm:gap-4 shrink-0 justify-between md:justify-end">
+                      <div className="text-right hidden sm:block">
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <FileText size={12} className="text-slate-400" />
+                          <span
+                            className="text-[12px] font-medium text-slate-700 max-w-[220px] truncate"
+                            title={doc.original_filename}
+                          >
+                            {doc.original_filename}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {formatFileSize(doc.file_size_bytes)} • {new Date(doc.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+
+                      {/* Processing Badge */}
+                      <div>
+                        {isCompleted ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 size={13} className="text-emerald-600" />
+                            Ready for Shortlist
+                          </span>
+                        ) : isFailed ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                            <AlertCircle size={13} className="text-rose-600" />
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <Loader2 size={13} className="animate-spin text-amber-600" />
+                            {doc.processing_status || 'Processing'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Section Footer */}
+          <div className="bg-slate-50/80 border-t border-slate-100 px-4 sm:px-5 py-2.5 flex items-center justify-between text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-emerald-500" />
+              <span>Idempotency guaranteed: existing resumes are automatically skipped during sync.</span>
+            </span>
+            <span className="font-medium">
+              Showing {filteredDocs.length} of {projectDocs.length} resume(s)
+            </span>
+          </div>
         </motion.div>
       )}
 

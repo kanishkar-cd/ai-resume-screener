@@ -37,9 +37,11 @@ def document_record() -> SimpleNamespace:
         file_hash="a" * 64,
         processing_stage=ProcessingStageEnum.UPLOAD,
         processing_status=ProcessingStatusEnum.UPLOADED,
+        error_message=None,
         metadata_json={},
         created_at=now,
         updated_at=now,
+        deleted_at=None,
     )
 
 
@@ -92,11 +94,34 @@ async def test_upload_requires_active_project() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_document_success() -> None:
+    service, repository, projects, _ = service_fixture()
+    record = document_record()
+    repository.get_document.return_value = record
+
+    result = await service.get_document(record.id)
+
+    assert result.id == record.id
+    assert result.original_filename == "resume.pdf"
+    assert result.processing_status.value == "UPLOADED"
+    repository.get_document.assert_awaited_once_with(record.id)
+    # Verifies standalone document GET does not depend on project status
+    projects.get_by_id.assert_not_called()
+    repository.session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_missing_and_deleted_document_returns_not_found() -> None:
     service, repository, _, _ = service_fixture()
     repository.get_document.return_value = None
     with pytest.raises(DocumentNotFoundException):
         await service.get_document(uuid4())
+
+    deleted_record = document_record()
+    deleted_record.deleted_at = datetime.now(UTC)
+    repository.get_document.return_value = deleted_record
+    with pytest.raises(DocumentNotFoundException):
+        await service.get_document(deleted_record.id)
 
 
 @pytest.mark.asyncio

@@ -816,6 +816,13 @@ export interface ZohoJobOpeningListResponse {
   total: number
 }
 
+export interface ZohoFetchSummary {
+  total_found: number
+  already_fetched: number
+  new_resumes: number
+  failed_resumes?: number
+}
+
 export interface ZohoImportApplicantsResponse {
   project_id: string
   job_id: string
@@ -826,5 +833,10 @@ export interface ZohoImportApplicantsResponse {
   failed_count?: number
   document_ids: string[]
   skipped: Array<{ candidate_id: string; reason: string; attachment_id?: string }>
+  total_found: number
+  already_fetched: number
+  new_resumes: number
+  failed_resumes?: number
+  summary?: ZohoFetchSummary
 }
 

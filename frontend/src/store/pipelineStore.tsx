@@ -393,7 +393,10 @@ function reducer(state: PipelineState, action: Action): PipelineState {
       const ids = action.payload.map((resume) => resume.id)
       const nextProcessing = { ...state.resumeProcessing }
       for (const resume of action.payload) {
-        const isCompleted = resume.statusLabel === 'COMPLETED'
+        const isCompleted =
+          resume.statusLabel === 'COMPLETED' ||
+          resume.statusLabel === 'PARSED' ||
+          nextProcessing[resume.id]?.normalized === true
         if (!nextProcessing[resume.id]) {
           nextProcessing[resume.id] = {
             documentId: resume.id,

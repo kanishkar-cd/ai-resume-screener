@@ -44,6 +44,13 @@ class ZohoImportApplicantsRequest(BaseModel):
     auto_process: bool = Field(default=False, description="Whether to run parsing, extraction, and normalization on imported resumes")
 
 
+class ZohoFetchSummary(BaseModel):
+    total_found: int = Field(..., description="Total eligible resumes currently found in Zoho for the selected Job Opening.")
+    already_fetched: int = Field(..., description="Number of those resumes that had already been imported for this Job Opening before the current fetch began.")
+    new_resumes: int = Field(..., description="Number of previously unimported resumes successfully imported during this fetch.")
+    failed_resumes: int = Field(default=0, description="Number of eligible resumes that failed to import during this fetch.")
+
+
 class ZohoImportApplicantsResponse(BaseModel):
     project_id: UUID
     job_id: str
@@ -54,3 +61,8 @@ class ZohoImportApplicantsResponse(BaseModel):
     failed_count: int = 0
     document_ids: list[UUID]
     skipped: list[dict[str, str]] = Field(default_factory=list)
+    total_found: int = 0
+    already_fetched: int = 0
+    new_resumes: int = 0
+    failed_resumes: int = 0
+    summary: ZohoFetchSummary | None = None

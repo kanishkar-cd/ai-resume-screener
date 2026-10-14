@@ -140,6 +140,9 @@ class ZohoJobWithResumes:
     resumes: list[ZohoCandidateResume] = field(default_factory=list)
     skipped: list[dict[str, str]] = field(default_factory=list)  # candidate_id + reason
     candidates_seen: int = 0
+    total_found: int = 0
+    already_fetched: int = 0
+    failed_downloads: int = 0
 
 
 _SHARED_ACCESS_TOKENS: dict[str, str] = {}
@@ -548,11 +551,22 @@ class ZohoRecruitClient:
 
             # Check if this exact attachment ID has already been successfully imported
             if existing_attachment_ids and str(attachment.id) in existing_attachment_ids:
-                return None, {
-                    "candidate_id": candidate_id,
-                    "attachment_id": str(attachment.id),
-                    "reason": "already imported",
-                }
+                stored_mod = existing_attachment_ids.get(str(attachment.id)) if isinstance(existing_attachment_ids, dict) else None
+                # If attachment has a different modified time than stored, re-download to inspect changed content
+                if stored_mod and attachment.modified_time and attachment.modified_time != stored_mod:
+                    logger.info(
+                        "zoho_attachment_modified_time_changed",
+                        candidate_id=candidate_id,
+                        attachment_id=str(attachment.id),
+                        old_modified=stored_mod,
+                        new_modified=attachment.modified_time,
+                    )
+                else:
+                    return None, {
+                        "candidate_id": candidate_id,
+                        "attachment_id": str(attachment.id),
+                        "reason": "already imported",
+                    }
 
             content, content_type, header_name = await self.download_attachment(candidate_id, attachment.id)
         except ZohoRecruitException as exc:
@@ -642,14 +656,33 @@ class ZohoRecruitClient:
         job_opening = await self.get_job_opening(job_id)
         result = ZohoJobWithResumes(job_opening=job_opening)
 
-        candidates: list[dict[str, Any]] = []
+        raw_candidates: list[dict[str, Any]] = []
         async for record in self.iter_candidates_for_job(job_id):
-            candidates.append(record)
-            if limit is not None and len(candidates) >= limit:
+            raw_candidates.append(record)
+            if limit is not None and len(raw_candidates) >= limit:
                 break
-        result.candidates_seen = len(candidates)
+        result.candidates_seen = len(raw_candidates)
+
+        # Deduplicate external candidate records in response to avoid double-counting
+        seen_cand_ids: set[str] = set()
+        candidates: list[dict[str, Any]] = []
+        for r in raw_candidates:
+            cand_obj = r.get("Candidate") or r.get("candidate")
+            c_id = str(
+                (cand_obj.get("id") if isinstance(cand_obj, dict) else None)
+                or r.get("candidate_id")
+                or r.get("id")
+                or r.get("Candidate_ID")
+                or ""
+            )
+            if c_id:
+                if c_id in seen_cand_ids:
+                    continue
+                seen_cand_ids.add(c_id)
+            candidates.append(r)
 
         semaphore = asyncio.Semaphore(self.settings.ZOHO_DOWNLOAD_CONCURRENCY)
+        lock = asyncio.Lock()
 
         async def worker(record: dict[str, Any]) -> None:
             async with semaphore:
@@ -658,10 +691,20 @@ class ZohoRecruitClient:
                     existing_attachment_ids=existing_attachment_ids,
                     existing_candidates=existing_candidates,
                 )
-                if skip_reason:
-                    result.skipped.append(skip_reason)
-                elif resume:
-                    result.resumes.append(resume)
+                async with lock:
+                    if skip_reason:
+                        result.skipped.append(skip_reason)
+                        reason = skip_reason.get("reason", "")
+                        if reason == "already imported":
+                            result.already_fetched += 1
+                            result.total_found += 1
+                        elif reason not in ("no PDF/DOCX resume attached", "No candidate ID found in record"):
+                            result.failed_downloads += 1
+                            result.total_found += 1
+                        # Note: candidates with "no PDF/DOCX resume attached" are excluded from eligible resume counts
+                    elif resume:
+                        result.resumes.append(resume)
+                        result.total_found += 1
 
         await asyncio.gather(*(worker(record) for record in candidates))
         result.resumes.sort(key=lambda item: item.modified_time or "")
@@ -670,7 +713,10 @@ class ZohoRecruitClient:
             job_id=job_id,
             posting_title=job_opening.posting_title,
             candidates_seen=result.candidates_seen,
-            resumes=len(result.resumes),
+            total_found=result.total_found,
+            already_fetched=result.already_fetched,
+            new_resumes=len(result.resumes),
+            failed_downloads=result.failed_downloads,
             skipped=len(result.skipped),
         )
         return result
