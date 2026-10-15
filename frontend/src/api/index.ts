@@ -31,6 +31,8 @@ import type {
   ProjectScoring,
   RankingComputation,
   RankingsQuery,
+  ResumeRetryRead,
+  ResumeRetryResponse,
   WeightConfig,
   WeightConfigCreate,
   WeightConfigUpdate,
@@ -102,6 +104,18 @@ export const api = {
 
   listProjectResumes(projectId: string): Promise<DocumentList> {
     return apiRequest<DocumentList>(`/projects/${projectId}/resumes`, {}, { page_size: 100 })
+  },
+
+  deleteResume(projectId: string, documentId: string): Promise<void> {
+    return apiRequest<void>(`/projects/${projectId}/resumes/${documentId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  retryResume(projectId: string, documentId: string): Promise<ResumeRetryRead> {
+    return apiRequest<ResumeRetryRead>(`/projects/${projectId}/resumes/${documentId}/retry`, {
+      method: 'POST',
+    })
   },
 
   /** GET /documents/{document_id} — used to poll processing_status after parse. */

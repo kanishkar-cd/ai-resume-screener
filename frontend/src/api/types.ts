@@ -840,3 +840,14 @@ export interface ZohoImportApplicantsResponse {
   summary?: ZohoFetchSummary
 }
 
+export interface ResumeRetryRead {
+  document_id: string
+  project_id: string
+  filename: string
+  processing_stage: ProcessingStage
+  processing_status: ProcessingStatus
+  message: string
+}
+
+export type ResumeRetryResponse = ApiDataEnvelope<ResumeRetryRead>
+

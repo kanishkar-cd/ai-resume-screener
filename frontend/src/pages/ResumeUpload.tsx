@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Database,
   Cpu,
+  Trash2,
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
 import { usePipeline } from '@/store/pipelineStore'
@@ -197,7 +198,6 @@ export default function ResumeUpload() {
   const [pipelineState, setPipelineState] = useState<ProcessingPipelineState | null>(null)
   const [projectDocs, setProjectDocs] = useState<ApiDocument[]>([])
   const [newlyImportedIds, setNewlyImportedIds] = useState<Set<string>>(new Set())
-  const [searchQuery, setSearchQuery] = useState('')
   const processingRef = useRef<Set<string>>(new Set())
   const inFlightListRef = useRef<Promise<void> | null>(null)
   const [profiles, setProfiles] = useState<Record<string, { normalized?: NormalizedResume; extracted?: ExtractedResume | null; document?: ApiDocument; error?: string; loading?: boolean }>>({})
@@ -207,7 +207,11 @@ export default function ResumeUpload() {
     (id) => state.resumeProcessing[id]?.normalized,
   ).length
   const failedCount = state.upload.resumes.filter((r: UploadedFile) => r.status === 'error').length
-  const busy = isUploading || isProcessingResumes || isZohoSyncing
+  const [deletingResumeIds, setDeletingResumeIds] = useState<Set<string>>(new Set())
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [retryingResumeIds, setRetryingResumeIds] = useState<Set<string>>(new Set())
+  const [retryFeedback, setRetryFeedback] = useState<{ id: string; type: 'success' | 'error'; message: string } | null>(null)
+  const busy = isUploading || isProcessingResumes || isZohoSyncing || deletingResumeIds.size > 0 || retryingResumeIds.size > 0
 
   const refreshResumes = useCallback(async () => {
     if (!state.projectId) return
@@ -798,21 +802,157 @@ export default function ResumeUpload() {
     }
   }, [projectDocs, zohoSummary])
 
-  const filteredDocs = projectDocs.filter((doc) => {
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      const meta = doc.metadata_json || {}
-      const name = getCandidateDisplayName(doc).toLowerCase()
-      const filename = (doc.original_filename || '').toLowerCase()
-      const email = String(meta.email || '').toLowerCase()
-      const candId = String(meta.zoho_candidate_id || meta.zoho_candidate_number || '').toLowerCase()
-      return name.includes(q) || filename.includes(q) || email.includes(q) || candId.includes(q)
+  const handleRemoveResume = async (id: string) => {
+    if (deletingResumeIds.has(id)) return
+    const projectId = state.projectId
+    if (!projectId) {
+      setDeleteError('No active project found.')
+      return
     }
-    return true
-  })
 
-  const handleRemoveResume = (id: string) =>
-    dispatch({ type: 'REMOVE_RESUME', payload: id })
+    // Check if the item has been persisted to the backend
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    const isPersisted = isUuid || projectDocs.some((d) => d.id === id)
+
+    // For transient frontend-only items (e.g. pending-resume-* or client failed items), remove immediately from local state
+    if (!isPersisted) {
+      dispatch({ type: 'REMOVE_RESUME', payload: id })
+      return
+    }
+
+    setDeletingResumeIds((prev) => new Set(prev).add(id))
+    setDeleteError(null)
+
+    try {
+      // Call backend DELETE endpoint
+      await api.deleteResume(projectId, id)
+
+      // Update local state ONLY after successful API deletion
+      dispatch({ type: 'REMOVE_RESUME', payload: id })
+      setProjectDocs((prev) => prev.filter((doc) => doc.id !== id))
+      setProfiles((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to delete resume.'
+      setDeleteError(`Could not remove resume: ${msg}`)
+    } finally {
+      setDeletingResumeIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  const handleRetryResume = async (id: string) => {
+    if (retryingResumeIds.has(id) || deletingResumeIds.has(id)) return
+    const projectId = state.projectId
+    if (!projectId) {
+      setUploadError('No active project found.')
+      return
+    }
+
+    setRetryingResumeIds((prev) => new Set(prev).add(id))
+    setRetryFeedback(null)
+
+    // Mark status in local state as in-progress
+    upsertProcessing({
+      documentId: id,
+      phase: 'parsing',
+      status: 'IN_PROGRESS',
+      stage: 'PARSING',
+      normalized: false,
+      errorMessage: undefined,
+    })
+    patchResumeFile(id, {
+      status: 'processing',
+      statusLabel: 'IN_PROGRESS',
+      errorMessage: undefined,
+    })
+
+    try {
+      const res = await api.retryResume(projectId, id)
+
+      // On successful retry completion
+      upsertProcessing({
+        documentId: id,
+        phase: 'normalized',
+        status: res.processing_status || 'COMPLETED',
+        stage: res.processing_stage || 'COMPLETED',
+        normalized: true,
+        errorMessage: undefined,
+      })
+      patchResumeFile(id, {
+        status: 'done',
+        statusLabel: res.processing_status || 'COMPLETED',
+        errorMessage: undefined,
+      })
+
+      // Fetch normalized candidate profile so it displays in candidate profiles list
+      try {
+        const [normalizedRes, extractedRes] = await Promise.all([
+          api.getNormalizedDocument(id),
+          api.getExtractedDocument(id).catch(() => null),
+        ])
+        const normalized = (normalizedRes && 'data' in normalizedRes) ? (normalizedRes as any).data : normalizedRes
+        const extracted = (extractedRes && 'data' in extractedRes) ? (extractedRes as any).data : extractedRes
+
+        if (normalized && typeof normalized === 'object' && 'job_titles' in normalized) {
+          setProfiles((prev) => ({
+            ...prev,
+            [id]: {
+              normalized,
+              extracted: extracted && typeof extracted === 'object' && 'candidate_name' in extracted ? extracted : null,
+              loading: false,
+            },
+          }))
+        }
+      } catch {
+        // Fallback handled by profiles useEffect
+      }
+
+      setRetryFeedback({
+        id,
+        type: 'success',
+        message: `Resume "${res.filename || 'Candidate'}" retried and processed successfully.`,
+      })
+      await refreshResumes()
+    } catch (err) {
+      const msg = errorMessage(err, 'Resume retry failed')
+      upsertProcessing({
+        documentId: id,
+        phase: 'failed',
+        status: 'FAILED',
+        stage: 'FAILED',
+        normalized: false,
+        errorMessage: msg,
+      })
+      patchResumeFile(id, {
+        status: 'error',
+        statusLabel: 'FAILED',
+        errorMessage: msg,
+      })
+      setRetryFeedback({
+        id,
+        type: 'error',
+        message: `Retry failed: ${msg}`,
+      })
+    } finally {
+      setRetryingResumeIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
 
   const [isPreparingShortlist, setIsPreparingShortlist] = useState(false)
 
@@ -1235,194 +1375,7 @@ export default function ResumeUpload() {
         </motion.div>
       )}
 
-      {/* Imported Candidate Resumes List / Table */}
-      {projectDocs.length > 0 && (
-        <motion.div
-          variants={fadeUp}
-          className="mb-6 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm"
-        >
-          {/* Section Header */}
-          <div className="border-b border-slate-100 p-4 sm:p-5 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/60">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 border border-sky-100 shadow-xs">
-                  <Users size={20} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-[16px] font-bold text-slate-900 tracking-tight">
-                      Candidate Resumes
-                    </h2>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200/80">
-                      {projectDocs.length} Total
-                    </span>
-                    {zohoSummary && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-800 border border-amber-500/20">
-                        {zohoSummary.jobOpeningCode || zohoSummary.jobOpeningTitle}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-slate-500 mt-0.5">
-                    {zohoSummary
-                      ? `Candidate resumes for this job opening. Already imported records are filtered and deduplicated automatically.`
-                      : 'Resumes imported into this project with duplicate detection and idempotency protection.'}
-                  </p>
-                </div>
-              </div>
 
-              {/* Search Bar & Resume Count */}
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700">
-                  {filteredDocs.length} {filteredDocs.length === 1 ? 'Resume' : 'Resumes'}
-                </span>
-
-                {/* Search Input */}
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search candidate, file…"
-                    className="pl-8 pr-6 py-1.5 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 w-44 sm:w-52 transition-all"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Candidates Resumes List */}
-          <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
-            {filteredDocs.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                No candidate resumes match the active filter or search.
-              </div>
-            ) : (
-              filteredDocs.map((doc) => {
-                const isNew = newlyImportedIds.has(doc.id)
-                const meta = doc.metadata_json || {}
-                const candName = getCandidateDisplayName(doc)
-                const initials = getInitials(candName)
-                const email = meta.email ? String(meta.email) : null
-                const phone = meta.phone ? String(meta.phone) : null
-                const candId = meta.zoho_candidate_id || meta.zoho_candidate_number
-                const isCompleted = doc.processing_status === 'COMPLETED'
-                const isFailed = doc.processing_status === 'FAILED'
-
-                return (
-                  <div
-                    key={doc.id}
-                    className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4"
-                  >
-                    {/* Candidate Identity */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-700 font-bold text-xs border border-slate-200 shadow-xs">
-                        {initials}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-[13px] font-bold text-slate-900 truncate">
-                            {candName}
-                          </p>
-                          {isNew && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <Sparkles size={11} className="text-emerald-500" />
-                              Newly Imported
-                            </span>
-                          )}
-                          {Boolean(meta.zoho_job_opening_code) && (
-                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/70">
-                              {String(meta.zoho_job_opening_code)}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
-                          {email && (
-                            <span className="flex items-center gap-1 text-slate-600 font-medium">
-                              <Mail size={12} className="text-slate-400" />
-                              {email}
-                            </span>
-                          )}
-                          {phone && (
-                            <span className="flex items-center gap-1 text-slate-500">
-                              <Phone size={12} className="text-slate-400" />
-                              {phone}
-                            </span>
-                          )}
-                          {Boolean(candId) && (
-                            <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 border border-slate-200/60">
-                              ID: {String(candId)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* File info & Status */}
-                    <div className="flex items-center gap-3 sm:gap-4 shrink-0 justify-between md:justify-end">
-                      <div className="text-right hidden sm:block">
-                        <div className="flex items-center gap-1.5 justify-end">
-                          <FileText size={12} className="text-slate-400" />
-                          <span
-                            className="text-[12px] font-medium text-slate-700 max-w-[220px] truncate"
-                            title={doc.original_filename}
-                          >
-                            {doc.original_filename}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          {formatFileSize(doc.file_size_bytes)} • {new Date(doc.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-
-                      {/* Processing Badge */}
-                      <div>
-                        {isCompleted ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 size={13} className="text-emerald-600" />
-                            Ready for Shortlist
-                          </span>
-                        ) : isFailed ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                            <AlertCircle size={13} className="text-rose-600" />
-                            Failed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            <Loader2 size={13} className="animate-spin text-amber-600" />
-                            {doc.processing_status || 'Processing'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-
-          {/* Section Footer */}
-          <div className="bg-slate-50/80 border-t border-slate-100 px-4 sm:px-5 py-2.5 flex items-center justify-between text-[11px] text-slate-500">
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck size={14} className="text-emerald-500" />
-              <span>Idempotency guaranteed: existing resumes are automatically skipped during sync.</span>
-            </span>
-            <span className="font-medium">
-              Showing {filteredDocs.length} of {projectDocs.length} resume(s)
-            </span>
-          </div>
-        </motion.div>
-      )}
 
       {/* Info Strip */}
       <motion.div
@@ -1474,10 +1427,38 @@ export default function ResumeUpload() {
           directory={true}
           files={state.upload.resumes}
           resumeProcessing={state.resumeProcessing}
+          deletingIds={deletingResumeIds}
+          retryingIds={retryingResumeIds}
           onSelectFiles={handleResumeSelect}
           onRemove={handleRemoveResume}
+          onRetry={handleRetryResume}
           disabled={busy}
         />
+        {retryFeedback && (
+          <div
+            className={`mt-2.5 p-3 rounded-xl border flex items-center justify-between text-xs font-medium ${
+              retryFeedback.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {retryFeedback.type === 'success' ? (
+                <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle size={15} className="text-rose-600 shrink-0" />
+              )}
+              <span>{retryFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRetryFeedback(null)}
+              className="text-[11px] underline opacity-70 hover:opacity-100 ml-2 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {isUploading && (
           <p className="mt-2 text-[12px] text-sky-600 text-center font-medium">
             Uploading resumes…
@@ -1485,6 +1466,9 @@ export default function ResumeUpload() {
         )}
         {uploadError && (
           <p className="mt-2 text-[12px] text-red-500 text-center">{uploadError}</p>
+        )}
+        {deleteError && (
+          <p className="mt-2 text-[12px] text-red-500 text-center font-medium">{deleteError}</p>
         )}
         {listError && (
           <p className="mt-2 text-[12px] text-red-500 text-center">{listError}</p>

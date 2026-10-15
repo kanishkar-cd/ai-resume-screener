@@ -1,6 +1,6 @@
 import { useCallback, useState, useRef, ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, X, FileText, CheckCircle2, Loader2 } from 'lucide-react'
+import { Upload, X, FileText, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
 import { UploadedFile, ResumeProcessingState } from '@/types'
 
 interface UploadCardProps {
@@ -14,11 +14,17 @@ interface UploadCardProps {
   files: UploadedFile[]
   /** Optional per-resume processing map for inline progress tracking */
   resumeProcessing?: Record<string, ResumeProcessingState>
+  /** Optional set of resume IDs currently being deleted */
+  deletingIds?: Set<string>
+  /** Optional set of resume IDs currently being retried */
+  retryingIds?: Set<string>
   /** Local/fake upload path (used by resume flow). Ignored when onSelectFiles is set. */
   onUpload?: (files: UploadedFile[]) => void
   /** Raw File selection — parent owns API upload (JD flow). */
   onSelectFiles?: (files: File[]) => void
   onRemove: (id: string) => void
+  /** Optional callback to retry processing for a failed resume */
+  onRetry?: (id: string) => void
   disabled?: boolean
 }
 
@@ -56,9 +62,12 @@ export default function UploadCard({
   color = 'blue',
   files,
   resumeProcessing,
+  deletingIds,
+  retryingIds,
   onUpload,
   onSelectFiles,
   onRemove,
+  onRetry,
   disabled = false,
 }: UploadCardProps) {
   const [isDragging, setIsDragging] = useState(false)
@@ -263,18 +272,49 @@ export default function UploadCard({
                           {file.errorMessage || proc?.errorMessage || 'Failed'}
                         </span>
                       )}
+                      {isFailed && onRetry && (
+                        retryingIds?.has(file.id) ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 shrink-0"
+                            title="Retrying resume…"
+                          >
+                            <Loader2 size={11} className="animate-spin text-sky-600" />
+                            <span>Retrying…</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onRetry(file.id)
+                            }}
+                            disabled={disabled || deletingIds?.has(file.id) || retryingIds?.has(file.id)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors disabled:opacity-40 cursor-pointer shrink-0"
+                            title="Retry parsing, extraction, and normalization for this resume"
+                          >
+                            <RotateCcw size={11} className="text-amber-600" />
+                            <span>Retry</span>
+                          </button>
+                        )
+                      )}
                       <span className="text-[11px] text-slate-400 font-mono shrink-0">
                         {formatSize(file.size)}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => onRemove(file.id)}
-                        disabled={disabled || file.status === 'uploading'}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-500 ml-1 p-1 rounded-md hover:bg-red-50 disabled:opacity-30 cursor-pointer shrink-0"
-                        title="Remove file"
-                      >
-                        <X size={13} />
-                      </button>
+                      {deletingIds?.has(file.id) ? (
+                        <span className="ml-1 p-1 flex items-center text-red-500 shrink-0" title="Removing resume…">
+                          <Loader2 size={13} className="animate-spin" />
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onRemove(file.id)}
+                          disabled={disabled || file.status === 'uploading' || deletingIds?.has(file.id) || retryingIds?.has(file.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-500 ml-1 p-1 rounded-md hover:bg-red-50 disabled:opacity-30 cursor-pointer shrink-0"
+                          title="Remove file"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
                     </div>
 
                     {/* Inline 3-Step processing status while in-progress */}

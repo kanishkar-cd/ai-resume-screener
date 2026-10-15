@@ -1,4 +1,5 @@
 import asyncio
+import enum
 import inspect
 from typing import Any
 from uuid import UUID
@@ -45,6 +46,12 @@ class NormalizedResumeMissingException(AppException):
     status_code = 400
     error_code = "NORMALIZED_RESUME_MISSING"
     default_message = "The resume must be normalized before scoring."
+
+
+class NoEligibleResumesException(AppException):
+    status_code = 400
+    error_code = "NO_ELIGIBLE_RESUMES"
+    default_message = "No eligible normalized resumes available for scoring."
 
 
 class DocumentProjectMismatchException(AppException):
@@ -118,6 +125,28 @@ class ScoringEngineFacade:
 
         norm_map = {n.document_id: n for n in norm_models}
         ext_map = {e.document_id: e for e in ext_models}
+
+        def _is_eligible(doc: Any) -> bool:
+            status = getattr(doc, "processing_status", None)
+            if isinstance(status, (str, enum.Enum)) or (hasattr(status, "value") and isinstance(status.value, str)):
+                status_val = status.value if hasattr(status, "value") else str(status)
+                if status_val.upper() == "FAILED":
+                    return False
+            stage = getattr(doc, "processing_stage", None)
+            if isinstance(stage, (str, enum.Enum)) or (hasattr(stage, "value") and isinstance(stage.value, str)):
+                stage_val = stage.value if hasattr(stage, "value") else str(stage)
+                if stage_val.upper() == "FAILED":
+                    return False
+            return norm_map.get(doc.id) is not None and ext_map.get(doc.id) is not None
+
+        eligible_resumes = [doc for doc in resumes if _is_eligible(doc)]
+        if not eligible_resumes:
+            logger.warning(
+                "no_eligible_resumes_for_scoring",
+                project_id=str(project_id),
+                total_resumes=len(resumes),
+            )
+            raise NoEligibleResumesException()
 
         # Safely end outer read transaction before entering long-running concurrent scoring
         outer_session = getattr(self.documents, "session", None) or getattr(self.scores, "session", None)
@@ -293,13 +322,38 @@ class ScoringEngineFacade:
                         )
                     raise
 
-        results = list(await asyncio.gather(*[_scored_task(doc) for doc in resumes]))
+        raw_results = await asyncio.gather(
+            *[_scored_task(doc) for doc in eligible_resumes],
+            return_exceptions=True,
+        )
+
+        scores: list[CandidateScoreRead] = []
+        for doc, res in zip(eligible_resumes, raw_results):
+            if isinstance(res, Exception):
+                logger.error(
+                    "candidate_scoring_task_failed",
+                    project_id=str(project_id),
+                    document_id=str(getattr(doc, "id", None)),
+                    error=str(res),
+                    error_type=type(res).__name__,
+                )
+            else:
+                scores.append(res)
+
+        if not scores:
+            logger.error("all_eligible_candidates_failed_scoring", project_id=str(project_id))
+            first_exc = next((r for r in raw_results if isinstance(r, Exception)), None)
+            if isinstance(first_exc, AppException):
+                raise first_exc
+            raise ScoringFailedException() from first_exc
+
         logger.info(
             "[SCORE] scoring completed",
             project_id=str(project_id),
-            candidate_count=len(results),
+            candidate_count=len(scores),
+            failed_count=len(eligible_resumes) - len(scores),
         )
-        return ProjectScoringRead(project_id=project_id, total_evaluated=len(results), scores=results)
+        return ProjectScoringRead(project_id=project_id, total_evaluated=len(scores), scores=scores)
 
     async def score_document(self, project_id: UUID, document_id: UUID) -> CandidateScoreRead:
         job = await self._load_project_context(project_id)

@@ -160,3 +160,18 @@ class JobDescriptionProcessRead(BaseModel):
 
 class JobDescriptionProcessResponse(BaseModel):
     data: JobDescriptionProcessRead
+
+
+class ResumeRetryRead(BaseModel):
+    document_id: UUID
+    project_id: UUID
+    document_type: DocumentType = DocumentType.RESUME
+    filename: str
+    processing_stage: ProcessingStage
+    processing_status: ProcessingStatus
+    message: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumeRetryResponse(BaseModel):
+    data: ResumeRetryRead

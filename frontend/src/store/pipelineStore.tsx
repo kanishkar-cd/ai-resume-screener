@@ -429,11 +429,17 @@ function reducer(state: PipelineState, action: Action): PipelineState {
       const filteredIds = state.resumeDocumentIds.filter((id) => id !== action.payload)
       const filteredProcessing = { ...state.resumeProcessing }
       delete filteredProcessing[action.payload]
+      const filteredCandidates = (state.candidates || []).filter((c) => c.id !== action.payload)
+      const filteredShortlisted = (state.shortlistedCandidateIds || []).filter((id) => id !== action.payload)
+      const filteredAssessment = (state.assessmentCandidates || []).filter((a) => a.id !== action.payload)
       return {
         ...state,
         upload: { ...state.upload, resumes: filteredResumes },
         resumeDocumentIds: filteredIds,
         resumeProcessing: filteredProcessing,
+        candidates: filteredCandidates,
+        shortlistedCandidateIds: filteredShortlisted,
+        assessmentCandidates: filteredAssessment,
       }
     }
 

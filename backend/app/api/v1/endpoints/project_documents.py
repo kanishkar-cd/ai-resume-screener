@@ -33,6 +33,7 @@ from app.schemas.document import (
     JobDescriptionProcessResponse,
     ProcessingStage,
     ProcessingStatus,
+    ResumeRetryResponse,
     SortOrder,
 )
 from app.schemas.error import ErrorResponsePayload
@@ -407,6 +408,31 @@ async def delete_resume(
 ) -> Response:
     await service.delete_resume(project_id, document_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/projects/{project_id}/resumes/{document_id}/retry",
+    response_model=ResumeRetryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Retry a failed or incomplete resume",
+    description=(
+        "Safely rerun parsing, extraction, and normalization for a failed or "
+        "incomplete resume in the specified project."
+    ),
+    responses={
+        400: {"model": ErrorResponsePayload, "description": "Document does not belong to project."},
+        404: {"model": ErrorResponsePayload, "description": "Project or document not found."},
+        409: {"model": ErrorResponsePayload, "description": "Document is already completed or retry is in progress."},
+        422: {"model": ErrorResponsePayload, "description": "Processing stage failed."},
+        500: {"model": ErrorResponsePayload, "description": "Internal server error during retry."},
+    },
+)
+async def retry_resume(
+    project_id: ProjectId,
+    document_id: Annotated[UUID, Path(description="Resume document ID")],
+    service: DocumentServiceDependency,
+) -> ResumeRetryResponse:
+    return ResumeRetryResponse(data=await service.retry_resume(project_id, document_id))
 
 
 @router.delete(

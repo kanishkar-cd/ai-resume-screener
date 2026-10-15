@@ -1,7 +1,9 @@
+import asyncio
 import math
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -13,7 +15,12 @@ from app.core.exceptions import (
     ConflictException,
     InternalServerException,
 )
-from app.models.document import DocumentModel, DocumentTypeEnum
+from app.models.document import (
+    DocumentModel,
+    DocumentTypeEnum,
+    ProcessingStageEnum,
+    ProcessingStatusEnum,
+)
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.document import (
@@ -24,7 +31,9 @@ from app.schemas.document import (
     DocumentType,
     DocumentUploadRead,
     FailedUploadItem,
+    ProcessingStage,
     ProcessingStatus,
+    ResumeRetryRead,
     SortOrder,
 )
 from app.services.project_service import ProjectNotFoundException
@@ -56,6 +65,20 @@ class DocumentFileMissingException(AppException):
     status_code = 404
     error_code = "DOCUMENT_FILE_MISSING"
     default_message = "The stored document file could not be found."
+
+
+class DocumentRetryInProgressException(ConflictException):
+    error_code = "DOCUMENT_RETRY_IN_PROGRESS"
+    default_message = "Document retry is already in progress."
+
+
+class DocumentNotRetryableException(ConflictException):
+    error_code = "DOCUMENT_NOT_RETRYABLE"
+    default_message = "Only failed or incomplete documents can be retried."
+
+
+_active_retries: set[UUID] = set()
+_retry_lock = asyncio.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,6 +518,9 @@ class DocumentService:
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentNotFoundException("The requested document is not a resume.")
 
+        if document_id in _active_retries:
+            raise DocumentRetryInProgressException("Cannot delete resume while retry is in progress.")
+
         try:
             await self.repository.cleanup_pipeline_data(document_id, DocumentType.RESUME)
             deleted = await self.repository.delete_document(document_id, commit=False)
@@ -568,3 +594,125 @@ class DocumentService:
             document_id=str(document.id),
             project_id=str(project_id),
         )
+
+    async def retry_resume(
+        self,
+        project_id: UUID,
+        document_id: UUID,
+        *,
+        parsing_service: Any = None,
+        extraction_service: Any = None,
+        normalization_service: Any = None,
+    ) -> ResumeRetryRead:
+        """Validate ownership, clear stale pipeline data, and safely rerun parsing -> extraction -> normalization."""
+        await self._verify_project(project_id)
+
+        try:
+            document = await self.repository.get_by_id(document_id)
+        except SQLAlchemyError as exc:
+            raise InternalServerException("Unable to retrieve document.") from exc
+
+        if document is None or document.deleted_at is not None:
+            raise DocumentNotFoundException("The requested resume was not found.")
+
+        if document.project_id != project_id:
+            raise DocumentBelongsToAnotherProjectException()
+
+        if document.document_type != DocumentTypeEnum.RESUME:
+            raise DocumentNotFoundException("The requested document is not a resume.")
+
+        doc_status = getattr(document, "processing_status", None)
+        status_val = getattr(doc_status, "value", str(doc_status)) if doc_status is not None else None
+        doc_stage = getattr(document, "processing_stage", None)
+        stage_val = getattr(doc_stage, "value", str(doc_stage)) if doc_stage is not None else None
+
+        if status_val == "COMPLETED" and stage_val == "COMPLETED":
+            raise DocumentNotRetryableException()
+
+        async with _retry_lock:
+            if document_id in _active_retries or status_val == "IN_PROGRESS":
+                raise DocumentRetryInProgressException()
+            _active_retries.add(document_id)
+
+        try:
+            # 1. Clean up downstream records from previous failed/partial attempts
+            await self.repository.cleanup_pipeline_data(document_id, DocumentType.RESUME)
+
+            # 2. Reset processing status and clear error
+            document.error_message = None
+            document.processing_stage = ProcessingStageEnum.PARSING
+            document.processing_status = ProcessingStatusEnum.IN_PROGRESS
+            await self.repository.session.commit()
+
+            # 3. Instantiate pipeline services if not injected
+            if parsing_service is None:
+                from app.repositories.parsed_document_repository import ParsedDocumentRepository
+                from app.services.parsing_service import ParsingService
+                parsing_service = ParsingService(
+                    self.repository,
+                    ParsedDocumentRepository(self.repository.session),
+                    self.storage,
+                )
+
+            if extraction_service is None:
+                from app.repositories.extraction_repository import ExtractionRepository
+                from app.repositories.parsed_document_repository import ParsedDocumentRepository
+                from app.services.extraction_service import ExtractionService
+                extraction_service = ExtractionService(
+                    self.repository,
+                    ParsedDocumentRepository(self.repository.session),
+                    ExtractionRepository(self.repository.session),
+                )
+
+            if normalization_service is None:
+                from app.repositories.extraction_repository import ExtractionRepository
+                from app.repositories.normalization_repository import NormalizationRepository
+                from app.services.normalization_service import NormalizationService
+                normalization_service = NormalizationService(
+                    self.repository,
+                    ExtractionRepository(self.repository.session),
+                    NormalizationRepository(self.repository.session),
+                )
+
+            # 4. Sequentially execute stages: Parsing -> Extraction -> Normalization
+            await parsing_service.parse_document(document_id, force=True)
+            await extraction_service.extract_document_data(document_id, force=True)
+            await normalization_service.normalize_document_data(document_id, force=True)
+
+            try:
+                await self.repository.session.refresh(document)
+            except Exception:
+                pass
+
+            logger.info(
+                "resume_retried_successfully",
+                document_id=str(document_id),
+                project_id=str(project_id),
+                stage=str(getattr(document, "processing_stage", None)),
+                status=str(getattr(document, "processing_status", None)),
+            )
+
+            stage_out = (
+                ProcessingStage(document.processing_stage.value)
+                if hasattr(document.processing_stage, "value")
+                else ProcessingStage(str(document.processing_stage))
+            )
+            status_out = (
+                ProcessingStatus(document.processing_status.value)
+                if hasattr(document.processing_status, "value")
+                else ProcessingStatus(str(document.processing_status))
+            )
+
+            return ResumeRetryRead(
+                document_id=document.id,
+                project_id=document.project_id,
+                document_type=DocumentType.RESUME,
+                filename=document.original_filename,
+                processing_stage=stage_out,
+                processing_status=status_out,
+                message="Resume retried and processed successfully.",
+            )
+        finally:
+            async with _retry_lock:
+                _active_retries.discard(document_id)
+
