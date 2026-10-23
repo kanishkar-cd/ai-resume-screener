@@ -105,9 +105,9 @@ CERTIFICATION_PATTERNS: list[re.Pattern[str]] = [
 DEGREE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in [
         # Bachelor level + specialization or standalone
-        r"\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.?\s*e\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*s\.?|b\.?\s*com\.?|b\.?\s*a\.?|undergraduate)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.?\s*e\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*s\.?|b\.?\s*com\.?|b\.?\s*a\.?|undergraduate)\s*(?:degree|qualification)?\b",
+        r"\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.\s*[esa]\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*com\.?|undergraduate)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:bachelor(?:'?s)?(?:\s+of\s+[a-z]+)?|b\.\s*[esa]\.?|b\.?\s*tech\.?|b\.?\s*sc\.?|b\.?\s*com\.?|undergraduate)\s*(?:degree|qualification)?\b",
         # Master level + specialization or standalone
-        r"\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.?\s*e\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*s\.?|m\.?\s*ba\.?|postgraduate|graduate)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.?\s*e\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*s\.?|m\.?\s*ba\.?|postgraduate|graduate)\s*(?:degree|qualification)?\b",
+        r"\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.\s*[esa]\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*ba\.?|postgraduate|graduate\s+degree)\s*(?:degree|qualification)?\s+(?:in|of|with\s+(?:specialization|major)\s+in)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:master(?:'?s)?(?:\s+of\s+[a-z]+)?|m\.\s*[esa]\.?|m\.?\s*tech\.?|m\.?\s*sc\.?|m\.?\s*ba\.?|postgraduate|graduate\s+degree)\s*(?:degree|qualification)?\b",
         # Doctorate / PhD + specialization or standalone
         r"\b(?:phd|ph\.?d\.?|doctorate|doctoral)\s*(?:degree|qualification)?\s+(?:in|of)\s+[a-z0-9\s\&\,\/\-]+\b|\b(?:phd|ph\.?d\.?|doctorate|doctoral)\s*(?:degree|qualification)?\b",
         # MBA + specialization or standalone
@@ -120,11 +120,11 @@ DEGREE_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 _GENERIC_EDUCATION_TRAILERS = re.compile(
-    r"\s+(?:or\s+(?:a\s+)?)?(?:related|equivalent|relevant)\s+(?:field|discipline|experience|qualification|area|degree|background)\b.*$",
+    r"\s+(?:or\s+(?:an?\s+)?(?:related|equivalent|relevant|similar)\s+(?:field|discipline|experience|qualification|area|degree|background)|or\s+equivalent|or\s+similar|or\s+related|or\s+relevant)\b.*$",
     re.IGNORECASE,
 )
 _GENERIC_EDUCATION_LEADERS = re.compile(
-    r"^(?:must\s+possess\s+a|minimum\s+of\s+a|must\s+have\s+a|qualification\s+of|degree\s+in|qualification\s+in|degree\s+of)\s+",
+    r"^(?:must\s+(?:possess|have|hold)\s+(?:a|an)?|should\s+(?:have|hold)\s+(?:a|an)?|candidate\s+must\s+have\s+(?:a|an)?|minimum\s+of\s+a|qualification\s+of|degree\s+in|qualification\s+in|degree\s+of|a\s+|an\s+)\s*",
     re.IGNORECASE,
 )
 
@@ -266,8 +266,17 @@ SECTION_HEADINGS = {
     "duties": "responsibilities", "job responsibilities": "responsibilities",
     "core responsibilities": "responsibilities", "key duties": "responsibilities",
     "role responsibilities": "responsibilities", "what you will do": "responsibilities",
-    "what you'll do": "responsibilities", "primary responsibilities": "responsibilities",
-    "essential duties": "responsibilities", "essential functions": "responsibilities",
+    "what you'll do": "responsibilities", "what you will be doing": "responsibilities",
+    "what you'll be doing": "responsibilities", "what you do": "responsibilities",
+    "primary responsibilities": "responsibilities", "essential duties": "responsibilities",
+    "essential functions": "responsibilities", "roles and responsibilities": "responsibilities",
+    "roles & responsibilities": "responsibilities", "role & responsibilities": "responsibilities",
+    "role and responsibilities": "responsibilities", "responsibilities & duties": "responsibilities",
+    "responsibilities and duties": "responsibilities", "duties & responsibilities": "responsibilities",
+    "duties and responsibilities": "responsibilities", "scope of work": "responsibilities",
+    "day to day": "responsibilities", "day-to-day": "responsibilities", "your role": "responsibilities",
+    "the role": "responsibilities", "core duties": "responsibilities", "major responsibilities": "responsibilities",
+    "general responsibilities": "responsibilities", "daily responsibilities": "responsibilities", "job duties": "responsibilities",
     # Required Skills & Requirements
     "required technical skills": "required_skills", "technical skills": "required_skills",
     "required skills": "required_skills", "required qualifications": "required_skills",
@@ -279,23 +288,46 @@ SECTION_HEADINGS = {
     "skills & requirements": "required_skills", "skills and requirements": "required_skills",
     "skills and qualifications": "required_skills", "skills & qualifications": "required_skills",
     "must have skills": "required_skills", "must have": "required_skills",
-    "must-have": "required_skills", "minimum qualifications": "required_skills",
-    "minimum requirements": "required_skills", "technical expertise": "required_skills",
-    "candidate requirements": "required_skills", "candidate requirement": "required_skills",
+    "must-have": "required_skills", "must haves": "required_skills", "must-haves": "required_skills",
+    "minimum qualifications": "required_skills", "minimum requirements": "required_skills",
+    "technical expertise": "required_skills", "candidate requirements": "required_skills",
+    "candidate requirement": "required_skills", "what you bring": "required_skills",
+    "what you'll bring": "required_skills", "what you need": "required_skills",
+    "what we're looking for": "required_skills", "what we are looking for": "required_skills",
+    "who you are": "required_skills", "candidate profile": "required_skills",
+    "ideal candidate": "required_skills", "profile requirements": "required_skills",
+    "key competencies": "required_skills", "competencies": "required_skills",
+    "functional requirements": "required_skills", "job requirements": "required_skills",
+    "position requirements": "required_skills", "role requirements": "required_skills",
+    "professional qualifications": "required_skills", "minimum criteria": "required_skills",
     # Preferred Skills
     "preferred skills": "preferred_skills", "nice to have": "preferred_skills",
+    "nice to haves": "preferred_skills", "nice-to-haves": "preferred_skills",
     "preferred qualifications": "preferred_skills", "desired skills": "preferred_skills",
     "bonus skills": "preferred_skills", "good to have": "preferred_skills",
     "good-to-have skills": "preferred_skills", "good to have skills": "preferred_skills",
     "additional qualifications": "preferred_skills", "desired qualifications": "preferred_skills",
     "preferred requirements": "preferred_skills", "nice-to-have": "preferred_skills",
+    "preferred competencies": "preferred_skills", "preferred experience": "preferred_skills",
+    "good to know": "preferred_skills", "bonus points": "preferred_skills",
+    "bonus qualifications": "preferred_skills",
     # Education & Experience
     "education": "education", "education requirements": "education",
     "educational qualifications": "education", "academic background": "education",
+    "academic qualifications": "education", "educational background": "education",
+    "educational requirements": "education", "education qualification": "education",
+    "education & certifications": "education", "education and certifications": "education",
+    "certifications & education": "education", "certifications and education": "education",
+    "education & qualifications": "education", "education and qualifications": "education",
+    "education & training": "education", "education and training": "education",
     "education & experience": "education", "education and experience": "education",
     "experience": "experience", "experience required": "experience",
-    "work experience": "experience", "experience & education": "experience",
-    "experience and education": "experience",
+    "work experience": "experience", "professional experience": "experience",
+    "relevant experience": "experience", "required experience": "experience",
+    "minimum experience": "experience", "prior experience": "experience",
+    "past experience": "experience", "industry experience": "experience",
+    "years of experience": "experience", "experience requirements": "experience",
+    "experience & education": "experience", "experience and education": "experience",
     # Certifications & Keywords
     "certifications": "certifications", "licenses": "certifications", "credentials": "certifications",
     "certifications & licenses": "certifications", "certifications and licenses": "certifications",
@@ -303,7 +335,7 @@ SECTION_HEADINGS = {
 }
 
 SKILL_CANONICAL = {
-    "JavaScript": ("javascript",), "Python": ("python",), "C++": ("c++",),
+    "JavaScript": ("javascript", "js"), "Python": ("python",), "C++": ("c++",),
     "SQL": ("sql",), "HTML": ("html",), "CSS": ("css",),
     "REST APIs": ("rest api", "rest apis", "restful api", "restful apis", "restful"),
     "Git": ("git",), "Object-Oriented Programming": ("object-oriented programming", "object oriented programming", "oop"),
@@ -311,7 +343,7 @@ SKILL_CANONICAL = {
     "Software development and debugging": ("software development and debugging", "software development", "debugging"),
     "React.js": ("react.js", "reactjs", "react"), "Node.js": ("node.js", "nodejs"),
     "Express.js": ("express.js", "expressjs", "express"), "MongoDB": ("mongodb",),
-    "PostgreSQL": ("postgresql", "postgres"), "AWS": ("aws",), "Docker": ("docker",),
+    "PostgreSQL": ("postgresql", "postgres", "psql", "postgres database", "postgresql database", "postgres database management"), "AWS": ("aws", "amazon web services"), "Docker": ("docker",),
     "CI/CD": ("ci/cd", "continuous integration and continuous delivery", "continuous integration/continuous delivery"),
     "Jenkins": ("jenkins",), "GitHub Actions": ("github actions",), "IoT": ("iot",),
     "Embedded Systems": ("embedded systems", "embedded system"), "PLC Programming": ("plc programming",),
@@ -343,6 +375,17 @@ SKILL_CANONICAL = {
     "Microservices": ("microservices", "microservice", "microservice architecture"),
     "GitHub": ("github",),
     "GitLab": ("gitlab",),
+    "Kubernetes": ("kubernetes", "k8s"),
+    "Terraform": ("terraform",),
+    "Datadog": ("datadog", "datadog monitoring"),
+    "Prometheus": ("prometheus",),
+    "Grafana": ("grafana",),
+    "Bash": ("bash", "bash scripting"),
+    "Ansible": ("ansible",),
+    "GCP": ("gcp", "google cloud", "google cloud platform"),
+    "Azure": ("azure", "microsoft azure"),
+    "Elasticsearch": ("elasticsearch", "elastic search", "elk"),
+    "Kafka": ("kafka", "apache kafka"),
 }
 
 
@@ -400,11 +443,13 @@ _FILLER_TRAILERS = re.compile(
     re.I,
 )
 _FILLER_LEADERS = re.compile(
-    r"^(?:(?:strong|solid|deep|basic|general|good|sound|proven|demonstrated|prior|hands[-\s]on)\s+)?(?:exposure\s+to|knowledge\s+of|understanding\s+of|experience\s+with|experience\s+in|proficiency\s+in|hands[-\s]on\s+experience\s+with|ability\s+to|familiarity\s+with|skills\s+in|working\s+knowledge\s+of|background\s+in|foundation\s+in|competency\s+in|expertise\s+in|must\s+have|should\s+have|required:\s*|preferred:\s*)\s*",
+    r"^(?:(?:strong|solid|deep|basic|general|good|sound|proven|demonstrated|prior|hands[-\s]on)\s+)?"
+    r"(?:(?:scripting|programming|coding|technical|development|software|engineering)\s+)?"
+    r"(?:exposure\s+to|knowledge\s+of|understanding\s+of|experience\s+with|experience\s+in|proficiency\s+in|hands[-\s]on\s+experience\s+with|ability\s+to|familiarity\s+with|skills\s+in|working\s+knowledge\s+of|background\s+in|foundation\s+in|competency\s+in|expertise\s+in|must\s+have|should\s+have|required:\s*|preferred:\s*)\s*",
     re.I,
 )
 _ACTION_VERB_LEADERS = re.compile(
-    r"^(?:(?:to\s+)?(?:"
+    r"^(?:(?:to\s+|will\s+|shall\s+|must\s+|should\s+|can\s+)?(?:"
     r"develop|developed|developing|"
     r"design|designed|designing|"
     r"build|built|building|"
@@ -452,8 +497,10 @@ _ACTION_VERB_LEADERS = re.compile(
     r"triage|triaged|triaging|"
     r"execute|executed|executing|"
     r"provide|provided|providing|"
-    r"responsible\s+for|duties\s+include|in\s+this\s+role|you\s+will|ability\s+to"
-    r")\b)",
+    r"operate|operated|operating|"
+    r"oversee|oversaw|overseeing"
+    r")\b|"
+    r"(?:will\s+be|shall\s+be|must\s+be)?\s*(?:responsible\s+for|in\s+charge\s+of|responsible\s+to|duties\s+include|in\s+this\s+role|you\s+will|ability\s+to)\b)",
     re.IGNORECASE,
 )
 
@@ -463,7 +510,7 @@ _GRAMMATICAL_FRAGMENTS = re.compile(
 )
 
 _PROSE_SENTENCE_PATTERNS = re.compile(
-    r"^(?:we\s+are\s+(?:seeking|looking|hiring)|the\s+role\s+(?:focuses|requires|involves|is)|as\s+(?:a|an)|you\s+will\s+(?:be|work|have)|this\s+position\s+(?:is|will|requires)|our\s+team\s+is|join\s+our|responsible\s+for|in\s+this\s+role)\b",
+    r"^(?:we\s+are\s+(?:seeking|looking|hiring)|the\s+role\s+(?:focuses|requires|involves|is)|as\s+(?:a|an)|you\s+will\s+(?:be|work|have)|this\s+position\s+(?:is|will|requires)|our\s+team\s+is|join\s+our|responsible\s+for|in\s+this\s+role|will\s+be\s+responsible)\b",
     re.I,
 )
 
@@ -474,7 +521,7 @@ def _is_action_sentence(line: str) -> bool:
     words = cleaned.split()
     if not words:
         return False
-    if len(words) >= 3 and _ACTION_VERB_LEADERS.match(cleaned):
+    if len(words) >= 3 and (_ACTION_VERB_LEADERS.match(cleaned) or _PROSE_SENTENCE_PATTERNS.match(cleaned)):
         if cleaned.casefold() in {"software development and debugging", "software development & debugging"}:
             return False
         return True
@@ -553,6 +600,25 @@ def _is_valid_skill(skill: str) -> bool:
     if re.search(r"\b\d+\s*[-–to]+\s*\d+\s+years?\b", lower) or re.search(r"\b\d+\+\s*years?\b", lower) or re.search(r"\b\d+\s+years?\s+(?:of\s+)?experience\b", lower):
         return False
 
+    # Filter degree / education qualifications from skills
+    if any(p.search(cleaned) for p in DEGREE_PATTERNS) or re.search(
+        r"\b(?:bachelor(?:'?s)?|master(?:'?s)?|ph\.?d\.?|doctorate|undergraduate|postgraduate|degree\s+in|qualification\s+in|b\.?\s*tech|b\.?\s*e\.|m\.?\s*tech|m\.?\s*s\.|m\.?\s*sc|b\.?\s*sc)\b",
+        lower,
+    ):
+        return False
+
+    # Filter certification phrases from skills
+    if (
+        (
+            any(p.search(cleaned) for p in CERTIFICATION_PATTERNS)
+            and re.search(r"\b(?:certified|certification|architect|administrator|expert|associate|practitioner)\b", lower)
+        )
+        or re.search(r"\b(?:aws\s+certified|azure\s+certified|cka\s+certification|pmp\s+certification|cissp\s+certification)\b", lower)
+    ) and not (
+        lower in {"linux administration", "windows server administration", "database administration"}
+    ):
+        return False
+
     # Filter catch-all alternative descriptors
     if lower.startswith("another ") or lower.startswith("other ") or lower.startswith("similar "):
         return False
@@ -607,6 +673,16 @@ def _split_sentence_into_skills(sentence: str) -> list[str]:
         # Split on semicolon or comma
         if "," in stripped_clause or ";" in stripped_clause:
             items = re.split(r"[,;]\s*", stripped_clause)
+        elif re.search(r"\s+and\s+", stripped_clause, re.I) and stripped_clause.casefold() not in {
+            "data structures and algorithms",
+            "software development and debugging",
+            "data structures & algorithms",
+        }:
+            subparts = [p.strip() for p in re.split(r"\s+and\s+", stripped_clause, flags=re.I) if p.strip()]
+            if len(subparts) >= 2 and all(_is_valid_skill(_clean_skill_term(p)) for p in subparts):
+                items = subparts
+            else:
+                items = [stripped_clause]
         else:
             items = [stripped_clause]
 
@@ -704,20 +780,137 @@ def _extract_skills(text: str) -> tuple[list[str], float]:
     return sorted(set(found)), round(confidence, 2)
 
 
+# ─── Deduplication helpers ──────────────────────────────────────────────────
+
+_RESP_LEADERS = re.compile(
+    r"^(?:(?:will\s+|shall\s+|must\s+|should\s+)?be\s+responsible\s+for|"
+    r"responsible\s+for|"
+    r"responsible\s+to|"
+    r"duties\s+include(?:\s+but\s+are\s+not\s+limited\s+to)?|"
+    r"in\s+charge\s+of|"
+    r"tasked\s+with|"
+    r"expected\s+to|"
+    r"ability\s+to|"
+    r"you\s+will|"
+    r"to\s+)\s*",
+    re.IGNORECASE,
+)
+
+_COMMON_GERUND_STEMS: dict[str, str] = {
+    "deploying": "deploy", "maintaining": "maintain", "monitoring": "monitor",
+    "managing": "manage", "configuring": "configure", "automating": "automate",
+    "creating": "create", "designing": "design", "developing": "develop",
+    "building": "build", "ensuring": "ensure", "collaborating": "collaborate",
+    "optimizing": "optimize", "improving": "improve", "troubleshooting": "troubleshoot",
+    "leading": "lead", "supporting": "support", "integrating": "integrate",
+    "testing": "test", "writing": "write", "operating": "operate",
+    "coordinating": "coordinate", "executing": "execute", "handling": "handle",
+    "providing": "provide", "resolving": "resolve", "architecting": "architect",
+}
+
+
+def _normalize_verb_form(word: str) -> str:
+    """Normalize common gerund/inflected forms of action verbs to base form for comparison."""
+    w = word.casefold()
+    if w in _COMMON_GERUND_STEMS:
+        return _COMMON_GERUND_STEMS[w]
+    if w.endswith("ing") and len(w) > 5:
+        stem = w[:-3]
+        if stem.endswith(("bb", "dd", "gg", "mm", "nn", "pp", "rr", "tt")):
+            return stem[:-1]
+        return stem
+    return w
+
+
+def _responsibility_semantic_key(text: str) -> str:
+    """Compute a deterministic semantic signature for a responsibility statement."""
+    cleaned = BULLET_PATTERN.sub("", text)
+    cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
+    cleaned = re.sub(r"^[^\w]+|[^\w]+$", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    core = _RESP_LEADERS.sub("", cleaned).strip()
+    core = re.sub(r"^[^\w]+|[^\w]+$", "", core).strip()
+
+    words = core.split()
+    if not words:
+        return cleaned.casefold()
+
+    norm_words: list[str] = []
+    for i, word in enumerate(words):
+        w_clean = re.sub(r"[^\w]", "", word).casefold()
+        if i < 4 and w_clean:
+            norm_words.append(_normalize_verb_form(w_clean))
+        elif w_clean:
+            norm_words.append(w_clean)
+    return " ".join(norm_words)
+
+
+def _deduplicate_responsibilities(items: list[str]) -> list[str]:
+    """
+    Remove exact and semantically equivalent responsibility duplicates.
+    Preserves original readable wording of the first occurrence and original order.
+    """
+    deduped: list[str] = []
+    seen_semantic_keys: set[str] = set()
+
+    for item in items:
+        cleaned = item.strip()
+        if len(cleaned) <= 10 or re.match(r"^(?:key\s+)?responsibilities:?$", cleaned, re.I):
+            continue
+        sem_key = _responsibility_semantic_key(cleaned)
+        if sem_key and sem_key not in seen_semantic_keys:
+            seen_semantic_keys.add(sem_key)
+            deduped.append(cleaned)
+
+    return deduped
+
+
+def _deduplicate_skills(skills: list[str]) -> list[str]:
+    """
+    Remove exact and canonical alias duplicates from a skills list.
+    Preserves original readable wording of the first occurrence and original order.
+    """
+    result: list[str] = []
+    seen_canonical_keys: set[str] = set()
+
+    for raw_skill in skills:
+        cleaned = _clean_skill_term(raw_skill)
+        if not cleaned or not _is_valid_skill(cleaned):
+            continue
+        canonical = _canonicalize_skill_name(cleaned)
+        canonical_key = canonical.casefold()
+
+        if canonical_key not in seen_canonical_keys:
+            seen_canonical_keys.add(canonical_key)
+            result.append(cleaned)
+
+    return result
+
+
+def _deduplicate_strings(items: list[str]) -> list[str]:
+    """Deduplicate strings normalizing whitespace and punctuation case-insensitively, preserving first occurrence."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        cleaned = re.sub(r"\s+", " ", item).strip().rstrip(".,;:")
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result
+
+
 def _extract_responsibilities(text: str) -> tuple[list[str], float]:
     """Extract bullet-point / list items directly from responsibilities section text."""
-    responsibilities: list[str] = []
-    seen: set[str] = set()
-
+    raw_lines: list[str] = []
     for line in text.splitlines():
         cleaned = BULLET_PATTERN.sub("", line)
         cleaned = NUMBERED_PATTERN.sub("", cleaned).strip()
         if len(cleaned) > 15:
-            key = cleaned.casefold()
-            if key not in seen and not re.match(r"^(?:key\s+)?responsibilities:?$", key, re.I):
-                seen.add(key)
-                responsibilities.append(cleaned)
+            if not re.match(r"^(?:key\s+)?responsibilities:?$", cleaned, re.I):
+                raw_lines.append(cleaned)
 
+    responsibilities = _deduplicate_responsibilities(raw_lines)
     confidence = min(1.0, len(responsibilities) / 5) if responsibilities else 0.0
     return responsibilities[:30], round(confidence, 2)
 
@@ -738,20 +931,20 @@ def _extract_education(text: str) -> tuple[list[str], float]:
     """
     # Degree-level anchors: only the level matters, disciplines are metadata
     _DEGREE_LEVEL_ANCHORS: list[re.Pattern[str]] = [
-        re.compile(r"\bph\.?d\b|\bdoctoral?\b|\bdoctorate\b", re.I),
-        re.compile(r"\bmba\b|\bmaster\s+of\s+business\b", re.I),
+        re.compile(r"\bph\.?d\.?\b|\bdoctoral?\b|\bdoctorate\b", re.I),
+        re.compile(r"\bmba\b|\bmaster\s+of\s+business(?:\s+administration)?\b", re.I),
         re.compile(
             r"\bmaster(?:'?s)?(?:\s+(?:of|in|degree))?\b"
-            r"|\bm\.?\s*(?:sc|tech|e|s|ba|ca)\b|\bpostgraduate\b|\bgraduate\b",
+            r"|\bm\.\s*[esa]\.?\b|\bm\.?\s*(?:sc|tech|ca|ba)\b|\bpostgraduate\b|\bgraduate\s+degree\b",
             re.I,
         ),
         re.compile(
             r"\bbachelor(?:'?s)?(?:\s+(?:of|in|degree))?\b"
-            r"|\bb\.?\s*(?:tech|sc|e|s|com|ca|a)\b|\bundergraduate\b",
+            r"|\bb\.\s*[esa]\.?\b|\bb\.?\s*(?:tech|sc|com)\b|\bundergraduate(?:\s+degree)?\b",
             re.I,
         ),
         re.compile(r"\bassociate(?:'?s)?\s+degree\b", re.I),
-        re.compile(r"\bdegree\s+in\b", re.I),
+        re.compile(r"\bdegree\s+(?:in|of)\b", re.I),
     ]
 
     results: list[str] = []
@@ -770,20 +963,16 @@ def _extract_education(text: str) -> tuple[list[str], float]:
         if line_key in seen_lines:
             continue
 
+        # Skip action / responsibility / prose sentences
+        if _is_action_sentence(line) or _PROSE_SENTENCE_PATTERNS.match(line):
+            continue
+
         # Find the first degree-level anchor in this line
         for anchor in _DEGREE_LEVEL_ANCHORS:
             m = anchor.search(line)
             if m:
-                # Find the full phrase: from start of line up to end,
-                # or if the whole line is the phrase, use it.
-                # Trim trailing punctuation noise.
-                phrase = re.sub(r"\s+", " ", line).strip().rstrip(".,;:")
-                # Remove trailing filler phrases
-                phrase = re.sub(
-                    r"\s*\(?\s*(?:or\s+equivalent|or\s+similar|or\s+related|preferred|required|a\s+plus)\s*\)?\.?$",
-                    "", phrase, flags=re.I,
-                ).strip()
-                if len(phrase) > 3:
+                phrase = clean_education_phrase(line)
+                if len(phrase) > 3 and not _is_action_sentence(phrase):
                     results.append(phrase)
                     seen_lines.add(line_key)
                 break  # Only emit once per line — first anchor match wins
@@ -794,40 +983,61 @@ def _extract_education(text: str) -> tuple[list[str], float]:
         found_by_line: dict[int, str] = {}  # line_start -> representative phrase
         for pattern in [
             re.compile(
-                r"\b(?:bachelor(?:'?s)?|b\.?\s*(?:sc|e|tech|s|com|ca)|undergraduate)"
+                r"\b(?:bachelor(?:'?s)?|b\.\s*[esa]\.?|b\.?\s*(?:sc|tech|com)|undergraduate(?:\s+degree)?)"
                 r"\s*(?:degree|of|in)?\s*(?:[a-z\s&,]+)?",
                 re.I,
             ),
             re.compile(
-                r"\b(?:master(?:'?s)?|m\.?\s*(?:sc|e|tech|s|ba|ca)|postgraduate|graduate)"
+                r"\b(?:master(?:'?s)?|m\.\s*[esa]\.?|m\.?\s*(?:sc|tech|ba|ca)|postgraduate|graduate\s+degree)"
                 r"\s*(?:degree|of|in)?\s*(?:[a-z\s&,]+)?",
                 re.I,
             ),
-            re.compile(r"\b(?:phd|ph\.d|doctorate|doctoral)\b", re.I),
-            re.compile(r"\b(?:mba|master\s+of\s+business\s+administration)\b", re.I),
+            re.compile(r"\b(?:phd|ph\.?d\.?|doctorate|doctoral)\b", re.I),
+            re.compile(r"\b(?:mba|master\s+of\s+business(?:\s+administration)?)\b", re.I),
             re.compile(r"\b(?:associate\s+degree)\b", re.I),
         ]:
             for match in pattern.finditer(text):
                 start = match.start()
-                phrase = re.sub(r"\s+", " ", match.group(0).strip())
-                if len(phrase) > 3 and start not in found_by_line:
+                raw_match = match.group(0).strip()
+                if _is_action_sentence(raw_match):
+                    continue
+                phrase = clean_education_phrase(raw_match)
+                if len(phrase) > 3 and start not in found_by_line and not _is_action_sentence(phrase):
                     found_by_line[start] = phrase
 
-        results = list(dict.fromkeys(found_by_line.values()))
+        results = _deduplicate_strings(list(dict.fromkeys(found_by_line.values())))
 
     confidence = min(1.0, len(results) / 2) if results else 0.0
     return results, round(confidence, 2)
 
 
 def _extract_experience(text: str) -> tuple[list[str], float]:
-    """Extract experience requirement phrases using regex patterns."""
-    found: list[str] = []
+    """Extract experience requirement phrases using regex patterns, preserving ranges without duplicate sub-spans."""
+    raw_matches: list[tuple[int, int, str]] = []
     for pattern in EXPERIENCE_PATTERNS:
         for match in pattern.finditer(text):
-            phrase = match.group(0).strip()
-            phrase = re.sub(r"\s+", " ", phrase)
-            if phrase not in found:
-                found.append(phrase)
+            phrase = re.sub(r"\s+", " ", match.group(0).strip())
+            raw_matches.append((match.start(), match.end(), phrase))
+
+    # Sort matches: longest span first to prioritize full range phrases over sub-fragments
+    raw_matches.sort(key=lambda m: (m[1] - m[0]), reverse=True)
+
+    accepted_spans: list[tuple[int, int]] = []
+    accepted_phrases: list[tuple[int, str]] = []
+
+    for start, end, phrase in raw_matches:
+        # Check if this span is a sub-span of or significantly overlaps with an already accepted span
+        is_subspan = False
+        for a_start, a_end in accepted_spans:
+            if (start >= a_start and end <= a_end) or (start < a_end and end > a_start):
+                is_subspan = True
+                break
+        if not is_subspan:
+            accepted_spans.append((start, end))
+            accepted_phrases.append((start, phrase))
+
+    accepted_phrases.sort(key=lambda x: x[0])
+    found = _deduplicate_strings([p for _, p in accepted_phrases])
     confidence = min(1.0, len(found) / 2) if found else 0.0
     return found[:10], round(confidence, 2)
 
@@ -918,23 +1128,42 @@ class JDExtractionService:
             if candidate_lines:
                 required_skills = _canonical_skills("\n".join(candidate_lines), extra_responsibilities=extra_resp)
 
-        combined_skill_keys = {value.casefold() for value in skills}
+        # Deduplicate required and preferred skills
+        required_skills = _deduplicate_skills(required_skills)
+        preferred_skills = _deduplicate_skills(preferred_skills)
+
+        # Deduplicate vocabulary skills and combine with unique required/preferred skills by canonical alias
+        skills = _deduplicate_skills(skills)
+        combined_canonical_keys = {_canonicalize_skill_name(s).casefold() for s in skills}
         for value in [*required_skills, *preferred_skills]:
-            if value.casefold() not in combined_skill_keys:
+            val_canonical_key = _canonicalize_skill_name(value).casefold()
+            if val_canonical_key not in combined_canonical_keys:
                 skills.append(value)
-                combined_skill_keys.add(value.casefold())
+                combined_canonical_keys.add(val_canonical_key)
+
         responsibility_source = sections.get("responsibilities", "")
         responsibilities, resp_conf = _extract_responsibilities(responsibility_source) if responsibility_source else ([], 0.0)
         for r in extra_resp:
-            if r not in responsibilities and len(r) > 15:
+            if len(r) > 15:
                 responsibilities.append(r)
-        education_source = sections.get("education", "") or raw_text
+        responsibilities = _deduplicate_responsibilities(responsibilities)
+
+        education_source = sections.get("education", "")
+        if not education_source:
+            # If no dedicated education section exists, look into requirements/qualifications/header
+            # rather than raw_text which contains responsibilities and company overview
+            candidate_parts = [
+                sections.get("required_skills", ""),
+                sections.get("header", ""),
+            ]
+            education_source = "\n".join(p for p in candidate_parts if p) or raw_text
+
         education, edu_conf = _extract_education(education_source)
-        education_disciplines = _extract_disciplines(education_source)
+        education_disciplines = _deduplicate_strings(_extract_disciplines(education_source))
         experience, exp_conf = _extract_experience(raw_text)
         certifications, cert_conf = _extract_certifications(raw_text)
         job_title = _extract_job_title(raw_text, sections)
-        keywords = list(dict.fromkeys([*([job_title] if job_title else []), *required_skills, *preferred_skills]))
+        keywords = _deduplicate_strings([*([job_title] if job_title else []), *required_skills, *preferred_skills])
         domain = _classify_domain(raw_text)
         ai_recovered = False
         important = (job_title, required_skills, education, experience, responsibilities)
@@ -967,11 +1196,20 @@ class JDExtractionService:
                 if not certifications and recovered_fields["certifications"]: certifications = recovered_fields["certifications"]
                 if not keywords and recovered_fields["keywords"]: keywords = recovered_fields["keywords"]
                 ai_recovered = True
-                combined_skill_keys = {value.casefold() for value in skills}
+                required_skills = _deduplicate_skills(required_skills)
+                preferred_skills = _deduplicate_skills(preferred_skills)
+                skills = _deduplicate_skills(skills)
+                combined_canonical_keys = {_canonicalize_skill_name(s).casefold() for s in skills}
                 for value in [*required_skills, *preferred_skills]:
-                    if value.casefold() not in combined_skill_keys:
+                    val_canonical_key = _canonicalize_skill_name(value).casefold()
+                    if val_canonical_key not in combined_canonical_keys:
                         skills.append(value)
-                        combined_skill_keys.add(value.casefold())
+                        combined_canonical_keys.add(val_canonical_key)
+                responsibilities = _deduplicate_responsibilities(responsibilities)
+                education = _deduplicate_strings(education)
+                experience = _deduplicate_strings(experience)
+                certifications = _deduplicate_strings(certifications)
+                keywords = _deduplicate_strings(keywords)
 
         confidence_scores = {
             "skills": skills_conf,
@@ -984,9 +1222,14 @@ class JDExtractionService:
             ),
         }
 
-        required_skills = [s for s in required_skills if _is_valid_skill(s)]
-        preferred_skills = [s for s in preferred_skills if _is_valid_skill(s)]
-        skills = [s for s in skills if _is_valid_skill(s)]
+        required_skills = [s for s in _deduplicate_skills(required_skills) if _is_valid_skill(s)]
+        preferred_skills = [s for s in _deduplicate_skills(preferred_skills) if _is_valid_skill(s)]
+        skills = [s for s in _deduplicate_skills(skills) if _is_valid_skill(s)]
+        responsibilities = _deduplicate_responsibilities(responsibilities)
+        experience = _deduplicate_strings(experience)
+        education = _deduplicate_strings(education)
+        certifications = _deduplicate_strings(certifications)
+        keywords = _deduplicate_strings([*([job_title] if job_title else []), *required_skills, *preferred_skills, *keywords])
 
         payload = ExtractedJDCreate(
             document_id=document_id,

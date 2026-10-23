@@ -30,7 +30,10 @@ from app.schemas.normalized_jd import (
     NormalizedJDRead,
 )
 from app.services.document_service import DocumentNotFoundException
-from app.services.jd_extraction_service import ExtractedJDNotFoundException, _is_valid_skill, _canonicalize_skill_name
+from app.services.jd_extraction_service import (
+    ExtractedJDNotFoundException, _is_valid_skill, _canonicalize_skill_name, _is_action_sentence,
+    _deduplicate_responsibilities, _deduplicate_strings,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,17 +42,17 @@ RULESET_VERSION = "1.0"
 # ─── Degree canonicalization map ────────────────────────────────────────────
 
 DEGREE_PREFIX_MAP: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\bph\.?d\b|\bdoctoral?\b|\bdoctorate\b", re.I), "Doctor of Philosophy (PhD)"),
-    (re.compile(r"\bmba\b|\bmaster\s+of\s+business\b", re.I), "Master of Business Administration (MBA)"),
-    (re.compile(r"\bmaster(?:'s)?\s+of\s+technology\b|\bm\.?tech\b", re.I), "Master of Technology"),
-    (re.compile(r"\bmaster(?:'s)?\s+of\s+engineering\b|\bm\.?e\b", re.I), "Master of Engineering"),
-    (re.compile(r"\bmaster(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bm\.?sc\b|\bm\.?s\b", re.I), "Master of Science"),
+    (re.compile(r"\bph\.?d\.?\b|\bdoctoral?\b|\bdoctorate\b", re.I), "Doctor of Philosophy (PhD)"),
+    (re.compile(r"\bmba\b|\bmaster\s+of\s+business(?:\s+administration)?\b", re.I), "Master of Business Administration (MBA)"),
+    (re.compile(r"\bmaster(?:'s)?\s+of\s+technology\b|\bm\.?\s*tech\b", re.I), "Master of Technology"),
+    (re.compile(r"\bmaster(?:'s)?\s+of\s+engineering\b|\bm\.\s*e\.?\b", re.I), "Master of Engineering"),
+    (re.compile(r"\bmaster(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bm\.?\s*sc\b|\bm\.\s*s\.?\b", re.I), "Master of Science"),
     (re.compile(r"\bmaster(?:'s)?\b", re.I), "Master's Degree"),
-    (re.compile(r"\bbachelor(?:'s)?\s+of\s+technology\b|\bb\.?tech\b", re.I), "Bachelor of Technology"),
-    (re.compile(r"\bbachelor(?:'s)?\s+of\s+engineering\b|\bb\.?e\b", re.I), "Bachelor of Engineering"),
-    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bb\.?sc\b|\bb\.?s\b", re.I), "Bachelor of Science"),
-    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?commerce\b|\bb\.?com\b", re.I), "Bachelor of Commerce"),
-    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?arts\b|\bb\.?a\b", re.I), "Bachelor of Arts"),
+    (re.compile(r"\bbachelor(?:'s)?\s+of\s+technology\b|\bb\.?\s*tech\b", re.I), "Bachelor of Technology"),
+    (re.compile(r"\bbachelor(?:'s)?\s+of\s+engineering\b|\bb\.\s*e\.?\b", re.I), "Bachelor of Engineering"),
+    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?(?:science|sc|s)\b|\bb\.?\s*sc\b|\bb\.\s*s\.?\b", re.I), "Bachelor of Science"),
+    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?commerce\b|\bb\.?\s*com\b", re.I), "Bachelor of Commerce"),
+    (re.compile(r"\bbachelor(?:'s)?\s+(?:of\s+)?arts\b|\bb\.\s*a\.?\b", re.I), "Bachelor of Arts"),
     (re.compile(r"\bbachelor(?:'s)?\b|\bundergraduate\b", re.I), "Bachelor's Degree"),
     (re.compile(r"\bassociate(?:'s)?\s+degree\b", re.I), "Associate Degree"),
 ]
@@ -108,7 +111,7 @@ def _parse_experience_phrase(phrase: str) -> CanonicalExperienceRequirement:
 # ─── Canonicalization helpers ────────────────────────────────────────────────
 
 _GENERIC_EDUCATION_TRAILERS_NORM = re.compile(
-    r"\s+(?:or\s+(?:a\s+)?)?(?:related|equivalent|relevant)\s+(?:field|discipline|experience|qualification|area|degree|background)\b.*$",
+    r"\s+(?:(?:or\s+(?:a\s+)?)?(?:related|equivalent|relevant)\s+(?:field|discipline|experience|qualification|area|degree|background)|(?:is\s+)?(?:a\s+plus|preferred|required|an\s+advantage|desired))\b.*$",
     re.IGNORECASE,
 )
 _GENERIC_EDUCATION_LEADERS_NORM = re.compile(
@@ -122,7 +125,7 @@ def _clean_education_str(raw: str) -> str:
     cleaned = _GENERIC_EDUCATION_TRAILERS_NORM.sub("", cleaned).strip()
     cleaned = _GENERIC_EDUCATION_LEADERS_NORM.sub("", cleaned).strip()
     cleaned = re.sub(
-        r"\s+(?:or\s+equivalent|or\s+related|or\s+relevant)\b.*$",
+        r"\s+(?:or\s+equivalent|or\s+related|or\s+relevant|(?:is\s+)?a\s+plus|preferred|required)\b.*$",
         "",
         cleaned,
         flags=re.IGNORECASE,
@@ -137,6 +140,8 @@ def _canonicalize_degree(raw: str) -> tuple[str, str]:
     cleaned = _clean_education_str(raw)
     if not cleaned:
         return raw.strip(), "degree_map:passthrough"
+    if _is_action_sentence(cleaned):
+        return "", "degree_map:ignored_action_sentence"
 
     canonical_prefix = None
     prefix_rule = None
@@ -319,9 +324,10 @@ class JDNormalizationService:
 
         # ── Keywords ────────────────────────────────────────────
         canonical_keywords = _canonicalize_keywords(getattr(extracted, "keywords", None) or [])
-        responsibilities = [r.strip() for r in (getattr(extracted, "responsibilities", None) or []) if r.strip()]
-        certifications = _stable_casefold(_safe_list(extracted, "certifications"))
-        education_disciplines = _stable_casefold(_safe_list(extracted, "education_disciplines"))
+        raw_resp = getattr(extracted, "responsibilities", None) or []
+        responsibilities = _deduplicate_responsibilities([r.strip() for r in raw_resp if r.strip()])
+        certifications = _deduplicate_strings(_safe_list(extracted, "certifications"))
+        education_disciplines = _deduplicate_strings(_safe_list(extracted, "education_disciplines"))
         job_title_value = getattr(extracted, "job_title", None)
         job_title = job_title_value.strip() if isinstance(job_title_value, str) else None
         if job_title and job_title.isupper():

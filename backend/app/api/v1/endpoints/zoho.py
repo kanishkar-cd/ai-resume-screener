@@ -62,6 +62,7 @@ from app.services.zoho_recruit_service import (
     ZohoRecruitClient,
     ZohoRecruitException,
     ZohoRecruitNotConfiguredException,
+    normalize_html_to_text,
 )
 
 logger = structlog.get_logger(__name__)
@@ -211,9 +212,13 @@ async def import_zoho_job_description(
     if job.department:
         full_text_lines.append(f"Department: {job.department}")
     if job.required_skills:
-        full_text_lines.append(f"Required Skills: {job.required_skills}")
+        clean_skills = normalize_html_to_text(job.required_skills)
+        if clean_skills:
+            full_text_lines.append(f"Required Skills: {clean_skills}")
     if job.job_description:
-        full_text_lines.append(f"\nDescription:\n{job.job_description}")
+        clean_desc = normalize_html_to_text(job.job_description)
+        if clean_desc:
+            full_text_lines.append(f"\nDescription:\n{clean_desc}")
     
     jd_raw_text = "\n".join(full_text_lines)
     content_bytes = jd_raw_text.encode("utf-8")

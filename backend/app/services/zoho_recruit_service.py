@@ -17,12 +17,14 @@ Endpoints used (https://www.zoho.com/recruit/developer-guide/apiv2/):
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path, PurePath
 from typing import Any
 
@@ -752,6 +754,92 @@ def _attachment(item: dict[str, Any]) -> ZohoAttachment:
     )
 
 
+class HTMLToTextParser(HTMLParser):
+    """HTML to plain text parser for Job Descriptions and rich text fields."""
+
+    BLOCK_TAGS = frozenset({
+        "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+        "section", "article", "header", "footer", "ul", "ol",
+    })
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.output: list[str] = []
+
+    def _ensure_newline(self, count: int = 1) -> None:
+        if not self.output:
+            return
+        last = "".join(self.output[-2:])
+        existing = len(last) - len(last.rstrip("\n"))
+        needed = count - existing
+        if needed > 0:
+            self.output.append("\n" * needed)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        t = tag.lower()
+        if t in self.BLOCK_TAGS:
+            self._ensure_newline(2)
+        elif t in ("br", "tr"):
+            self._ensure_newline(1)
+        elif t == "li":
+            self._ensure_newline(1)
+            self.output.append("- ")
+
+    def handle_endtag(self, tag: str) -> None:
+        t = tag.lower()
+        if t in self.BLOCK_TAGS:
+            self._ensure_newline(2 if t in {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6"} else 1)
+        elif t == "li":
+            self._ensure_newline(1)
+
+    def handle_data(self, data: str) -> None:
+        if self.output and self.output[-1].endswith("\n") and not data.strip():
+            return
+        self.output.append(data)
+
+
+def normalize_html_to_text(raw_html: str | None) -> str | None:
+    """Normalize HTML-formatted text (from Zoho Recruit or rich text inputs) into clean plain text.
+
+    Preserves line breaks, headings, and bullet points. Safely strips tags and unescapes entities.
+    Returns None if input is None, or empty string if input is blank.
+    """
+    if raw_html is None:
+        return None
+    s = str(raw_html).strip()
+    if not s:
+        return ""
+
+    if "<" not in s and "&" not in s:
+        return s
+
+    try:
+        parser = HTMLToTextParser()
+        parser.feed(s)
+        parser.close()
+        text = "".join(parser.output)
+    except Exception:
+        text = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
+        text = re.sub(r"</?(?:p|div|h[1-6]|li|tr)[^>]*>", "\n", text, flags=re.I)
+        text = re.sub(r"<[^>]+>", "", text)
+
+    text = html.unescape(text)
+    text = text.replace("\xa0", " ")
+
+    cleaned_lines: list[str] = []
+    for line in text.splitlines():
+        c_line = re.sub(r"[ \t]+", " ", line).strip()
+        cleaned_lines.append(c_line)
+
+    res: list[str] = []
+    for line in cleaned_lines:
+        if line:
+            res.append(line)
+        elif res and res[-1] != "":
+            res.append("")
+    return "\n".join(res).strip()
+
+
 def _job_opening(item: dict[str, Any]) -> ZohoJobOpening:
     raw_assoc = item.get("No_of_Candidates_Associated") or item.get("no_of_candidates_associated") or 0
     try:
@@ -763,8 +851,8 @@ def _job_opening(item: dict[str, Any]) -> ZohoJobOpening:
         id=str(item.get("id") or ""),
         posting_title=_text(item.get("Posting_Title")) or _text(item.get("Job_Opening_Name")) or "Untitled Job Opening",
         job_opening_id=_text(item.get("Job_Opening_ID")),
-        job_description=_text(item.get("Job_Description")),
-        required_skills=_text(item.get("Required_Skills")),
+        job_description=normalize_html_to_text(_text(item.get("Job_Description"))),
+        required_skills=normalize_html_to_text(_text(item.get("Required_Skills"))),
         job_status=_text(item.get("Job_Opening_Status")),
         target_date=_text(item.get("Target_Date")),
         city=_text(item.get("City")),

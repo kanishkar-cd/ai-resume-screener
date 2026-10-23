@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   FileText,
@@ -67,7 +67,7 @@ function isValidSkill(skill: string): boolean {
 export default function CreateRequisition() {
   const { deptId } = useParams<{ deptId: string }>()
   const navigate = useNavigate()
-  const { dispatch } = usePipeline()
+  const { state, dispatch } = usePipeline()
 
   const department = DEPARTMENTS.find((d) => d.id === deptId) || DEPARTMENTS[0]
 
@@ -79,6 +79,7 @@ export default function CreateRequisition() {
 
   // JD Upload State
   const [jdFile, setJdFile] = useState<File | null>(null)
+  const [zohoJob, setZohoJob] = useState<ZohoJobOpening | null>(null)
   const [isProcessingJd, setIsProcessingJd] = useState(false)
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [processingStatusMessage, setProcessingStatusMessage] = useState('Reading JD data')
@@ -94,11 +95,43 @@ export default function CreateRequisition() {
   const processedFileRef = useRef<File | null>(null)
   const extractedJdRef = useRef<ExtractedJobDescription | null>(null)
   const projectIdRef = useRef<string | null>(null)
+  const zohoJobRef = useRef<ZohoJobOpening | null>(null)
+
+  // Restore extracted JD if project or document already has normalized/extracted data in state
+  useEffect(() => {
+    if (!state.jdDocumentId || extractedJdRef.current) return
+    let active = true
+    api.getExtractedDocument(state.jdDocumentId)
+      .then((doc) => {
+        if (!active) return
+        if (doc && ('required_skills' in doc || 'skills' in doc)) {
+          setExtractedJd(doc as ExtractedJobDescription)
+          extractedJdRef.current = doc as ExtractedJobDescription
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [state.jdDocumentId])
+
+  const attachedJdName = jdFile
+    ? jdFile.name
+    : zohoJob
+    ? `Zoho JD: ${zohoJob.posting_title}`
+    : state.upload.jobDescription?.name || null
+
+  const hasAttachedJd = Boolean(jdFile || zohoJob || state.jdDocumentId)
 
   const handleSelectZohoJob = async (job: ZohoJobOpening) => {
     setIsZohoImporting(true)
     setSelectedZohoJobId(job.id)
+    setZohoJob(job)
+    zohoJobRef.current = job
+    setJdFile(null)
+    processedFileRef.current = null
     setJdError(null)
+
     try {
       let projId = projectIdRef.current || createdProjectId
       const safeRole = job.posting_title || jobTitle.trim() || `${department.name} Role`
@@ -134,23 +167,42 @@ export default function CreateRequisition() {
 
       setJobTitle(job.posting_title)
       const res = await api.importZohoJobDescription(projId, job.id)
+      if (!res || !res.document_id) {
+        throw new Error('Failed to import Job Description: backend returned an invalid response.')
+      }
+
       const docId = res.document_id
+      const isSuccess = (res.processing_status === 'COMPLETED' || res.processing_status === 'PARSED') && res.normalized != null
+      if (!isSuccess && res.processing_status === 'FAILED') {
+        throw new Error('JD processing failed on backend.')
+      }
+
       dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
       dispatch({
         type: 'SET_JD_PROCESSING',
-        payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+        payload: {
+          status: res.processing_status || (isSuccess ? 'COMPLETED' : 'FAILED'),
+          stage: res.processing_stage || (isSuccess ? 'COMPLETED' : 'FAILED'),
+          normalized: isSuccess,
+        },
+      })
+      dispatch({
+        type: 'SET_JD',
+        payload: {
+          id: docId,
+          name: res.filename || `Zoho_${job.id}_${job.posting_title}.txt`,
+          size: 0,
+          type: 'txt',
+          status: isSuccess ? 'done' : 'error',
+          uploadedAt: new Date(),
+          errorMessage: isSuccess ? undefined : 'JD processing failed',
+        },
       })
 
-      if (res.extracted && ('required_skills' in res.extracted || 'skills' in res.extracted)) {
+      if (res.extracted) {
         setExtractedJd(res.extracted)
         extractedJdRef.current = res.extracted
       }
-
-      const dummyFile = new File(['Zoho JD Content'], `Zoho_${job.id}_${job.posting_title}.txt`, {
-        type: 'text/plain',
-      })
-      setJdFile(dummyFile)
-      processedFileRef.current = dummyFile
 
       api.createWeightConfig(projId, {
         passing_score: passingScore,
@@ -165,7 +217,12 @@ export default function CreateRequisition() {
       setIsZohoModalOpen(false)
       setCurrentStep(3)
     } catch (err: any) {
-      setJdError(err?.message || 'Failed to import Job Description from Zoho.')
+      const msg = err?.message || 'Failed to import Job Description from Zoho.'
+      setJdError(msg)
+      dispatch({
+        type: 'SET_JD_PROCESSING',
+        payload: { status: 'FAILED', stage: 'FAILED', normalized: false },
+      })
     } finally {
       setIsZohoImporting(false)
     }
@@ -232,13 +289,34 @@ export default function CreateRequisition() {
         setProcessingStatusMessage('Processing Job Description...')
         const res = await api.processJobDescription(projId, file)
         const docId = res.document_id
+        const isSuccess = (res.processing_status === 'COMPLETED' || res.processing_status === 'PARSED') && res.normalized != null
+        if (!isSuccess && res.processing_status === 'FAILED') {
+          throw new Error('JD processing failed on backend.')
+        }
+
         dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
         dispatch({
           type: 'SET_JD_PROCESSING',
-          payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+          payload: {
+            status: res.processing_status || (isSuccess ? 'COMPLETED' : 'FAILED'),
+            stage: res.processing_stage || (isSuccess ? 'COMPLETED' : 'FAILED'),
+            normalized: isSuccess,
+          },
+        })
+        dispatch({
+          type: 'SET_JD',
+          payload: {
+            id: docId,
+            name: file.name,
+            size: file.size,
+            type: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.docx') ? 'docx' : 'txt',
+            status: isSuccess ? 'done' : 'error',
+            uploadedAt: new Date(),
+            errorMessage: isSuccess ? undefined : 'JD processing failed',
+          },
         })
 
-        if (res.extracted && ('required_skills' in res.extracted || 'skills' in res.extracted)) {
+        if (res.extracted) {
           setExtractedJd(res.extracted)
           extractedJdRef.current = res.extracted
         }
@@ -273,6 +351,11 @@ export default function CreateRequisition() {
   }, [createdProjectId, reqRef, jobTitle, department.name, expLevel, dispatch, passingScore, defaultWeights])
 
   const handleFileChange = (file: File) => {
+    // Clear any active Zoho JD selection when switching to manual file upload
+    setZohoJob(null)
+    zohoJobRef.current = null
+    setSelectedZohoJobId(undefined)
+
     if (processedFileRef.current !== file) {
       processedFileRef.current = null
       extractedJdRef.current = null
@@ -288,12 +371,44 @@ export default function CreateRequisition() {
 
   // Step 2 → Step 3: Navigate immediately to screening criteria without blocking
   const handleProceedToStep3 = () => {
-    if (!jdFile) return
+    if (!hasAttachedJd) return
     setCurrentStep(3)
-    if (!processedFileRef.current || processedFileRef.current !== jdFile) {
+    if (jdFile && (!processedFileRef.current || processedFileRef.current !== jdFile)) {
       startJdProcessing(jdFile).catch(() => {})
     }
   }
+
+  const handleRetryJd = () => {
+    setJdError(null)
+    const currentZoho = zohoJobRef.current || zohoJob
+    if (currentZoho) {
+      handleSelectZohoJob(currentZoho).catch(() => {})
+    } else if (jdFile) {
+      startJdProcessing(jdFile).catch(() => {})
+    } else if (state.jdDocumentId) {
+      setIsProcessingJd(true)
+      setProcessingStatusMessage('Reloading JD data...')
+      api.getExtractedDocument(state.jdDocumentId)
+        .then((doc) => {
+          if (doc && ('required_skills' in doc || 'skills' in doc)) {
+            setExtractedJd(doc as ExtractedJobDescription)
+            extractedJdRef.current = doc as ExtractedJobDescription
+            dispatch({
+              type: 'SET_JD_PROCESSING',
+              payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+            })
+          }
+        })
+        .catch((err) => {
+          setJdError(err?.message || 'Failed to reload extracted Job Description')
+        })
+        .finally(() => {
+          setIsProcessingJd(false)
+        })
+    }
+  }
+
+
 
   // Step 3 → Start Screening: ensure project created + persist threshold, then navigate instantly
   const handleStartScreening = async () => {
@@ -344,10 +459,26 @@ export default function CreateRequisition() {
         if (jdFile && !extractedJdRef.current) {
           try {
             const processRes = await api.processJobDescription(targetProjId, jdFile)
-            dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: processRes.document_id })
+            const docId = processRes.document_id
+            dispatch({ type: 'SET_JD_DOCUMENT_ID', payload: docId })
             dispatch({
               type: 'SET_JD_PROCESSING',
-              payload: { status: 'COMPLETED', stage: 'COMPLETED', normalized: true },
+              payload: {
+                status: processRes.processing_status || 'COMPLETED',
+                stage: processRes.processing_stage || 'COMPLETED',
+                normalized: processRes.normalized != null,
+              },
+            })
+            dispatch({
+              type: 'SET_JD',
+              payload: {
+                id: docId,
+                name: jdFile.name,
+                size: jdFile.size,
+                type: jdFile.name.endsWith('.pdf') ? 'pdf' : jdFile.name.endsWith('.docx') ? 'docx' : 'txt',
+                status: processRes.processing_status === 'FAILED' ? 'error' : 'done',
+                uploadedAt: new Date(),
+              },
             })
             if (processRes.extracted) {
               setExtractedJd(processRes.extracted)
@@ -562,11 +693,11 @@ export default function CreateRequisition() {
               </div>
             </div>
 
-            {jdFile && (
+            {attachedJdName && (
               <div className="p-3.5 bg-blue-50 border border-blue-200/80 text-blue-700 rounded-xl text-xs font-bold flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText size={16} />
-                  <span>{jdFile.name}</span>
+                  <span>{attachedJdName}</span>
                 </div>
                 <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                   Attached
@@ -593,7 +724,7 @@ export default function CreateRequisition() {
               <button
                 type="button"
                 onClick={handleProceedToStep3}
-                disabled={!jdFile}
+                disabled={!hasAttachedJd}
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 <span>Next: Screening Criteria</span>
@@ -673,12 +804,7 @@ export default function CreateRequisition() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (jdFile) {
-                          setJdError(null)
-                          startJdProcessing(jdFile).catch(() => {})
-                        }
-                      }}
+                      onClick={handleRetryJd}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors cursor-pointer"
                     >
                       Retry

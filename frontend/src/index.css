@@ -425,7 +425,7 @@ button, input, optgroup, select, textarea {
   background: #fef2f2;
 }
 
-/* ─── Info Pill ──────────────────────────────────────────────── */
+/* ─── Info Pill ─────────────────────────────────────────────── */
 .info-pill {
   display: inline-flex;
   align-items: center;
