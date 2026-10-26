@@ -11,6 +11,7 @@ import CreateRequisition from '@/pages/CreateRequisition'
 import Shortlist from '@/pages/Shortlist'
 import Assessment from '@/pages/Assessment'
 import Settings from '@/pages/Settings'
+import VerificationPage from '@/pages/VerificationPage'
 import ProjectRoute from '@/components/layout/ProjectRoute'
 
 function DepartmentRedirect() {
@@ -32,7 +33,7 @@ function ProjectRootRedirect() {
 
 function ProjectCandidatesRedirect() {
   const { projectId } = useParams<{ projectId: string }>()
-  return <Navigate to={`/projects/${projectId}/rankings`} replace />
+  return <Navigate to={`/projects/${projectId}/verification`} replace />
 }
 
 function ProjectReportsRedirect() {
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="/projects/:projectId/job-description" element={<ProjectRootRedirect />} />
       <Route path="/projects/:projectId/resumes" element={<ProjectRoute><ResumeUpload /></ProjectRoute>} />
       <Route path="/projects/:projectId/candidates" element={<ProjectCandidatesRedirect />} />
+      <Route path="/projects/:projectId/verification" element={<ProjectRoute><VerificationPage /></ProjectRoute>} />
       <Route path="/projects/:projectId/rankings" element={<ProjectRoute><CandidateRanking /></ProjectRoute>} />
       <Route path="/projects/:projectId/shortlist" element={<ProjectRoute><Shortlist /></ProjectRoute>} />
       <Route path="/projects/:projectId/assessment" element={<ProjectRoute><Assessment /></ProjectRoute>} />

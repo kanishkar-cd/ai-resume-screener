@@ -7,13 +7,29 @@ from app.services.pipeline.canonical_dictionaries import (
 )
 from app.services.pipeline.normalization_rules import (
     NormalizationAudit, canonicalize, clean_text, duration_between, format_duration,
-    normalize_company, normalize_date, normalize_list, normalize_phone, stable_unique,
+    normalize_candidate_identity, normalize_company, normalize_date, normalize_email,
+    normalize_list, normalize_name, normalize_phone, stable_unique,
 )
 
 
 class ResumeNormalizer:
     def normalize(self, extracted: Any) -> dict[str, Any]:
         audit = NormalizationAudit()
+
+        raw_name = getattr(extracted, "candidate_name", None) or (extracted.get("candidate_name") if isinstance(extracted, dict) else None)
+        raw_phone = getattr(extracted, "phone", None) or (extracted.get("phone") if isinstance(extracted, dict) else None)
+        raw_email = getattr(extracted, "email", None) or (extracted.get("email") if isinstance(extracted, dict) else None)
+
+        identity_result = normalize_candidate_identity(
+            candidate_name=raw_name,
+            email=raw_email,
+            phone=raw_phone,
+        )
+        norm_phone = normalize_phone(raw_phone, audit)
+        norm_email = normalize_email(raw_email, audit)
+        norm_name = normalize_name(raw_name, audit)
+        audit.set_identity(identity_result["identity_metadata"])
+
         skills = normalize_list(list(extracted.skills or []), SKILL_ALIASES, "skills", audit)
         education = [self._education(item, audit) for item in (extracted.education or [])]
         experience = [self._experience(item, audit) for item in (extracted.experience or [])]
@@ -45,23 +61,14 @@ class ResumeNormalizer:
             "job_titles": stable_unique(job_titles),
             "experience": experience,
             "projects": projects,
-            "phone": normalize_phone(getattr(extracted, "phone", None) or (extracted.get("phone") if isinstance(extracted, dict) else None), audit),
-            "email": self._email(getattr(extracted, "email", None) or (extracted.get("email") if isinstance(extracted, dict) else None), audit),
+            "phone": norm_phone,
+            "email": norm_email,
             "locations": [location] if location else [],
             "languages": normalize_list(list(extracted.languages or []), LANGUAGE_ALIASES, "languages", audit),
             "certifications": normalize_list(list(extracted.certifications or []), CERTIFICATION_ALIASES, "certifications", audit),
             "normalization_metadata": audit.metadata(),
             "ruleset_version": RULESET_VERSION,
         }
-
-    @staticmethod
-    def _email(value: str | None, audit: NormalizationAudit) -> str | None:
-        if not value:
-            return None
-        source = clean_text(value)
-        canonical = source.lower()
-        audit.record("email", source, canonical, "email_lowercase", 1.0)
-        return canonical
 
     @staticmethod
     def _location(value: str | None, audit: NormalizationAudit) -> dict[str, str | None] | None:

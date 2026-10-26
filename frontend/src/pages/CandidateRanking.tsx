@@ -23,6 +23,7 @@ import {
   Award,
   Loader2,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
@@ -39,6 +40,7 @@ import {
 } from '@/api'
 import type { MatchVerdict } from '@/types'
 import { CandidateProfile } from '@/components/ui/DocumentProfiles'
+import CandidateVerificationDashboard from '@/components/verification/CandidateVerificationDashboard'
 
 // ─── Animation variants ───────────────────────────────────────────────────────
 const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }
@@ -749,6 +751,9 @@ export default function CandidateRanking() {
   // State
   const [isScoringInProgress, setIsScoringInProgress] = useState(false)
   const [scoringError, setScoringError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'rankings' | 'verification'>(() => {
+    return location.pathname.includes('/verification') ? 'verification' : 'rankings'
+  })
 
   const candidates: Candidate[] = state.candidates
   const candidatesRef = React.useRef(candidates)
@@ -1013,7 +1018,15 @@ export default function CandidateRanking() {
               AI candidate evaluation and relevance rankings based on job requirements and screening criteria.
             </p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('verification')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+            >
+              <ShieldCheck size={15} className="text-blue-600" />
+              <span>Verify All Candidates</span>
+            </button>
             <select
               className="text-xs border border-slate-200 rounded-xl px-3 py-2 text-slate-600 outline-none bg-white font-semibold hover:border-slate-300 transition-colors shadow-2xs cursor-pointer"
               onChange={async (e) => {
@@ -1049,6 +1062,37 @@ export default function CandidateRanking() {
           </div>
         </motion.div>
 
+        {/* ── View Mode Switcher Pills ── */}
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('rankings')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              activeTab === 'rankings'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Candidate Rankings & Screening
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('verification')}
+            className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              activeTab === 'verification'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <ShieldCheck size={14} />
+            <span>Identity & Repeat Verification</span>
+          </button>
+        </div>
+
+        {activeTab === 'verification' ? (
+          <CandidateVerificationDashboard projectId={projectId || ''} />
+        ) : (
+          <>
         {/* ── Scoring Error Banner with Retry ── */}
         {scoringError && (
           <motion.div
@@ -1275,6 +1319,8 @@ export default function CandidateRanking() {
             </div>
           )}
         </motion.div>
+          </>
+        )}
 
       </motion.div>
     </>

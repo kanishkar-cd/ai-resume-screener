@@ -3,6 +3,7 @@
  * UI components are not wired here — call these from pages/store later.
  */
 import { apiRequest } from './client'
+export * from './types'
 import type {
   AssessmentHandoffData,
   AssessmentStatusResponse,
@@ -259,6 +260,35 @@ export const api = {
   async exportProjectData(projectId: string, format: 'csv' | 'excel' | 'json' | 'pdf'): Promise<Blob> {
     const res = await apiRequest<Response>(`/projects/${projectId}/export/${format}`, { raw: true })
     return res.blob()
+  },
+
+  // ── Candidate Verification (Phases 1–5) ───────────────────
+  verifyProjectCandidates(projectId: string, forceReverify = false): Promise<import('./types').BatchVerificationSummary> {
+    return apiRequest<import('./types').BatchVerificationSummary>(`/projects/${projectId}/verify-candidates`, {
+      method: 'POST',
+      body: { force_reverify: forceReverify },
+    })
+  },
+
+  getProjectVerificationStatus(projectId: string): Promise<import('./types').BatchVerificationSummary> {
+    return apiRequest<import('./types').BatchVerificationSummary>(`/projects/${projectId}/verification-status`)
+  },
+
+  retryProjectCandidateVerification(projectId: string): Promise<import('./types').BatchVerificationSummary> {
+    return apiRequest<import('./types').BatchVerificationSummary>(`/projects/${projectId}/verify-candidates/retry`, {
+      method: 'POST',
+    })
+  },
+
+  verifyZohoJobCandidates(jobId: string, forceReverify = false): Promise<import('./types').BatchVerificationSummary> {
+    return apiRequest<import('./types').BatchVerificationSummary>(`/zoho/job-openings/${jobId}/verify-candidates`, {
+      method: 'POST',
+      body: { force_reverify: forceReverify },
+    })
+  },
+
+  getZohoJobVerificationStatus(jobId: string): Promise<import('./types').BatchVerificationSummary> {
+    return apiRequest<import('./types').BatchVerificationSummary>(`/zoho/job-openings/${jobId}/verification-status`)
   },
 }
 

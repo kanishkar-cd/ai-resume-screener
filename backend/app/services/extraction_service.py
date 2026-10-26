@@ -115,6 +115,21 @@ class ExtractionService:
                         error_type=type(exc).__name__,
                     )
                 extracted = merge_resume_extractions(deterministic, ai_extracted)
+
+                # Supplement missing identity fields from document metadata (e.g. Zoho import) and preserve raw identity
+                doc_meta = document.metadata_json or {}
+                for id_field in ("candidate_name", "email", "phone"):
+                    if not extracted.get(id_field) and doc_meta.get(id_field):
+                        extracted[id_field] = doc_meta[id_field]
+
+                raw_meta = dict(extracted.get("raw_metadata") or {})
+                raw_meta["raw_identity"] = {
+                    "candidate_name": doc_meta.get("raw_candidate_name") or extracted.get("candidate_name"),
+                    "email": doc_meta.get("raw_email") or extracted.get("email"),
+                    "phone": doc_meta.get("raw_phone") or extracted.get("phone"),
+                }
+                extracted["raw_metadata"] = raw_meta
+
                 await self.extraction_repository.create_or_update_resume(
                     ExtractedResumeCreate(document_id=document_id, **extracted),
                     commit=False, refresh=False,

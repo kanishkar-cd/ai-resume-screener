@@ -6,6 +6,12 @@ from typing import Any
 
 
 from app.services.pipeline.canonical_dictionaries import RULESET_VERSION
+from app.services.pipeline.identity_rules import (
+    normalize_candidate_identity,
+    normalize_candidate_name,
+    normalize_email_address,
+    normalize_phone_number,
+)
 
 
 def clean_text(value: str) -> str:
@@ -74,26 +80,37 @@ def normalize_date(value: str | None, field: str, audit: NormalizationAudit) -> 
     return source, False
 
 
-def normalize_phone(value: Any, audit: NormalizationAudit) -> str | None:
-    if not value:
-        return None
-    if isinstance(value, dict):
-        value = value.get("formattedNumber") or value.get("rawText") or value.get("raw")
-    if not isinstance(value, str) or not value.strip():
-        return None
-    source = clean_text(value)
-    digits = re.sub(r"\D", "", source)
-    if not digits or len(digits) < 7 or len(digits) > 15:
-        return None
-    if len(digits) == 10 and not source.startswith("+"):
-        canonical = f"+91{digits}"
-    elif source.startswith("+"):
-        canonical = f"+{digits}"
-    else:
-        canonical = source
-    audit.record("phone", source, canonical, "e164_format", 1.0)
+def normalize_phone(value: Any, audit: NormalizationAudit | None = None, default_region: str = "IN") -> str | None:
+    canonical, meta = normalize_phone_number(value, default_region=default_region)
+    if audit is not None:
+        source = str(value) if value is not None else None
+        if canonical:
+            audit.record("phone", source, canonical, "e164_format", 1.0)
+        elif source and meta.get("reason") not in ("empty_string", "missing_or_non_string"):
+            audit.warnings.append(f"Invalid phone: {source}")
     return canonical
 
+
+def normalize_email(value: Any, audit: NormalizationAudit | None = None) -> str | None:
+    canonical, meta = normalize_email_address(value)
+    if audit is not None:
+        source = str(value) if value is not None else None
+        if canonical:
+            audit.record("email", source, canonical, "email_lowercase", 1.0)
+        elif source and meta.get("reason") not in ("empty_string", "missing_or_non_string"):
+            audit.warnings.append(f"Invalid email: {source}")
+    return canonical
+
+
+def normalize_name(value: Any, audit: NormalizationAudit | None = None) -> str | None:
+    canonical, meta = normalize_candidate_name(value)
+    if audit is not None:
+        source = str(value) if value is not None else None
+        if canonical:
+            audit.record("candidate_name", source, canonical, "name_normalization", 1.0)
+        elif source and meta.get("reason") not in ("empty_string", "missing_or_non_string"):
+            audit.warnings.append(f"Invalid candidate_name: {source}")
+    return canonical
 
 
 class NormalizationAudit:
@@ -104,23 +121,37 @@ class NormalizationAudit:
         self.aliases_resolved: int = 0
         self.duplicates_removed: int = 0
         self.fields_normalized: set[str] = set()
+        self.identity: dict[str, Any] = {}
+
+    def set_identity(self, identity: dict[str, Any]) -> None:
+        self.identity = identity
 
     def record(self, field: str, source: str | None, canonical: str | None, rule: str, confidence: float) -> None:
         self._scores.setdefault(field, []).append(confidence)
         self.fields_normalized.add(field)
         if source != canonical:
             self.changes.append({"field": field, "source": source, "canonical": canonical, "rule": rule})
-            if "alias" in rule or rule in {"exact_canonical", "email_lowercase", "e164_format", "company_legal_suffix", "date_format"}:
+            if "alias" in rule or rule in {
+                "exact_canonical",
+                "email_lowercase",
+                "e164_format",
+                "company_legal_suffix",
+                "date_format",
+                "name_normalization",
+            }:
                 self.aliases_resolved += 1
         # Do not emit warnings for valid preserved unknown values for standard fields
-        if rule == "preserved_unknown" and source and field not in {"companies", "phone", "certifications", "locations", "email", "skills", "job_titles", "keywords"}:
+        if rule == "preserved_unknown" and source and field not in {
+            "companies", "phone", "certifications", "locations", "email", "skills",
+            "job_titles", "keywords", "candidate_name",
+        }:
             self.warnings.append(f"No canonical alias for {field}: {source}")
 
     def record_duplicates_removed(self, count: int) -> None:
         self.duplicates_removed += count
 
     def metadata(self) -> dict[str, Any]:
-        return {
+        result = {
             "ruleset_version": RULESET_VERSION,
             "normalized_at": datetime.now(UTC),
             "changes": self.changes,
@@ -130,6 +161,9 @@ class NormalizationAudit:
             "duplicates_removed": self.duplicates_removed,
             "fields_normalized": sorted(list(self.fields_normalized)),
         }
+        if self.identity:
+            result["identity"] = self.identity
+        return result
 
 
 _CATEGORY_LABEL_PREFIX = re.compile(
@@ -266,49 +300,5 @@ def format_duration(months: int | None) -> str | None:
     if years: parts.append(f"{years} year{'s' if years != 1 else ''}")
     if remaining: parts.append(f"{remaining} month{'s' if remaining != 1 else ''}")
     return " ".join(parts) or "0 months"
-
-
-def normalize_phone(value: str | None, audit: NormalizationAudit) -> str | None:
-    if not value:
-        return None
-    source = clean_text(value)
-    
-    # Reject masked numbers or placeholders (e.g. +91-XXXXXXXXXX, 98765XXXXX)
-    if re.search(r"[xX]{2,}", source):
-        return None
-        
-    digits = re.sub(r"\D", "", source)
-    if len(digits) < 8 or len(digits) > 15:
-        return None
-        
-    # Reject dummy repeating digits (e.g. 0000000000, 9999999999, 1234567890)
-    if len(set(digits)) <= 2 or digits == "1234567890":
-        return None
-
-    # 10-digit Indian mobile numbers starting with 6, 7, 8, 9 -> +91XXXXXXXXXX
-    if len(digits) == 10 and digits[0] in "6789" and not source.startswith("+"):
-        canonical = f"+91{digits}"
-        audit.record("phone", source, canonical, "e164_format", 1.0)
-        return canonical
-
-    # Already has + or standard international digits
-    if source.startswith("+") and 8 <= len(digits) <= 15:
-        canonical = f"+{digits}"
-        audit.record("phone", source, canonical, "e164_format", 1.0)
-        return canonical
-
-    if len(digits) == 12 and digits.startswith("91") and digits[2] in "6789":
-        canonical = f"+{digits}"
-        audit.record("phone", source, canonical, "e164_format", 1.0)
-        return canonical
-
-    if len(digits) == 11 and digits.startswith("1"):
-        canonical = f"+{digits}"
-        audit.record("phone", source, canonical, "e164_format", 1.0)
-        return canonical
-
-    canonical = f"+{digits}" if 8 <= len(digits) <= 15 else source
-    audit.record("phone", source, canonical, "e164_format" if canonical.startswith("+") else "preserved_unknown", 1.0)
-    return canonical
 
 

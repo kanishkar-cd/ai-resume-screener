@@ -55,6 +55,7 @@ class NormalizationMetadata(BaseModel):
     changes: list[NormalizationChange] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     field_confidence: dict[str, float] = Field(default_factory=dict)
+    identity: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("field_confidence")
     @classmethod

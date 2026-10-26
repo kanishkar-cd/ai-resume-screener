@@ -5,6 +5,7 @@ import { api } from '@/api'
 
 const tabs = [
   ['Rankings', 'rankings'],
+  ['Verification', 'verification'],
   ['Shortlist', 'shortlist'],
   ['Assessment', 'assessment'],
   ['Reports', 'reports'],

@@ -19,8 +19,10 @@ import {
   Database,
   Cpu,
   Trash2,
+  X,
 } from 'lucide-react'
 import UploadCard from '@/components/ui/UploadCard'
+import CandidateVerificationDashboard from '@/components/verification/CandidateVerificationDashboard'
 import { usePipeline } from '@/store/pipelineStore'
 import {
   UploadedFile,
@@ -969,6 +971,31 @@ export default function ResumeUpload() {
     })
   }
 
+  const [isStartingVerification, setIsStartingVerification] = useState(false)
+  const [showVerificationSection, setShowVerificationSection] = useState(false)
+
+  const canVerifyCandidates = Boolean(
+    state.projectId &&
+      (normalizedCount > 0 || (successfulCount > 0 && !busy)) &&
+      !isUploading &&
+      !isProcessingResumes &&
+      !isZohoSyncing,
+  )
+
+  const handleVerifyAllCandidates = async () => {
+    if (!state.projectId || !canVerifyCandidates || isStartingVerification) return
+    setIsStartingVerification(true)
+    setUploadError(null)
+    try {
+      await api.verifyProjectCandidates(state.projectId, true)
+      setShowVerificationSection(true)
+    } catch (err) {
+      setUploadError(errorMessage(err, 'Failed to trigger candidate verification'))
+    } finally {
+      setIsStartingVerification(false)
+    }
+  }
+
   const handleBack = () => {
     navigate('/dashboard')
   }
@@ -993,24 +1020,54 @@ export default function ResumeUpload() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsZohoModalOpen(true)}
-          disabled={busy}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:from-amber-400 hover:to-orange-400 shadow-sm transition-all disabled:opacity-50"
-        >
-          {isZohoSyncing ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              <span>Syncing from Zoho…</span>
-            </>
-          ) : (
-            <>
-              <Sparkles size={16} />
-              <span>Sync Applicants from Zoho</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsZohoModalOpen(true)}
+            disabled={busy}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:from-amber-400 hover:to-orange-400 shadow-sm transition-all disabled:opacity-50"
+          >
+            {isZohoSyncing ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>Syncing from Zoho…</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} />
+                <span>Sync Applicants from Zoho</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleVerifyAllCandidates()}
+            disabled={!canVerifyCandidates || isStartingVerification}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
+              canVerifyCandidates && !isStartingVerification
+                ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-blue-500/20'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+            }`}
+            title={
+              !canVerifyCandidates
+                ? 'Available once all resumes are fetched and processed'
+                : 'Run deterministic candidate identity verification and repeat application detection'
+            }
+          >
+            {isStartingVerification ? (
+              <>
+                <Loader2 size={16} className="animate-spin text-white" />
+                <span>Verifying…</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={16} className={canVerifyCandidates ? 'text-white' : 'text-slate-400'} />
+                <span>Verify All Candidates</span>
+              </>
+            )}
+          </button>
+        </div>
       </motion.div>
 
       {/* Resume Processing Pipeline Steps Card */}
@@ -1546,6 +1603,17 @@ export default function ResumeUpload() {
                 <span className="text-xs font-bold text-red-700">{failedCount}</span>
               </div>
             )}
+            {canVerifyCandidates && (
+              <button
+                type="button"
+                onClick={() => void handleVerifyAllCandidates()}
+                disabled={isStartingVerification}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold cursor-pointer transition-all shadow-2xs"
+              >
+                <ShieldCheck size={14} className="text-blue-600" />
+                <span>{showVerificationSection ? 'Re-Verify Candidates' : 'Verify All Candidates'}</span>
+              </button>
+            )}
           </div>
         </div>
       </motion.div>
@@ -1555,6 +1623,54 @@ export default function ResumeUpload() {
           {uploadError}
         </motion.div>
       )}
+
+      {/* Candidate Verification Dashboard Section */}
+      <AnimatePresence>
+        {showVerificationSection && state.projectId && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="mb-6 rounded-2xl border border-blue-200 bg-white p-6 shadow-md"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-200">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Candidate Identity & Repeat Verification</h3>
+                  <p className="text-xs text-slate-500">
+                    Deterministic identity matching, conflict detection, and repeat application history.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${state.projectId}/verification`)}
+                  className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 cursor-pointer transition-colors"
+                >
+                  Full View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowVerificationSection(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  title="Close section"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <CandidateVerificationDashboard
+              projectId={state.projectId}
+              onClose={() => setShowVerificationSection(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Action Footer Bar */}
       <motion.div variants={fadeUp} className="card p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1571,7 +1687,7 @@ export default function ResumeUpload() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
           <motion.button
             onClick={handleBack}
             disabled={busy}
@@ -1581,6 +1697,31 @@ export default function ResumeUpload() {
           >
             <ArrowLeft size={15} />
             Back to Dashboard
+          </motion.button>
+
+          <motion.button
+            type="button"
+            onClick={() => void handleVerifyAllCandidates()}
+            disabled={!canVerifyCandidates || isStartingVerification}
+            whileHover={canVerifyCandidates && !isStartingVerification ? { scale: 1.02 } : undefined}
+            whileTap={canVerifyCandidates && !isStartingVerification ? { scale: 0.98 } : undefined}
+            className={`flex-1 sm:flex-initial py-2.5 px-5 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 transition-all shadow-sm ${
+              canVerifyCandidates && !isStartingVerification
+                ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-blue-500/20'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed border-transparent shadow-none'
+            }`}
+          >
+            {isStartingVerification ? (
+              <>
+                <Loader2 size={15} className="animate-spin text-white" />
+                <span>Verifying…</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={15} />
+                <span>Verify All Candidates</span>
+              </>
+            )}
           </motion.button>
 
           <motion.button

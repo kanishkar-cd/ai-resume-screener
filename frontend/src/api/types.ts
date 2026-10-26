@@ -851,3 +851,68 @@ export interface ResumeRetryRead {
 
 export type ResumeRetryResponse = ApiDataEnvelope<ResumeRetryRead>
 
+// ─── Candidate Verification (Phases 1–5) ──────────────────────────
+
+export type CandidateVerificationStatus = 'VERIFIED' | 'REVIEW_REQUIRED' | 'FAILED' | 'PENDING'
+export type BatchVerificationStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED'
+export type CandidateIdentityStatus = 'EXISTING_CANDIDATE' | 'NEW_CANDIDATE' | 'REVIEW_REQUIRED'
+export type RepeatApplicationStatus =
+  | 'FIRST_APPLICATION'
+  | 'REPEAT_APPLICATION_SAME_JOB'
+  | 'REPEAT_APPLICATION_DIFFERENT_JOB'
+  | 'MULTIPLE_PREVIOUS_APPLICATIONS'
+  | 'IDENTITY_REVIEW_REQUIRED'
+  | 'JOB_OPENING_REQUIRED'
+
+export interface ApplicationHistoryItem {
+  job_opening_id?: string | null
+  project_id?: string | null
+  job_title?: string | null
+  document_ids: string[]
+  applied_at?: string | null
+  is_same_job: boolean
+  source?: string | null
+}
+
+export interface CandidateVerificationItemResult {
+  candidate_identifier: string
+  document_ids: string[]
+  candidate_name?: string | null
+  email?: string | null
+  phone?: string | null
+  zoho_candidate_id?: string | null
+  verification_status: CandidateVerificationStatus
+  identity_status?: CandidateIdentityStatus | null
+  repeat_application_status?: RepeatApplicationStatus | null
+  is_repeat_applicant: boolean
+  confidence: number
+  reasons: string[]
+  conflicts: Array<Record<string, unknown>>
+  previous_applications: ApplicationHistoryItem[]
+  verified_at?: string | null
+  error_message?: string | null
+}
+
+export interface BatchVerificationSummary {
+  batch_id: string
+  job_opening_id?: string | null
+  project_id?: string | null
+  status: BatchVerificationStatus
+  total_candidates: number
+  processed_candidates: number
+  verified_candidates: number
+  review_required_candidates: number
+  failed_candidates: number
+  progress_percentage: number
+  started_at?: string | null
+  completed_at?: string | null
+  results: CandidateVerificationItemResult[]
+  error_message?: string | null
+}
+
+export interface BatchVerificationRequest {
+  force_reverify?: boolean
+}
+
+export type BatchVerificationResponse = ApiDataEnvelope<BatchVerificationSummary>
+

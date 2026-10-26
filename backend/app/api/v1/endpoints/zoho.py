@@ -57,6 +57,7 @@ from app.services.jd_normalization_service import JDNormalizationService
 from app.services.parsing_service import ParsingService
 from app.services.project_service import ProjectNotFoundException
 from app.services.storage_service import StorageService
+from app.services.pipeline.identity_rules import normalize_candidate_identity
 from app.services.zoho_recruit_service import (
     ZohoJobOpening,
     ZohoRecruitClient,
@@ -551,6 +552,12 @@ async def import_zoho_applicants(
 
                 existing_hashes.add(file_hash)
 
+                cand_identity = normalize_candidate_identity(
+                    candidate_name=resume.full_name,
+                    email=resume.email,
+                    phone=resume.phone,
+                )
+
                 doc_model = DocumentModel(
                     id=doc_id,
                     project_id=project_id,
@@ -571,9 +578,13 @@ async def import_zoho_applicants(
                         "zoho_job_opening_code": opening_code,
                         "zoho_attachment_modified_time": resume.attachment.modified_time,
                         "zoho_candidate_modified_time": resume.modified_time,
-                        "candidate_name": resume.full_name,
-                        "email": resume.email,
-                        "phone": resume.phone,
+                        "candidate_name": cand_identity["candidate_name"] or resume.full_name,
+                        "email": cand_identity["email"] or resume.email,
+                        "phone": cand_identity["phone"] or resume.phone,
+                        "raw_candidate_name": resume.full_name,
+                        "raw_email": resume.email,
+                        "raw_phone": resume.phone,
+                        "identity": cand_identity["identity_metadata"],
                         "source": resume.source,
                     },
                     created_at=now,
