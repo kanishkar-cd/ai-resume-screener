@@ -5,7 +5,12 @@ from uuid import UUID, uuid4
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exceptions import AppException, ValidationException, InternalServerException
+from app.core.exceptions import (
+    AppException,
+    CandidateNotVerifiedException,
+    InternalServerException,
+    ValidationException,
+)
 from app.models.assessment_invitation import CandidateAssessmentModel
 from app.repositories.assessment_repository import AssessmentRepository
 from app.repositories.document_repository import DocumentRepository
@@ -13,6 +18,7 @@ from app.repositories.extraction_repository import ExtractionRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
 from app.schemas.assessment import AssessmentHandoffData, CandidateAssessmentItem
+from app.schemas.candidate_verification import is_document_verified
 from app.schemas.project import ProjectStatus, ProjectUpdate
 from app.services.cd_recruit_mapper import calibrate_experience, map_department_code
 from app.services.cd_recruit_service import CDRecruitService
@@ -128,6 +134,17 @@ class AssessmentService:
 
             if document is None or document.project_id != project_id:
                 raise DocumentNotFoundException(f"Candidate document {doc_id} not found in this project.")
+
+            # Phase 3 Verified-only progression gate
+            if not is_document_verified(document):
+                logger.warning(
+                    "[ASSESSMENT_HANDOFF] unverified_candidate_rejected",
+                    project_id=str(project_id),
+                    document_id=str(doc_id),
+                )
+                raise CandidateNotVerifiedException(
+                    f"Candidate document {doc_id} has not been verified. Only VERIFIED candidates can be handed off for assessment."
+                )
 
             try:
                 extracted = await self.extractions.get_resume_by_document_id(doc_id)

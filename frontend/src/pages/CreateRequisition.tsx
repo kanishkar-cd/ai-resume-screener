@@ -204,6 +204,29 @@ export default function CreateRequisition() {
         extractedJdRef.current = res.extracted
       }
 
+      // Update session state with the Zoho job opening title so the Resume Upload page
+      // can display the correct job opening after refresh or navigation.
+      dispatch({
+        type: 'SELECT_PROJECT',
+        payload: {
+          id: projId,
+          title: safeTitle,
+          target_role: safeRole,
+          department: department.name || 'Software Engineering',
+          description: `Requisition ${reqRef} imported from Zoho Recruit (${job.id})`,
+          status: 'DRAFT',
+          metadata_json: {
+            experience_level: expLevel,
+            req_ref: reqRef,
+            zoho_job_id: job.id,
+            zoho_job_opening_title: job.posting_title,
+            zoho_job_opening_code: job.job_opening_id || '',
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      })
+
       api.createWeightConfig(projId, {
         passing_score: passingScore,
         weights: defaultWeights,

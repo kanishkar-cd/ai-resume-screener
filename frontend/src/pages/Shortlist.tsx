@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   UserCheck,
@@ -12,32 +12,78 @@ import {
   Award,
   ArrowRight,
   Loader2,
+  AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react'
 import { DEPARTMENTS } from '@/constants/departments'
 import { usePipeline } from '@/store/pipelineStore'
-import { api } from '@/api'
+import { api, ApiError } from '@/api'
 
 export default function Shortlist() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { state, dispatch } = usePipeline()
   const [isSending, setIsSending] = useState(false)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
+  const [verifiedDocIds, setVerifiedDocIds] = useState<Set<string>>(new Set())
+  const [loadedVerification, setLoadedVerification] = useState(false)
 
   // Filter candidates who are currently shortlisted ('screened')
   const shortlistedCandidates = state.candidates.filter((c) => c.status === 'screened')
 
-  const [selectedForAssessment, setSelectedForAssessment] = useState<string[]>(
-    shortlistedCandidates.map((c) => c.id)
-  )
+  // Load backend document verification status to determine eligibility
+  useEffect(() => {
+    if (!projectId) return
+    let active = true
+    void api
+      .listProjectResumes(projectId)
+      .then((res) => {
+        if (!active) return
+        const set = new Set<string>()
+        for (const doc of res.items || []) {
+          const status = (doc.metadata_json as Record<string, any> | undefined)?.verification?.verification_status
+          if (status === 'VERIFIED') {
+            set.add(doc.id)
+          }
+        }
+        setVerifiedDocIds(set)
+        setLoadedVerification(true)
+      })
+      .catch(() => {
+        if (active) setLoadedVerification(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [projectId])
+
+  const [selectedForAssessment, setSelectedForAssessment] = useState<string[]>([])
+
+  // Initialize selected candidates, selecting only verified candidates
+  useEffect(() => {
+    if (!loadedVerification) {
+      setSelectedForAssessment(shortlistedCandidates.map((c) => c.id))
+    } else {
+      setSelectedForAssessment(
+        shortlistedCandidates
+          .filter((c) => verifiedDocIds.has(c.id))
+          .map((c) => c.id),
+      )
+    }
+  }, [shortlistedCandidates, loadedVerification, verifiedDocIds])
 
   const toggleSelect = (id: string) => {
+    if (loadedVerification && !verifiedDocIds.has(id)) return
     setSelectedForAssessment((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
     )
   }
 
   const handleSelectAll = () => {
-    setSelectedForAssessment(shortlistedCandidates.map((c) => c.id))
+    const eligible = loadedVerification
+      ? shortlistedCandidates.filter((c) => verifiedDocIds.has(c.id)).map((c) => c.id)
+      : shortlistedCandidates.map((c) => c.id)
+    setSelectedForAssessment(eligible)
   }
 
   const handleDeselectAll = () => {
@@ -47,6 +93,19 @@ export default function Shortlist() {
   const handleSendToAssessment = async () => {
     if (selectedForAssessment.length === 0 || isSending) {
       return
+    }
+
+    setHandoffError(null)
+
+    // Check if any selected candidate is unverified (Phase 3 Progression UX check)
+    if (loadedVerification) {
+      const ineligible = selectedForAssessment.filter((id) => !verifiedDocIds.has(id))
+      if (ineligible.length > 0) {
+        setHandoffError(
+          `${ineligible.length} candidate(s) have unverified identity. Only candidates with persisted VERIFIED status can be handed off for assessment.`,
+        )
+        return
+      }
     }
 
     setIsSending(true)
@@ -68,15 +127,11 @@ export default function Shortlist() {
       const linksMap: Record<string, string | null> = {}
 
       if (projectId) {
-        try {
-          const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
-          if (response?.candidates) {
-            for (const item of response.candidates) {
-              linksMap[item.candidate_id] = item.assessment_link
-            }
+        const response = await api.handoffAssessment(projectId, selectedForAssessment, reqRef)
+        if (response?.candidates) {
+          for (const item of response.candidates) {
+            linksMap[item.candidate_id] = item.assessment_link
           }
-        } catch (err: any) {
-          console.error('Backend handoff error:', err)
         }
       }
 
@@ -86,7 +141,11 @@ export default function Shortlist() {
       })
       navigate(`/projects/${projectId}/assessment`)
     } catch (err: any) {
-      alert(err?.message || 'Assessment handoff encountered an issue. Please try again.')
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : err?.message || 'Assessment handoff encountered an issue. Please try again.'
+      setHandoffError(msg)
     } finally {
       setIsSending(false)
     }
@@ -95,6 +154,7 @@ export default function Shortlist() {
   const countText = `${selectedForAssessment.length} ${
     selectedForAssessment.length === 1 ? 'candidate' : 'candidates'
   } selected`
+
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-5 pb-6">
@@ -136,6 +196,28 @@ export default function Shortlist() {
           </button>
         </div>
       </div>
+
+      {/* ── Progression UX Error Banner ── */}
+      {handoffError && (
+        <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/90 text-xs text-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-rose-900">Assessment Handoff Blocked</p>
+              <p className="mt-0.5 leading-relaxed">{handoffError}</p>
+            </div>
+          </div>
+          {projectId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}/verification`)}
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors shrink-0 shadow-2xs cursor-pointer"
+            >
+              Go to Candidate Verification →
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Candidates Selection Card ── */}
       <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
@@ -184,27 +266,30 @@ export default function Shortlist() {
                 <tr className="border-b border-slate-100 bg-slate-50/40 text-left">
                   <th className="px-6 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider w-16 text-center">Select</th>
                   <th className="px-6 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Candidate</th>
+                  <th className="px-6 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Verification Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {shortlistedCandidates.map((c) => {
+                  const isVerified = !loadedVerification || verifiedDocIds.has(c.id)
                   const isChecked = selectedForAssessment.includes(c.id)
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => toggleSelect(c.id)}
-                      className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                      onClick={() => isVerified && toggleSelect(c.id)}
+                      className={`${isVerified ? 'hover:bg-slate-50/70 cursor-pointer' : 'bg-slate-50/40 opacity-70 cursor-not-allowed'} transition-colors`}
                     >
                       <td className="px-6 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => toggleSelect(c.id)}
-                          className="text-slate-400 hover:text-blue-600 transition-colors cursor-pointer flex items-center justify-center mx-auto"
+                          disabled={!isVerified}
+                          onClick={() => isVerified && toggleSelect(c.id)}
+                          className={`${isVerified ? 'text-slate-400 hover:text-blue-600 cursor-pointer' : 'text-slate-300 cursor-not-allowed'} transition-colors flex items-center justify-center mx-auto`}
                         >
                           {isChecked ? (
                             <CheckSquare size={19} className="text-blue-600" />
                           ) : (
-                            <Square size={19} className="text-slate-300 hover:text-slate-400" />
+                            <Square size={19} className="text-slate-300" />
                           )}
                         </button>
                       </td>
@@ -218,6 +303,22 @@ export default function Shortlist() {
                             <p className="text-xs text-slate-500 font-normal mt-0.5">{c.email}</p>
                           </div>
                         </div>
+                      </td>
+                      <td className="px-6 py-3.5 text-right">
+                        {isVerified ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 size={11} className="text-emerald-500" />
+                            Verified
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                            title="Candidate must be verified before handoff to technical assessment"
+                          >
+                            <AlertTriangle size={11} className="text-amber-600" />
+                            Unverified (Blocked)
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )

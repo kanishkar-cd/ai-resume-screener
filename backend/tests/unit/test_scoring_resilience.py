@@ -11,6 +11,9 @@ from app.services.scoring_service import (
 
 
 def _build_facade(resumes, norm_models, ext_models, upsert_score_side_effect=None):
+    for r in resumes:
+        if isinstance(r, DocumentModel) and not getattr(r, "metadata_json", None):
+            r.metadata_json = {"verification": {"verification_status": "VERIFIED"}}
     mock_projects = MagicMock()
     mock_projects.get_by_id = AsyncMock(return_value=MagicMock())
 

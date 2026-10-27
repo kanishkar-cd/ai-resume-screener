@@ -9,7 +9,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
-from app.core.exceptions import AppException, InternalServerException
+from app.core.exceptions import (
+    AppException,
+    CandidateNotVerifiedException,
+    InternalServerException,
+)
 from app.models.document import DocumentModel, DocumentTypeEnum
 from app.models.weight_config import DEFAULT_PASSING_SCORE
 from app.repositories.document_repository import DocumentRepository
@@ -18,6 +22,7 @@ from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scoring_repository import ScoringRepository
 from app.repositories.weight_config_repository import WeightConfigRepository
+from app.schemas.candidate_verification import is_document_verified
 from app.schemas.scoring import CandidateScoreCreate, CandidateScoreRead, CategoryBreakdownItem, ProjectScoringRead
 from app.services.document_service import DocumentNotFoundException
 from app.services.project_service import ProjectNotFoundException
@@ -137,6 +142,9 @@ class ScoringEngineFacade:
                 stage_val = stage.value if hasattr(stage, "value") else str(stage)
                 if stage_val.upper() == "FAILED":
                     return False
+            # Phase 3 Verified-only progression gate: only documents with persisted verification status VERIFIED are eligible
+            if not is_document_verified(doc):
+                return False
             return norm_map.get(doc.id) is not None and ext_map.get(doc.id) is not None
 
         eligible_resumes = [doc for doc in resumes if _is_eligible(doc)]
@@ -356,11 +364,16 @@ class ScoringEngineFacade:
         return ProjectScoringRead(project_id=project_id, total_evaluated=len(scores), scores=scores)
 
     async def score_document(self, project_id: UUID, document_id: UUID) -> CandidateScoreRead:
-        job = await self._load_project_context(project_id)
         document = await self._get_document(document_id)
         if document.project_id != project_id: raise DocumentProjectMismatchException()
         if document.document_type != DocumentTypeEnum.RESUME:
             raise DocumentProjectMismatchException("Only project resumes can be scored.")
+        # Phase 3 Verified-only progression gate
+        if not is_document_verified(document):
+            raise CandidateNotVerifiedException(
+                f"Candidate document {document_id} has not been verified. Only VERIFIED resumes can be scored."
+            )
+        job = await self._load_project_context(project_id)
         weight_config = None
         weight_config_checked = False
         if self.weights is not None:
@@ -379,10 +392,22 @@ class ScoringEngineFacade:
         await self._verify_project(project_id)
         try: models = await self.scores.get_project_scores(project_id)
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve project scores.") from exc
+        if models and hasattr(self.documents, "get_documents_by_ids"):
+            try:
+                doc_ids = [m.document_id for m in models]
+                docs = await self.documents.get_documents_by_ids(doc_ids)
+                verified_ids = {d.id for d in docs if is_document_verified(d)}
+                models = [m for m in models if m.document_id in verified_ids]
+            except Exception as exc:
+                logger.warning("filter_unverified_project_scores_failed", error=str(exc))
         return [CandidateScoreRead.model_validate(model) for model in models]
 
     async def get_document_score(self, document_id: UUID) -> CandidateScoreRead:
-        await self._get_document(document_id)
+        document = await self._get_document(document_id)
+        if not is_document_verified(document):
+            raise CandidateNotVerifiedException(
+                f"Candidate document {document_id} has not been verified."
+            )
         try: model = await self.scores.get_document_score(document_id)
         except SQLAlchemyError as exc: raise InternalServerException("Unable to retrieve candidate score.") from exc
         if model is None: raise CandidateScoreNotFoundException()

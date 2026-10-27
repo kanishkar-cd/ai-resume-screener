@@ -290,5 +290,20 @@ export const api = {
   getZohoJobVerificationStatus(jobId: string): Promise<import('./types').BatchVerificationSummary> {
     return apiRequest<import('./types').BatchVerificationSummary>(`/zoho/job-openings/${jobId}/verification-status`)
   },
+
+  reviewCandidateDocument(
+    projectId: string,
+    documentId: string,
+    payload: import('./types').CandidateManualReviewRequest,
+  ): Promise<import('./types').CandidateManualReviewRead> {
+    return apiRequest<import('./types').CandidateManualReviewRead>(
+      `/projects/${projectId}/documents/${documentId}/review`,
+      {
+        method: 'POST',
+        body: payload,
+      },
+    )
+  },
 }
+
 

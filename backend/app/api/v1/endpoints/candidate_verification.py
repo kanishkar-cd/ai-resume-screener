@@ -1,13 +1,15 @@
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query, status
 
-from app.api.deps import DatabaseDependency
+from app.api.deps import DatabaseDependency, get_current_user_dep
 from app.schemas.candidate_verification import (
     BatchVerificationRequest,
     BatchVerificationResponse,
     BatchVerificationSummary,
+    CandidateManualReviewRequest,
+    CandidateManualReviewResponse,
 )
 from app.schemas.error import ErrorResponsePayload
 from app.services.candidate_verification_service import CandidateVerificationService
@@ -29,6 +31,7 @@ VerificationServiceDependency = Annotated[
     CandidateVerificationService, Depends(get_candidate_verification_service)
 ]
 ProjectId = Annotated[UUID, Path(description="Project UUID")]
+DocumentId = Annotated[UUID, Path(description="Resume Document UUID")]
 JobId = Annotated[str, Path(description="Zoho Job Opening ID or Project ID")]
 
 
@@ -84,6 +87,43 @@ async def retry_project_candidate_verification(
 ) -> BatchVerificationResponse:
     summary = await service.retry_failed_candidates(project_id)
     return BatchVerificationResponse(data=summary)
+
+
+@router.post(
+    "/projects/{project_id}/documents/{document_id}/review",
+    response_model=CandidateManualReviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Submit manual candidate identity review decision",
+    description=(
+        "Manually approve or reject a candidate resume whose identity requires review. "
+        "Validates project and document ownership and ensures current status is REVIEW_REQUIRED."
+    ),
+    responses={
+        **ERRORS,
+        422: {"model": ErrorResponsePayload, "description": "Validation error or invalid review decision."},
+    },
+)
+async def review_candidate_document(
+    project_id: ProjectId,
+    document_id: DocumentId,
+    payload: CandidateManualReviewRequest,
+    service: VerificationServiceDependency,
+    current_user: Any = Depends(get_current_user_dep),
+) -> CandidateManualReviewResponse:
+    reviewer_id = None
+    if current_user:
+        reviewer_id = (
+            getattr(current_user, "id", None)
+            or getattr(current_user, "email", None)
+            or str(current_user)
+        )
+    result = await service.review_candidate_document(
+        project_id=project_id,
+        document_id=document_id,
+        payload=payload,
+        reviewer_id=reviewer_id,
+    )
+    return CandidateManualReviewResponse(data=result)
 
 
 @router.post(

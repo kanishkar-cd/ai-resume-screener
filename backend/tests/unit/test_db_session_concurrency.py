@@ -13,6 +13,16 @@ from app.schemas.scoring import CandidateScoreRead
 from app.services.scoring_service import ScoringEngineFacade
 
 
+@pytest.fixture(autouse=True)
+def default_verified_documents(monkeypatch):
+    orig_init = DocumentModel.__init__
+    def patched_init(self, *args, **kwargs):
+        if "metadata_json" not in kwargs:
+            kwargs["metadata_json"] = {"verification": {"verification_status": "VERIFIED"}}
+        orig_init(self, *args, **kwargs)
+    monkeypatch.setattr(DocumentModel, "__init__", patched_init)
+
+
 def _make_score_model(score_create, **kwargs):
     now = datetime.now(timezone.utc)
     doc_id = score_create.document_id if hasattr(score_create, 'document_id') else UUID(str(score_create['document_id']))

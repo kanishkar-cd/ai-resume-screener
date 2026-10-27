@@ -10,6 +10,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.ranking_repository import RankingRepository
 from app.repositories.scoring_repository import ScoringRepository
+from app.schemas.candidate_verification import is_document_verified
 from app.schemas.ranking import (
     CandidateRankingRead, ProjectLeaderboardRead, ProjectRankingListRead,
     ProjectStatisticsRead, RankingComputationRead, RankingSortField, RankingSortOrder,
@@ -75,10 +76,16 @@ class RankingService:
             candidates = []
             for score in scores:
                 document = documents_by_id.get(score.document_id)
-                if document is not None:
+                if document is not None and is_document_verified(document):
                     candidates.append((score, document.created_at))
+                elif document is not None:
+                    logger.info(
+                        "[RANK] candidate_excluded_not_verified",
+                        project_id=str(project_id),
+                        document_id=str(document.id),
+                    )
             if not candidates:
-                raise NoScoredCandidatesException("No candidate documents found for scoring records.")
+                raise NoScoredCandidatesException("No scored candidates found with verified identity status to rank.")
 
             existing = await self.rankings.get_existing_rankings(project_id)
             previous = {ranking.document_id: ranking.rank_position for ranking in existing}

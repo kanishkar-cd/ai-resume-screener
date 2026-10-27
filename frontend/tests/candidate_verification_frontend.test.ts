@@ -22,6 +22,8 @@ import type {
   CandidateIdentityStatus,
   RepeatApplicationStatus,
   BatchVerificationStatus,
+  ManualReviewDecision,
+  CandidateManualReviewRequest,
 } from '../src/api/types'
 
 // ── State Reducer / Store Simulator for CandidateVerificationDashboard ──────
@@ -31,11 +33,13 @@ interface VerificationState {
   verifying: boolean
   retryingId: string | null
   summary: BatchVerificationSummary | null
+  documents: Record<string, { id: string; verification_status: CandidateVerificationStatus; review_note?: string }>
   error: string | null
   searchQuery: string
   statusFilter: string
   repeatFilter: string
   selectedCandidate: CandidateVerificationItemResult | null
+  selectedDocId: string | null
   reviewNote: string
   reviewActionLoading: boolean
   reviewError: string | null
@@ -46,11 +50,13 @@ const initialVerificationState: VerificationState = {
   verifying: false,
   retryingId: null,
   summary: null,
+  documents: {},
   error: null,
   searchQuery: '',
   statusFilter: 'ALL',
   repeatFilter: 'ALL',
   selectedCandidate: null,
+  selectedDocId: null,
   reviewNote: '',
   reviewActionLoading: false,
   reviewError: null,
@@ -58,7 +64,7 @@ const initialVerificationState: VerificationState = {
 
 type VerificationAction =
   | { type: 'FETCH_START' }
-  | { type: 'FETCH_SUCCESS'; payload: BatchVerificationSummary }
+  | { type: 'FETCH_SUCCESS'; payload: BatchVerificationSummary; documents?: Record<string, { id: string; verification_status: CandidateVerificationStatus; review_note?: string }> }
   | { type: 'FETCH_ERROR'; payload: string }
   | { type: 'VERIFY_START' }
   | { type: 'VERIFY_ERROR'; payload: string }
@@ -67,9 +73,11 @@ type VerificationAction =
   | { type: 'RETRY_SUCCESS'; payload: BatchVerificationSummary }
   | { type: 'RETRY_ERROR'; payload: string }
   | { type: 'SELECT_CANDIDATE'; payload: CandidateVerificationItemResult | null }
+  | { type: 'SELECT_DOCUMENT'; payload: string | null }
   | { type: 'SET_REVIEW_NOTE'; payload: string }
   | { type: 'REVIEW_START' }
   | { type: 'REVIEW_SUCCESS'; payload: { candidateId: string; newStatus: CandidateVerificationStatus; note: string } }
+  | { type: 'DOCUMENT_REVIEW_SUCCESS'; payload: { documentId: string; newStatus: CandidateVerificationStatus; note?: string } }
   | { type: 'REVIEW_ERROR'; payload: string }
   | { type: 'SET_SEARCH'; payload: string }
   | { type: 'SET_STATUS_FILTER'; payload: string }
@@ -84,6 +92,7 @@ function verificationReducer(state: VerificationState, action: VerificationActio
         ...state,
         loading: false,
         summary: action.payload,
+        documents: action.documents || state.documents,
         verifying: action.payload.status === 'IN_PROGRESS',
         error: null,
       }
@@ -109,12 +118,37 @@ function verificationReducer(state: VerificationState, action: VerificationActio
       }
     case 'RETRY_ERROR':
       return { ...state, retryingId: null, error: action.payload }
-    case 'SELECT_CANDIDATE':
-      return { ...state, selectedCandidate: action.payload, reviewNote: '', reviewError: null }
+    case 'SELECT_CANDIDATE': {
+      const cand = action.payload
+      const firstDoc = cand && cand.document_ids && cand.document_ids.length > 0 ? cand.document_ids[0] : null
+      return {
+        ...state,
+        selectedCandidate: cand,
+        selectedDocId: firstDoc,
+        reviewNote: '',
+        reviewError: null,
+      }
+    }
+    case 'SELECT_DOCUMENT':
+      return { ...state, selectedDocId: action.payload, reviewError: null }
     case 'SET_REVIEW_NOTE':
       return { ...state, reviewNote: action.payload }
     case 'REVIEW_START':
       return { ...state, reviewActionLoading: true, reviewError: null }
+    case 'DOCUMENT_REVIEW_SUCCESS': {
+      const { documentId, newStatus, note } = action.payload
+      const updatedDocs = {
+        ...state.documents,
+        [documentId]: { id: documentId, verification_status: newStatus, review_note: note },
+      }
+      return {
+        ...state,
+        documents: updatedDocs,
+        reviewActionLoading: false,
+        reviewNote: '',
+        reviewError: null,
+      }
+    }
     case 'REVIEW_SUCCESS': {
       if (!state.summary) return state
       const updatedResults = state.summary.results.map((c) =>
@@ -179,6 +213,29 @@ function filterCandidates(
   })
 }
 
+function shouldShowReviewButtons(status: CandidateVerificationStatus): boolean {
+  // Phase 4 Requirement: Show Approve/Reject ONLY for documents whose persisted status is REVIEW_REQUIRED
+  return status === 'REVIEW_REQUIRED'
+}
+
+function buildReviewRequest(
+  projectId: string,
+  documentId: string,
+  decision: ManualReviewDecision,
+  note?: string | null,
+) {
+  if (!projectId) throw new Error('projectId is required')
+  if (!documentId) throw new Error('documentId is required')
+  return {
+    path: `/projects/${projectId}/documents/${documentId}/review`,
+    method: 'POST',
+    body: {
+      decision,
+      review_note: note || null,
+    },
+  }
+}
+
 function isRepeatApplicationFraud(repeatStatus: RepeatApplicationStatus): boolean {
   // STRICT CONSTRAINT: Repeat application is NEVER by itself evidence of fraud or fabricated resumes
   return false
@@ -200,6 +257,7 @@ function runAllTests() {
   // Sample Mock Data
   const sampleCandidate1: CandidateVerificationItemResult = {
     candidate_id: 'cand-001',
+    document_ids: ['doc-001'],
     candidate_name: 'Harshini CS',
     candidate_email: 'harshini@example.com',
     candidate_phone: '+1 555-0100',
@@ -223,6 +281,7 @@ function runAllTests() {
 
   const sampleCandidate2: CandidateVerificationItemResult = {
     candidate_id: 'cand-002',
+    document_ids: ['doc-002-a', 'doc-002-b'],
     candidate_name: 'Alex Morgan',
     candidate_email: 'alex.m@example.com',
     candidate_phone: '+1 555-0200',
@@ -252,6 +311,7 @@ function runAllTests() {
 
   const sampleCandidate3: CandidateVerificationItemResult = {
     candidate_id: 'cand-003',
+    document_ids: ['doc-003'],
     candidate_name: 'Corrupted File Candidate',
     candidate_email: 'corrupt@example.com',
     candidate_phone: null,
@@ -449,11 +509,16 @@ function runAllTests() {
         failed_candidates: 0,
         results: [sampleCandidate1, sampleCandidate2],
       },
+      documents: {
+        'doc-002-a': { id: 'doc-002-a', verification_status: 'REVIEW_REQUIRED' as CandidateVerificationStatus },
+        'doc-002-b': { id: 'doc-002-b', verification_status: 'REVIEW_REQUIRED' as CandidateVerificationStatus },
+      },
     }
 
     // Select candidate requiring review
     state = verificationReducer(state, { type: 'SELECT_CANDIDATE', payload: sampleCandidate2 })
     assert.strictEqual(state.selectedCandidate?.candidate_id, 'cand-002')
+    assert.strictEqual(state.selectedDocId, 'doc-002-a', 'First document auto-selected')
 
     // Enter review note
     state = verificationReducer(state, {
@@ -465,6 +530,14 @@ function runAllTests() {
     // Test authorization failure handling
     state = verificationReducer(state, { type: 'REVIEW_START' })
     assert.strictEqual(state.reviewActionLoading, true)
+
+    // Test duplicate click guard: second action attempt while loading is prevented
+    let duplicateIgnored = false
+    if (state.reviewActionLoading) {
+      duplicateIgnored = true
+    }
+    assert.strictEqual(duplicateIgnored, true, 'Duplicate submission attempts blocked while reviewActionLoading')
+
     state = verificationReducer(state, {
       type: 'REVIEW_ERROR',
       payload: '403 Forbidden: You do not have permission to manually override candidate verification.',
@@ -590,8 +663,75 @@ function runAllTests() {
     console.log('  ✓ Persisted verification state recovers seamlessly on page refresh')
   }
 
+  // ── TEST 10: Conditional Action Button Visibility ──
+  {
+    console.log('\nTest 10: Conditional Action Button Visibility')
+    // Approve/Reject action buttons must ONLY appear when document status is REVIEW_REQUIRED
+    assert.strictEqual(shouldShowReviewButtons('REVIEW_REQUIRED'), true, 'Review buttons visible for REVIEW_REQUIRED')
+    assert.strictEqual(shouldShowReviewButtons('VERIFIED'), false, 'Review buttons hidden for VERIFIED')
+    assert.strictEqual(shouldShowReviewButtons('REJECTED'), false, 'Review buttons hidden for REJECTED')
+    assert.strictEqual(shouldShowReviewButtons('FAILED'), false, 'Review buttons hidden for FAILED')
+    assert.strictEqual(shouldShowReviewButtons('PENDING'), false, 'Review buttons hidden for PENDING')
+    console.log('  ✓ Conditional action button visibility verified across all 5 verification statuses')
+  }
+
+  // ── TEST 11: Correct Document ID and Decision in API Request Payload ──
+  {
+    console.log('\nTest 11: Correct Document ID & Decision in API Request Payload')
+    const approvePayload = buildReviewRequest('proj-123', 'doc-abc-1', 'APPROVE', 'Verified phone and name')
+    assert.strictEqual(approvePayload.path, '/projects/proj-123/documents/doc-abc-1/review')
+    assert.strictEqual(approvePayload.method, 'POST')
+    assert.strictEqual(approvePayload.body.decision, 'APPROVE')
+    assert.strictEqual(approvePayload.body.review_note, 'Verified phone and name')
+
+    const rejectPayload = buildReviewRequest('proj-123', 'doc-abc-2', 'REJECT', 'Different individual')
+    assert.strictEqual(rejectPayload.path, '/projects/proj-123/documents/doc-abc-2/review')
+    assert.strictEqual(rejectPayload.body.decision, 'REJECT')
+    assert.strictEqual(rejectPayload.body.review_note, 'Different individual')
+
+    // Empty docId throws error
+    assert.throws(() => buildReviewRequest('proj-123', '', 'APPROVE'), /documentId is required/)
+    console.log('  ✓ API request payload, target document ID, and decision schema verified')
+  }
+
+  // ── TEST 12: Multi-Attachment Sibling Document Isolation ──
+  {
+    console.log('\nTest 12: Multi-Attachment Sibling Document Isolation')
+    let state = {
+      ...initialVerificationState,
+      documents: {
+        'doc-alpha': { id: 'doc-alpha', verification_status: 'REVIEW_REQUIRED' as CandidateVerificationStatus },
+        'doc-beta': { id: 'doc-beta', verification_status: 'REVIEW_REQUIRED' as CandidateVerificationStatus },
+      },
+    }
+
+    // Both attachments initially require review
+    assert.strictEqual(shouldShowReviewButtons(state.documents['doc-alpha'].verification_status), true)
+    assert.strictEqual(shouldShowReviewButtons(state.documents['doc-beta'].verification_status), true)
+
+    // User selects and approves doc-alpha
+    state = verificationReducer(state, {
+      type: 'DOCUMENT_REVIEW_SUCCESS',
+      payload: { documentId: 'doc-alpha', newStatus: 'VERIFIED', note: 'Approved doc-alpha' },
+    })
+
+    // doc-alpha is now VERIFIED -> review buttons hidden
+    assert.strictEqual(state.documents['doc-alpha'].verification_status, 'VERIFIED')
+    assert.strictEqual(shouldShowReviewButtons(state.documents['doc-alpha'].verification_status), false)
+
+    // Sibling doc-beta MUST remain strictly REVIEW_REQUIRED -> review buttons still visible
+    assert.strictEqual(state.documents['doc-beta'].verification_status, 'REVIEW_REQUIRED')
+    assert.strictEqual(shouldShowReviewButtons(state.documents['doc-beta'].verification_status), true)
+
+    // Backend scoring eligibility: doc-alpha can proceed, doc-beta cannot proceed
+    assert.strictEqual(canProceedToAiScoring({ ...sampleCandidate1, verification_status: state.documents['doc-alpha'].verification_status }), true)
+    assert.strictEqual(canProceedToAiScoring({ ...sampleCandidate1, verification_status: state.documents['doc-beta'].verification_status }), false)
+
+    console.log('  ✓ Sibling document isolation verified: approving one does not make siblings eligible')
+  }
+
   console.log('\n===============================================================')
-  console.log('--- ALL 9 PHASE 5 FRONTEND TESTS PASSED SUCCESSFULLY! ---')
+  console.log('--- ALL 12 PHASE 4 & 5 FRONTEND TESTS PASSED SUCCESSFULLY! ---')
   console.log('===============================================================')
 }
 

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,8 @@ class DocumentNotRetryableException(ConflictException):
     error_code = "DOCUMENT_NOT_RETRYABLE"
     default_message = "Only failed or incomplete documents can be retried."
 
+
+STALE_IN_PROGRESS_THRESHOLD_SECONDS = 300
 
 _active_retries: set[UUID] = set()
 _retry_lock = asyncio.Lock()
@@ -630,8 +633,28 @@ class DocumentService:
             raise DocumentNotRetryableException()
 
         async with _retry_lock:
-            if document_id in _active_retries or status_val == "IN_PROGRESS":
+            if document_id in _active_retries:
                 raise DocumentRetryInProgressException()
+
+            if status_val == "IN_PROGRESS":
+                updated_at = getattr(document, "updated_at", None)
+                is_stale = False
+                if updated_at is not None:
+                    now = datetime.now(timezone.utc if updated_at.tzinfo else None)
+                    is_stale = (now - updated_at).total_seconds() >= STALE_IN_PROGRESS_THRESHOLD_SECONDS
+                else:
+                    is_stale = True
+
+                if not is_stale:
+                    raise DocumentRetryInProgressException()
+
+                logger.warning(
+                    "recovering_stale_in_progress_document_for_retry",
+                    document_id=str(document_id),
+                    project_id=str(project_id),
+                    updated_at=str(updated_at),
+                )
+
             _active_retries.add(document_id)
 
         try:
@@ -712,7 +735,77 @@ class DocumentService:
                 processing_status=status_out,
                 message="Resume retried and processed successfully.",
             )
+        except Exception as exc:
+            try:
+                await self.repository.session.rollback()
+            except Exception as rb_exc:
+                logger.warning(
+                    "retry_rollback_failed",
+                    document_id=str(document_id),
+                    error=str(rb_exc),
+                )
+
+            error_msg = getattr(exc, "message", None) or str(exc) or "Resume retry processing failed."
+            logger.exception(
+                "resume_retry_failed",
+                document_id=str(document_id),
+                project_id=str(project_id),
+                error=error_msg,
+            )
+
+            try:
+                await self.repository.update_processing(
+                    document_id,
+                    ProcessingStage.FAILED,
+                    ProcessingStatus.FAILED,
+                    error_message=error_msg[:2000],
+                )
+            except Exception as persist_exc:
+                logger.exception(
+                    "resume_retry_persist_failed_status_failed",
+                    document_id=str(document_id),
+                    error=str(persist_exc),
+                )
+
+            raise
         finally:
             async with _retry_lock:
                 _active_retries.discard(document_id)
+
+    async def recover_stale_document(
+        self,
+        project_id: UUID,
+        document_id: UUID,
+        threshold_seconds: int = STALE_IN_PROGRESS_THRESHOLD_SECONDS,
+    ) -> bool:
+        """Safely reset a stale IN_PROGRESS document to FAILED so it can be retried.
+
+        Returns True if recovered, False if active, not in-progress, or not found.
+        """
+        async with _retry_lock:
+            if document_id in _active_retries:
+                return False
+
+            document = await self.repository.get_by_id(document_id)
+            if document is None or document.deleted_at is not None or document.project_id != project_id:
+                return False
+
+            doc_status = getattr(document, "processing_status", None)
+            status_val = getattr(doc_status, "value", str(doc_status)) if doc_status is not None else None
+            if status_val != "IN_PROGRESS":
+                return False
+
+            updated_at = getattr(document, "updated_at", None)
+            if updated_at is not None:
+                now = datetime.now(timezone.utc if updated_at.tzinfo else None)
+                if (now - updated_at).total_seconds() < threshold_seconds:
+                    return False
+
+            await self.repository.update_processing(
+                document_id,
+                ProcessingStage.FAILED,
+                ProcessingStatus.FAILED,
+                error_message="Processing timed out or was interrupted.",
+            )
+            return True
 

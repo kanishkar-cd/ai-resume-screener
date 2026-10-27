@@ -9,8 +9,18 @@ from app.services.scoring_service import ScoringEngineFacade
 @pytest.mark.asyncio
 async def test_score_project_uses_bulk_loading() -> None:
     project_id = uuid4()
-    doc1 = DocumentModel(id=uuid4(), project_id=project_id, document_type=DocumentTypeEnum.RESUME)
-    doc2 = DocumentModel(id=uuid4(), project_id=project_id, document_type=DocumentTypeEnum.RESUME)
+    doc1 = DocumentModel(
+        id=uuid4(),
+        project_id=project_id,
+        document_type=DocumentTypeEnum.RESUME,
+        metadata_json={"verification": {"verification_status": "VERIFIED"}},
+    )
+    doc2 = DocumentModel(
+        id=uuid4(),
+        project_id=project_id,
+        document_type=DocumentTypeEnum.RESUME,
+        metadata_json={"verification": {"verification_status": "VERIFIED"}},
+    )
 
     # Repositories
     mock_projects = MagicMock()

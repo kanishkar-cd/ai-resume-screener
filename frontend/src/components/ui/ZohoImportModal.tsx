@@ -24,6 +24,8 @@ interface ZohoImportModalProps {
   onSelectJob: (job: ZohoJobOpening) => Promise<void>
   isProcessing?: boolean
   selectedJobId?: string
+  /** When set in applicants mode, only this Zoho job ID is shown (the one chosen during JD Upload). */
+  lockedJobId?: string
 }
 
 export default function ZohoImportModal({
@@ -33,6 +35,7 @@ export default function ZohoImportModal({
   onSelectJob,
   isProcessing = false,
   selectedJobId,
+  lockedJobId,
 }: ZohoImportModalProps) {
   const [status, setStatus] = useState<ZohoStatusResponse | null>(null)
   const [jobs, setJobs] = useState<ZohoJobOpening[]>([])
@@ -72,6 +75,11 @@ export default function ZohoImportModal({
   }, [isOpen])
 
   const filteredJobs = jobs.filter((job) => {
+    // In applicants mode with a locked job, only show the job chosen during JD Upload.
+    if (mode === 'applicants' && lockedJobId) {
+      return job.id === lockedJobId
+    }
+
     const matchesSearch =
       job.posting_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (job.department && job.department.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -126,7 +134,9 @@ export default function ZohoImportModal({
               <p className="text-xs text-slate-400 mt-0.5">
                 {mode === 'jd'
                   ? 'Select a job opening to automatically import and extract the JD into this requisition.'
-                  : 'Select the job opening to import all submitted candidate resumes into this project.'}
+                  : lockedJobId
+                    ? 'Showing the Job Opening selected during JD Upload. Click \'Import Applicants\' to sync candidate resumes.'
+                    : 'Select the job opening to import all submitted candidate resumes into this project.'}
               </p>
             </div>
           </div>
@@ -139,7 +149,8 @@ export default function ZohoImportModal({
           </button>
         </div>
 
-        {/* Toolbar & Filter */}
+        {/* Toolbar & Filter — hidden when locked to a single job in applicants mode */}
+        {!(mode === 'applicants' && lockedJobId) && (
         <div className="p-4 border-b border-slate-800/80 bg-slate-900/50 flex flex-wrap items-center justify-between gap-3">
           <div className="relative flex-1 min-w-[240px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -173,6 +184,7 @@ export default function ZohoImportModal({
             </button>
           </div>
         </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -353,7 +365,11 @@ export default function ZohoImportModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-slate-800 bg-slate-950/80 text-xs text-slate-400">
-          <span>Found {filteredJobs.length} job openings</span>
+          <span>
+            {mode === 'applicants' && lockedJobId
+              ? 'Showing Job Opening from your JD selection'
+              : `Found ${filteredJobs.length} job openings`}
+          </span>
           <button
             onClick={onClose}
             disabled={isProcessing}

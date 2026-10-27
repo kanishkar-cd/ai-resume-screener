@@ -853,7 +853,7 @@ export type ResumeRetryResponse = ApiDataEnvelope<ResumeRetryRead>
 
 // ─── Candidate Verification (Phases 1–5) ──────────────────────────
 
-export type CandidateVerificationStatus = 'VERIFIED' | 'REVIEW_REQUIRED' | 'FAILED' | 'PENDING'
+export type CandidateVerificationStatus = 'VERIFIED' | 'REVIEW_REQUIRED' | 'REJECTED' | 'FAILED' | 'PENDING'
 export type BatchVerificationStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED'
 export type CandidateIdentityStatus = 'EXISTING_CANDIDATE' | 'NEW_CANDIDATE' | 'REVIEW_REQUIRED'
 export type RepeatApplicationStatus =
@@ -915,4 +915,25 @@ export interface BatchVerificationRequest {
 }
 
 export type BatchVerificationResponse = ApiDataEnvelope<BatchVerificationSummary>
+
+export type ManualReviewDecision = 'APPROVE' | 'REJECT'
+
+export interface CandidateManualReviewRequest {
+  decision: ManualReviewDecision
+  review_note?: string | null
+}
+
+export interface CandidateManualReviewRead {
+  document_id: string
+  project_id: string
+  decision: ManualReviewDecision
+  verification_status: CandidateVerificationStatus
+  review_note?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: string | null
+  candidate_result: CandidateVerificationItemResult
+}
+
+export type CandidateManualReviewResponse = ApiDataEnvelope<CandidateManualReviewRead>
+
 

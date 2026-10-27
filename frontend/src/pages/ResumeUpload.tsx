@@ -781,28 +781,34 @@ export default function ResumeUpload() {
     }
   }
 
-  // Auto-detect Zoho job info from existing project documents if zohoSummary is not yet set
+  // Restore Zoho job summary from the project's persisted metadata after refresh/navigation.
+  // The backend stores zoho_job_opening_title on the project when the JD is imported from Zoho.
+  // Fall back to scanning resume docs only when the project metadata has no title.
   useEffect(() => {
-    if (!zohoSummary && projectDocs.length > 0) {
+    if (zohoSummary) return
+
+    // Primary source: project metadata written by the backend import-jd endpoint
+    const meta = state.selectedProject?.metadata_json
+    if (meta?.zoho_job_opening_title) {
       const zohoDocs = projectDocs.filter(
         (d) => d.metadata_json?.zoho_job_opening_id || d.metadata_json?.zoho_attachment_id
       )
-      if (zohoDocs.length > 0) {
-        const first = zohoDocs[0]
-        const openingCode = String(first.metadata_json?.zoho_job_opening_code || '')
-        const openingId = String(first.metadata_json?.zoho_job_opening_id || '')
-        setZohoSummary({
-          jobOpeningTitle: 'SRE Engineer',
-          jobOpeningCode: openingCode || 'CD_39_JOB',
-          jobId: openingId,
-          totalFound: zohoDocs.length,
-          alreadyFetched: zohoDocs.length,
-          newResumes: 0,
-          failedResumes: zohoDocs.filter((d) => d.processing_status === 'FAILED').length,
-        })
-      }
+      setZohoSummary({
+        jobOpeningTitle: meta.zoho_job_opening_title as string,
+        jobOpeningCode: (meta.zoho_job_opening_code as string) || undefined,
+        jobId: (meta.zoho_job_id as string) || '',
+        totalFound: zohoDocs.length,
+        alreadyFetched: zohoDocs.length,
+        newResumes: 0,
+        failedResumes: zohoDocs.filter((d) => d.processing_status === 'FAILED').length,
+      })
+      return
     }
-  }, [projectDocs, zohoSummary])
+
+    // Secondary source: if project metadata has no title yet (e.g. older records),
+    // do NOT display a banner — we have no reliable title to show.
+  }, [projectDocs, zohoSummary, state.selectedProject])
+
 
   const handleRemoveResume = async (id: string) => {
     if (deletingResumeIds.has(id)) return
@@ -1758,6 +1764,7 @@ export default function ResumeUpload() {
         onSelectJob={handleSelectZohoJob}
         isProcessing={isZohoSyncing}
         selectedJobId={selectedZohoJobId}
+        lockedJobId={(state.selectedProject?.metadata_json?.zoho_job_id as string | undefined) || undefined}
       />
     </motion.div>
   )

@@ -31,6 +31,8 @@ import {
   type CandidateVerificationStatus,
   type CandidateIdentityStatus,
   type RepeatApplicationStatus,
+  type Document,
+  type ManualReviewDecision,
 } from '@/api'
 
 interface CandidateVerificationDashboardProps {
@@ -46,36 +48,74 @@ export default function CandidateVerificationDashboard({
 }: CandidateVerificationDashboardProps) {
   // ── State ───────────────────────────────────────────────────────────────────
   const [summary, setSummary] = useState<BatchVerificationSummary | null>(null)
+  const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [isVerifying, setIsVerifying] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [repeatFilter, setRepeatFilter] = useState<string>('ALL')
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateVerificationItemResult | null>(null)
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [manualReviewNote, setManualReviewNote] = useState('')
   const [manualReviewError, setManualReviewError] = useState<string | null>(null)
   const [manualReviewSuccess, setManualReviewSuccess] = useState<string | null>(null)
 
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
-  // ── Fetch Status ────────────────────────────────────────────────────────────
-  const fetchStatus = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
-    setError(null)
-    try {
-      const data = await api.getProjectVerificationStatus(projectId)
-      setSummary(data)
-      return data
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Unable to load candidate verification status.'
-      setError(msg)
-      return null
-    } finally {
-      if (!silent) setLoading(false)
+  // ── Document Map & Verification Status ──────────────────────────────────────
+  const documentMap = useMemo(() => {
+    const map = new Map<string, Document>()
+    for (const doc of documents) {
+      map.set(doc.id, doc)
     }
-  }, [projectId])
+    return map
+  }, [documents])
+
+  const getDocVerificationStatus = useCallback(
+    (docId: string): CandidateVerificationStatus => {
+      const doc = documentMap.get(docId)
+      const persisted = (doc?.metadata_json as Record<string, any> | undefined)?.verification?.verification_status
+      if (persisted) return persisted as CandidateVerificationStatus
+      if (
+        selectedCandidate &&
+        selectedCandidate.document_ids.includes(docId) &&
+        selectedCandidate.document_ids.length === 1
+      ) {
+        return selectedCandidate.verification_status
+      }
+      return 'PENDING'
+    },
+    [documentMap, selectedCandidate],
+  )
+
+  // ── Fetch Status ────────────────────────────────────────────────────────────
+  const fetchStatus = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      setError(null)
+      try {
+        const [summaryData, resumesRes] = await Promise.all([
+          api.getProjectVerificationStatus(projectId),
+          api.listProjectResumes(projectId).catch(() => ({ items: [] as Document[], total: 0 })),
+        ])
+        setSummary(summaryData)
+        if (resumesRes && Array.isArray(resumesRes.items)) {
+          setDocuments(resumesRes.items)
+        }
+        return summaryData
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : 'Unable to load candidate verification status.'
+        setError(msg)
+        return null
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [projectId],
+  )
 
   // Initial load on mount
   useEffect(() => {
@@ -84,6 +124,24 @@ export default function CandidateVerificationDashboard({
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
   }, [fetchStatus])
+
+  // Synchronize selected document when candidate changes
+  useEffect(() => {
+    if (selectedCandidate && selectedCandidate.document_ids.length > 0) {
+      const reviewReqDoc = selectedCandidate.document_ids.find(
+        (id) => getDocVerificationStatus(id) === 'REVIEW_REQUIRED',
+      )
+      setSelectedDocId(reviewReqDoc || selectedCandidate.document_ids[0])
+      setManualReviewNote('')
+      setManualReviewError(null)
+      setManualReviewSuccess(null)
+    } else {
+      setSelectedDocId(null)
+      setManualReviewNote('')
+      setManualReviewError(null)
+      setManualReviewSuccess(null)
+    }
+  }, [selectedCandidate, getDocVerificationStatus])
 
   // Polling when batch is in progress
   useEffect(() => {
@@ -115,6 +173,7 @@ export default function CandidateVerificationDashboard({
     try {
       const updated = await api.verifyProjectCandidates(projectId, force)
       setSummary(updated)
+      await fetchStatus(true)
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Verification request failed.'
       setError(msg)
@@ -130,6 +189,7 @@ export default function CandidateVerificationDashboard({
     try {
       const updated = await api.retryProjectCandidateVerification(projectId)
       setSummary(updated)
+      await fetchStatus(true)
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Retry request failed.'
       setError(msg)
@@ -138,19 +198,48 @@ export default function CandidateVerificationDashboard({
     }
   }
 
-  const handleManualReviewAction = (action: 'APPROVE' | 'REJECT') => {
+  const handleManualReviewAction = async (decision: ManualReviewDecision) => {
+    if (!selectedDocId || isSubmittingReview) return
     setManualReviewError(null)
     setManualReviewSuccess(null)
-    if (!manualReviewNote.trim()) {
-      setManualReviewError('Please provide a reason or note for this identity review decision.')
-      return
+    setIsSubmittingReview(true)
+
+    try {
+      await api.reviewCandidateDocument(projectId, selectedDocId, {
+        decision,
+        review_note: manualReviewNote.trim() || null,
+      })
+
+      setManualReviewSuccess(
+        `Document decision (${decision}) submitted successfully. Persisted status updated.`,
+      )
+      setManualReviewNote('')
+
+      // Refresh backend verification state immediately
+      const refreshedSummary = await fetchStatus(true)
+      if (refreshedSummary?.results) {
+        const updatedCandidate = refreshedSummary.results.find(
+          (c) =>
+            c.document_ids.includes(selectedDocId) ||
+            c.candidate_identifier === selectedCandidate?.candidate_identifier,
+        )
+        if (updatedCandidate) {
+          setSelectedCandidate(updatedCandidate)
+        }
+      }
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Manual review decision failed to persist.'
+      setManualReviewError(msg)
+    } finally {
+      setIsSubmittingReview(false)
     }
-    // Record local review note with authorization and audit feedback
-    setManualReviewSuccess(
-      `Candidate identity manually ${action === 'APPROVE' ? 'verified' : 'rejected'} for this opening: "${manualReviewNote.trim()}".`
-    )
-    setManualReviewNote('')
   }
+
 
   // ── Filtered Candidate Results ──────────────────────────────────────────────
   const candidates = useMemo(() => {
@@ -197,6 +286,13 @@ export default function CandidateVerificationDashboard({
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
             <AlertTriangle size={12} className="text-amber-600" />
             Review Required
+          </span>
+        )
+      case 'REJECTED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
+            <XCircle size={12} className="text-rose-600" />
+            Rejected
           </span>
         )
       case 'FAILED':
@@ -469,6 +565,7 @@ export default function CandidateVerificationDashboard({
             <option value="ALL">All Verification Statuses</option>
             <option value="VERIFIED">Verified</option>
             <option value="REVIEW">Review Required</option>
+            <option value="REJECTED">Rejected</option>
             <option value="FAILED">Failed</option>
           </select>
 
@@ -698,22 +795,52 @@ export default function CandidateVerificationDashboard({
 
                 {/* Grouped Document Files */}
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">
-                    Grouped Attachments ({selectedCandidate.document_ids.length})
-                  </h4>
-                  <div className="space-y-1.5">
-                    {selectedCandidate.document_ids.map((docId, idx) => (
-                      <div
-                        key={docId}
-                        className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 text-xs bg-slate-50/50"
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileText size={13} className="text-slate-400" />
-                          <span className="font-mono text-slate-700">Document #{idx + 1}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono truncate max-w-[160px]">{docId}</span>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Grouped Attachments ({selectedCandidate.document_ids.length})
+                    </h4>
+                    <span className="text-[10px] text-slate-500">Click attachment to select for review</span>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedCandidate.document_ids.map((docId, idx) => {
+                      const docMeta = documentMap.get(docId)
+                      const docStatus = getDocVerificationStatus(docId)
+                      const isSelected = selectedDocId === docId
+                      const filename = docMeta?.original_filename || `Document #${idx + 1}`
+
+                      return (
+                        <button
+                          key={docId}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDocId(docId)
+                            setManualReviewError(null)
+                            setManualReviewSuccess(null)
+                          }}
+                          className={`w-full text-left flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                            isSelected
+                              ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20 shadow-xs'
+                              : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                            <FileText size={15} className={isSelected ? 'text-blue-600 shrink-0' : 'text-slate-400 shrink-0'} />
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 text-xs truncate">{filename}</p>
+                              <p className="text-[10px] text-slate-400 font-mono truncate">{docId}</p>
+                            </div>
+                          </div>
+                          <div className="shrink-0 flex items-center gap-2">
+                            {getVerificationBadge(docStatus)}
+                            {isSelected && (
+                              <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">
+                                Selected
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -795,48 +922,127 @@ export default function CandidateVerificationDashboard({
                   )}
                 </div>
 
-                {/* Manual Review Actions (Requirement 8) */}
-                {selectedCandidate.verification_status === 'REVIEW_REQUIRED' && (
-                  <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-3">
-                    <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
-                      Manual Identity Review Override
-                    </h4>
-                    <p className="text-xs text-amber-800 leading-relaxed">
-                      This candidate was flagged because identity evidence was ambiguous or incomplete. Recruiter notes
-                      and authorization reasons will be logged in audit history.
-                    </p>
-
-                    <textarea
-                      placeholder="Enter review decision reason or verification notes…"
-                      value={manualReviewNote}
-                      onChange={(e) => setManualReviewNote(e.target.value)}
-                      className="w-full text-xs p-2.5 rounded-lg border border-amber-300 bg-white focus:outline-none focus:border-amber-500"
-                      rows={2}
-                    />
-
-                    {manualReviewError && (
-                      <p className="text-[11px] font-bold text-rose-600">{manualReviewError}</p>
-                    )}
-                    {manualReviewSuccess && (
-                      <p className="text-[11px] font-bold text-emerald-700">{manualReviewSuccess}</p>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleManualReviewAction('APPROVE')}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        Approve Candidate Identity
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleManualReviewAction('REJECT')}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        Reject Identity
-                      </button>
+                {/* Manual Review Actions (Document-Targeted Override) */}
+                {selectedDocId && (
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Manual Identity Review
+                      </h4>
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded">
+                        Target Document: {documentMap.get(selectedDocId)?.original_filename || selectedDocId.slice(0, 8) + '…'}
+                      </span>
                     </div>
+
+                    {getDocVerificationStatus(selectedDocId) === 'REVIEW_REQUIRED' ? (
+                      <div className="space-y-3 pt-1">
+                        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200/80 p-2.5 rounded-lg leading-relaxed">
+                          This specific resume attachment was flagged for manual review because identity evidence was ambiguous or incomplete.
+                          Your decision applies strictly to this document and will not automatically approve other attachments in the group.
+                        </p>
+
+                        <textarea
+                          placeholder="Enter review decision reason or verification notes (optional)…"
+                          value={manualReviewNote}
+                          disabled={isSubmittingReview}
+                          onChange={(e) => setManualReviewNote(e.target.value)}
+                          className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500 disabled:opacity-60"
+                          rows={2}
+                        />
+
+                        {manualReviewError && (
+                          <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] font-semibold text-rose-700 flex items-center gap-1.5">
+                            <AlertCircle size={13} className="shrink-0 text-rose-500" />
+                            <span>{manualReviewError}</span>
+                          </div>
+                        )}
+                        {manualReviewSuccess && (
+                          <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-800 flex items-center gap-1.5">
+                            <CheckCircle2 size={13} className="shrink-0 text-emerald-500" />
+                            <span>{manualReviewSuccess}</span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={isSubmittingReview}
+                            onClick={() => void handleManualReviewAction('APPROVE')}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+                          >
+                            {isSubmittingReview ? (
+                              <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Submitting…</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 size={13} />
+                                <span>Approve Document (VERIFIED)</span>
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSubmittingReview}
+                            onClick={() => void handleManualReviewAction('REJECT')}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+                          >
+                            {isSubmittingReview ? (
+                              <>
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Submitting…</span>
+                              </>
+                            ) : (
+                              <>
+                                <XCircle size={13} />
+                                <span>Reject Document</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : getDocVerificationStatus(selectedDocId) === 'VERIFIED' ? (
+                      <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                        <div>
+                          <p className="font-bold">Document Identity Verified</p>
+                          <p className="text-[11px] text-emerald-700 mt-0.5">
+                            This document has persisting status VERIFIED and is eligible to proceed to scoring and ranking.
+                          </p>
+                        </div>
+                      </div>
+                    ) : getDocVerificationStatus(selectedDocId) === 'REJECTED' ? (
+                      <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                        <XCircle size={16} className="text-rose-600 shrink-0" />
+                        <div>
+                          <p className="font-bold">Document Identity Rejected</p>
+                          <p className="text-[11px] text-rose-700 mt-0.5">
+                            This document was manually rejected and is blocked from scoring, ranking, and shortlisting.
+                          </p>
+                        </div>
+                      </div>
+                    ) : getDocVerificationStatus(selectedDocId) === 'FAILED' ? (
+                      <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                        <XCircle size={16} className="text-rose-600 shrink-0" />
+                        <div>
+                          <p className="font-bold">Verification Failed</p>
+                          <p className="text-[11px] text-rose-700 mt-0.5">
+                            System processing error occurred. Use Retry Failed Verification or re-upload the resume.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-700 flex items-center gap-2">
+                        <Clock size={16} className="text-slate-400 shrink-0" />
+                        <div>
+                          <p className="font-bold">Verification Pending</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            This document has not been verified yet. Run initial verification to establish candidate identity.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

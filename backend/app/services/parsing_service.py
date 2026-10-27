@@ -107,11 +107,12 @@ class ParsingService:
             except Exception:
                 pass
 
-        if current_status == ProcessingStatus.PARSING_PENDING:
+        if current_status == ProcessingStatus.PARSING_PENDING and not force:
             raise DocumentNotParseableException(
                 "Document parsing is already in progress."
             )
-        if current_status not in PARSEABLE_STATUSES:
+        allowed_statuses = PARSEABLE_STATUSES | ({ProcessingStatus.IN_PROGRESS} if force else set())
+        if current_status not in allowed_statuses:
             raise DocumentNotParseableException()
 
         path = self.storage.resolve_file(document.file_path)

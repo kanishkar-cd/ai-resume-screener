@@ -62,3 +62,10 @@ class InternalServerException(AppException):
     status_code = 500
     error_code = SYSTEM_ERROR
     default_message = "An internal server error occurred."
+
+
+class CandidateNotVerifiedException(AppException):
+    status_code = 400
+    error_code = "CANDIDATE_NOT_VERIFIED"
+    default_message = "Candidate document has not been verified. Only VERIFIED candidates can proceed."
+

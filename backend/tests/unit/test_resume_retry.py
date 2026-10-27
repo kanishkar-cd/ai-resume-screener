@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -23,7 +23,11 @@ from app.services.document_service import (
     DocumentService,
     _active_retries,
 )
-from app.services.parsing_service import DocumentParseFailedException
+from app.services.parsing_service import (
+    DocumentNotParseableException,
+    DocumentParseFailedException,
+    ParsingService,
+)
 from app.services.project_service import ProjectNotFoundException
 
 
@@ -34,6 +38,7 @@ def _build_test_document(
     stage=ProcessingStageEnum.FAILED,
     deleted_at=None,
     doc_type=DocumentTypeEnum.RESUME,
+    updated_at=None,
 ):
     doc = MagicMock(spec=DocumentModel)
     doc.id = document_id or uuid4()
@@ -45,6 +50,7 @@ def _build_test_document(
     doc.processing_stage = stage
     doc.deleted_at = deleted_at
     doc.error_message = "Previous parse error"
+    doc.updated_at = updated_at
     return doc
 
 
@@ -59,6 +65,7 @@ def _build_service(doc, project_exists=True):
     mock_repository.session = AsyncMock()
     mock_repository.get_by_id = AsyncMock(return_value=doc)
     mock_repository.cleanup_pipeline_data = AsyncMock()
+    mock_repository.update_processing = AsyncMock()
 
     async def _mock_refresh(target):
         target.processing_status = ProcessingStatusEnum.COMPLETED
@@ -205,10 +212,10 @@ async def test_retry_resume_concurrent_retry_raises_conflict():
 
 @pytest.mark.asyncio
 async def test_retry_resume_processing_failure_propagates_and_frees_lock():
-    """If a stage fails during retry, the error propagates and the retry lock is freed for subsequent attempts."""
+    """If a stage fails during retry, the error propagates, status is persisted as FAILED, and lock is freed."""
     project_id = uuid4()
     doc = _build_test_document(project_id, status=ProcessingStatusEnum.FAILED)
-    service, _ = _build_service(doc)
+    service, repo = _build_service(doc)
 
     mock_parser = MagicMock()
     mock_parser.parse_document = AsyncMock(
@@ -226,6 +233,152 @@ async def test_retry_resume_processing_failure_propagates_and_frees_lock():
 
     # Concurrency set must be empty after failure
     assert doc.id not in _active_retries
+    # Transaction rollback must have been executed
+    repo.session.rollback.assert_called_once()
+    # Failed status and error message must have been persisted
+    repo.update_processing.assert_called_once_with(
+        doc.id,
+        ProcessingStage.FAILED,
+        ProcessingStatus.FAILED,
+        error_message="Document parsing failed.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_resume_rejects_genuinely_active_retry_without_corrupting_status():
+    """An IN_PROGRESS document updated recently represents a genuinely active task and is rejected with 409 without modifying status."""
+    project_id = uuid4()
+    doc = _build_test_document(
+        project_id,
+        status=ProcessingStatusEnum.IN_PROGRESS,
+        stage=ProcessingStageEnum.PARSING,
+        updated_at=datetime.now(UTC),
+    )
+    service, repo = _build_service(doc)
+
+    with pytest.raises(DocumentRetryInProgressException) as exc_info:
+        await service.retry_resume(project_id, doc.id)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.error_code == "DOCUMENT_RETRY_IN_PROGRESS"
+    # Ensure downstream pipeline was NOT touched and no status was overwritten
+    repo.cleanup_pipeline_data.assert_not_called()
+    repo.update_processing.assert_not_called()
+    assert doc.id not in _active_retries
+
+
+@pytest.mark.asyncio
+async def test_retry_resume_recovers_stale_in_progress_document():
+    """An IN_PROGRESS document with a stale timestamp is safely recovered and retried."""
+    project_id = uuid4()
+    doc = _build_test_document(
+        project_id,
+        status=ProcessingStatusEnum.IN_PROGRESS,
+        stage=ProcessingStageEnum.PARSING,
+        updated_at=datetime.now(UTC) - timedelta(seconds=600),
+    )
+    service, repo = _build_service(doc)
+
+    mock_parser = MagicMock()
+    mock_parser.parse_document = AsyncMock(return_value=MagicMock())
+    mock_extractor = MagicMock()
+    mock_extractor.extract_document_data = AsyncMock(return_value=MagicMock())
+    mock_normalizer = MagicMock()
+    mock_normalizer.normalize_document_data = AsyncMock(return_value=MagicMock())
+
+    result = await service.retry_resume(
+        project_id,
+        doc.id,
+        parsing_service=mock_parser,
+        extraction_service=mock_extractor,
+        normalization_service=mock_normalizer,
+    )
+
+    assert result.document_id == doc.id
+    assert result.processing_status == ProcessingStatus.COMPLETED
+    repo.cleanup_pipeline_data.assert_called_once()
+    mock_parser.parse_document.assert_called_once_with(doc.id, force=True)
+    assert doc.id not in _active_retries
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_document_method():
+    """Test recover_stale_document resets stale in-progress document and ignores fresh active document."""
+    project_id = uuid4()
+    stale_doc = _build_test_document(
+        project_id,
+        status=ProcessingStatusEnum.IN_PROGRESS,
+        updated_at=datetime.now(UTC) - timedelta(seconds=600),
+    )
+    service, repo = _build_service(stale_doc)
+
+    recovered = await service.recover_stale_document(project_id, stale_doc.id)
+    assert recovered is True
+    repo.update_processing.assert_called_once_with(
+        stale_doc.id,
+        ProcessingStage.FAILED,
+        ProcessingStatus.FAILED,
+        error_message="Processing timed out or was interrupted.",
+    )
+
+    # Active fresh document should NOT be recovered
+    fresh_doc = _build_test_document(
+        project_id,
+        status=ProcessingStatusEnum.IN_PROGRESS,
+        updated_at=datetime.now(UTC),
+    )
+    service_fresh, repo_fresh = _build_service(fresh_doc)
+    recovered_fresh = await service_fresh.recover_stale_document(project_id, fresh_doc.id)
+    assert recovered_fresh is False
+    repo_fresh.update_processing.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_force_parsing_allows_in_progress_status(tmp_path):
+    """force=True allows parsing a document in IN_PROGRESS status, while force=False rejects it."""
+    file_path = tmp_path / "resume.txt"
+    file_path.write_text("Senior Software Engineer", encoding="utf-8")
+
+    doc = MagicMock(spec=DocumentModel)
+    doc.id = uuid4()
+    doc.document_type = DocumentTypeEnum.RESUME
+    doc.original_filename = "resume.txt"
+    doc.file_path = str(file_path)
+    doc.mime_type = "text/plain"
+    doc.processing_status = ProcessingStatusEnum.IN_PROGRESS
+    doc.processing_stage = ProcessingStageEnum.PARSING
+    doc.metadata_json = {}
+
+    parsed_doc = MagicMock(spec=DocumentModel)
+    parsed_doc.processing_status = ProcessingStatusEnum.PARSED
+    parsed_doc.processing_stage = ProcessingStageEnum.PARSING
+
+    doc_repo = AsyncMock()
+    doc_repo.get_document = AsyncMock(return_value=doc)
+    doc_repo.update_status = AsyncMock(return_value=parsed_doc)
+    doc_repo.update_processing = AsyncMock()
+
+    parsed_repo = AsyncMock()
+    parsed_repo.get_by_document_id = AsyncMock(return_value=None)
+    parsed_repo.create_or_update = AsyncMock()
+
+    storage = MagicMock()
+    storage.resolve_file = MagicMock(return_value=file_path)
+
+    service = ParsingService(
+        document_repository=doc_repo,
+        parsed_repository=parsed_repo,
+        storage=storage,
+    )
+
+    # When force=False, IN_PROGRESS is rejected
+    with pytest.raises(DocumentNotParseableException):
+        await service.parse_document(doc.id, force=False)
+
+    # When force=True, IN_PROGRESS is accepted and parsed
+    result = await service.parse_document(doc.id, force=True)
+    assert result.document_id == doc.id
+    assert result.processing_status == ProcessingStatus.PARSED
 
 
 @pytest.mark.asyncio
@@ -267,3 +420,4 @@ async def test_retry_resume_api_endpoint():
             assert response.status_code == 409
     finally:
         app.dependency_overrides.pop(get_document_service, None)
+

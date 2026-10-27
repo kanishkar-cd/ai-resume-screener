@@ -24,6 +24,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react'
 import { usePipeline } from '@/store/pipelineStore'
 import { Candidate, ScreeningStatus } from '@/types'
@@ -751,6 +752,7 @@ export default function CandidateRanking() {
   // State
   const [isScoringInProgress, setIsScoringInProgress] = useState(false)
   const [scoringError, setScoringError] = useState<string | null>(null)
+  const [unverifiedDocsCount, setUnverifiedDocsCount] = useState<number>(0)
   const [activeTab, setActiveTab] = useState<'rankings' | 'verification'>(() => {
     return location.pathname.includes('/verification') ? 'verification' : 'rankings'
   })
@@ -865,11 +867,20 @@ export default function CandidateRanking() {
             })
           }
 
-          // Check if scoring and ranking are already 100% complete
-          const isComplete = !forceRetry &&
-            initialScores.length >= docList.length &&
-            initialRankings.length >= docList.length &&
-            docList.length > 0
+          // Verified documents count according to Phase 3 persisted status
+          const verifiedDocs = docList.filter(
+            (d) =>
+              (d.metadata_json as Record<string, any> | undefined)?.verification?.verification_status === 'VERIFIED',
+          )
+          const unverified = docList.length - verifiedDocs.length
+          setUnverifiedDocsCount(unverified)
+
+          // Check if scoring and ranking are already 100% complete for all verified documents
+          const isComplete =
+            !forceRetry &&
+            verifiedDocs.length > 0 &&
+            initialScores.length >= verifiedDocs.length &&
+            initialRankings.length >= verifiedDocs.length
 
           if (isComplete) {
             return {
@@ -916,9 +927,17 @@ export default function CandidateRanking() {
         return overrideStatus !== undefined ? { ...c, status: overrideStatus } : c
       })
       dispatch({ type: 'SET_RANKED_CANDIDATES', payload: finalMerged })
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load candidate rankings:', err)
-      setScoringError(err instanceof Error ? err.message : 'Failed to score and rank candidates.')
+      const msg =
+        err?.code === 'CANDIDATE_NOT_VERIFIED' ||
+        err?.status === 422 ||
+        (typeof err?.message === 'string' && err.message.toLowerCase().includes('verified'))
+          ? 'Candidate identity verification required: No verified resumes were found for scoring and ranking. Please verify candidate identities in the Verification tab.'
+          : err instanceof Error
+            ? err.message
+            : 'Failed to score and rank candidates.'
+      setScoringError(msg)
     } finally {
       inFlightScoringPromises.delete(targetProjectId)
       setRankingsLoading(false)
@@ -983,16 +1002,28 @@ export default function CandidateRanking() {
   if (scoringError && (!candidates || candidates.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
-        <AlertCircle size={36} className="text-red-500" />
-        <p className="text-sm font-semibold text-slate-700">{scoringError}</p>
-        <button
-          type="button"
-          onClick={() => void startScoringFlow(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
-        >
-          <RefreshCw size={14} />
-          <span>Retry Scoring</span>
-        </button>
+        <AlertCircle size={36} className="text-amber-500" />
+        <p className="text-sm font-semibold text-slate-700 max-w-lg leading-relaxed">{scoringError}</p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void startScoringFlow(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-xs cursor-pointer"
+          >
+            <RefreshCw size={14} />
+            <span>Retry Scoring</span>
+          </button>
+          {projectId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}/verification`)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              <ShieldCheck size={14} className="text-blue-600" />
+              <span>Go to Candidate Verification</span>
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -1009,6 +1040,27 @@ export default function CandidateRanking() {
       />
 
       <motion.div variants={container} initial="hidden" animate="show" className="w-full max-w-7xl mx-auto space-y-6 pb-10">
+
+        {/* ── Unverified Candidates Progression Banner ── */}
+        {unverifiedDocsCount > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              <span>
+                <strong>{unverifiedDocsCount} candidate resume{unverifiedDocsCount === 1 ? '' : 's'}</strong> require identity verification before they can be scored and ranked.
+              </span>
+            </div>
+            {projectId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/verification`)}
+                className="text-[11px] font-bold text-amber-800 underline hover:text-amber-950 shrink-0 cursor-pointer"
+              >
+                Review in Candidate Verification →
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Page Header ── */}
         <motion.div variants={fadeUp} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

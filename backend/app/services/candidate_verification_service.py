@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
+from app.core.exceptions import AppException, InternalServerException
 from app.models.document import DocumentModel, DocumentTypeEnum
 from app.models.extracted_info import ExtractedResumeModel
 from app.models.normalized_info import NormalizedResumeModel
@@ -21,22 +22,37 @@ from app.schemas.candidate_identity import (
 from app.schemas.candidate_verification import (
     BatchVerificationStatus,
     BatchVerificationSummary,
+    CandidateManualReviewRead,
+    CandidateManualReviewRequest,
     CandidateVerificationItemResult,
     CandidateVerificationStatus,
+    ManualReviewDecision,
+    is_document_verified,
 )
 from app.schemas.repeat_application import (
     RepeatApplicationInput,
     RepeatApplicationStatus,
 )
 from app.services.candidate_identity_service import CandidateIdentityService
+from app.services.document_service import (
+    DocumentBelongsToAnotherProjectException,
+    DocumentNotFoundException,
+)
 from app.services.pipeline.identity_rules import (
     normalize_candidate_identity,
     normalize_email_address,
     normalize_phone_number,
 )
+from app.services.project_service import ProjectNotFoundException
 from app.services.repeat_application_service import RepeatApplicationService
 
 logger = structlog.get_logger(__name__)
+
+
+class ReviewNotRequiredException(AppException):
+    status_code = 400
+    error_code = "REVIEW_NOT_REQUIRED"
+    default_message = "Document does not require manual identity review."
 
 
 class CandidateVerificationService:
@@ -261,6 +277,264 @@ class CandidateVerificationService:
             in_memory_project=in_memory_project,
             in_memory_records=in_memory_records,
             in_memory_ats_records=in_memory_ats_records,
+        )
+
+    async def review_candidate_document(
+        self,
+        project_id: UUID | str,
+        document_id: UUID | str,
+        payload: CandidateManualReviewRequest,
+        *,
+        reviewer_id: str | None = None,
+        in_memory_project: dict[str, Any] | None = None,
+        in_memory_documents: list[dict[str, Any]] | None = None,
+    ) -> CandidateManualReviewRead:
+        """Manually approve or reject a candidate resume whose identity requires review.
+
+        Validates project/document ownership, ensures the document currently requires review,
+        and persists the decision with audit history in DocumentModel.metadata_json['verification']
+        and updates the aggregate ProjectModel.metadata_json['candidate_verification'].
+        """
+        proj_id_str = str(project_id).strip()
+        doc_id_str = str(document_id).strip()
+
+        # ------------------------------------------------------------------
+        # 1. In-memory mode (for isolated testing without active DB session)
+        # ------------------------------------------------------------------
+        if in_memory_project is not None or in_memory_documents is not None:
+            if in_memory_project is None or str(in_memory_project.get("id") or in_memory_project.get("project_id")) != proj_id_str:
+                raise ProjectNotFoundException(f"Project '{project_id}' not found.")
+
+            target_doc = None
+            for d in (in_memory_documents or []):
+                if str(d.get("id") or d.get("document_id")) == doc_id_str:
+                    target_doc = d
+                    break
+
+            if target_doc is None:
+                raise DocumentNotFoundException(f"Document '{document_id}' not found.")
+
+            doc_proj_id = str(target_doc.get("project_id") or "")
+            if doc_proj_id != proj_id_str:
+                raise DocumentBelongsToAnotherProjectException(
+                    f"Document '{document_id}' does not belong to project '{project_id}'."
+                )
+
+            doc_type = target_doc.get("document_type")
+            if doc_type and str(doc_type).upper() not in ("RESUME", "DOCUMENTTYPEENUM.RESUME"):
+                raise ReviewNotRequiredException(
+                    f"Document '{document_id}' is not a candidate resume."
+                )
+
+            meta = dict(target_doc.get("metadata_json") or {})
+            ver_data = meta.get("verification")
+            if not ver_data or not isinstance(ver_data, dict):
+                raise ReviewNotRequiredException(
+                    f"Document '{document_id}' has not undergone candidate identity verification."
+                )
+
+            curr_status = ver_data.get("verification_status")
+            if curr_status != CandidateVerificationStatus.REVIEW_REQUIRED.value:
+                raise ReviewNotRequiredException(
+                    f"Document '{document_id}' does not require review (current verification status: '{curr_status}'). "
+                    f"Manual review is only permitted for documents in 'REVIEW_REQUIRED' status."
+                )
+
+            reviewed_at = datetime.now(UTC)
+            decision = payload.decision
+            new_status = (
+                CandidateVerificationStatus.VERIFIED
+                if decision == ManualReviewDecision.APPROVE
+                else CandidateVerificationStatus.REJECTED
+            )
+            note = payload.review_note.strip() if payload.review_note and payload.review_note.strip() else None
+
+            updated_ver = dict(ver_data)
+            updated_ver["verification_status"] = new_status.value
+            updated_ver["review_decision"] = decision.value
+            updated_ver["review_note"] = note
+            updated_ver["reviewed_at"] = reviewed_at.isoformat()
+            updated_ver["reviewed_by"] = reviewer_id
+
+            existing_reasons = list(updated_ver.get("reasons") or [])
+            audit_reason = f"Manual identity review: {decision.value}"
+            if note:
+                audit_reason += f" - {note}"
+            existing_reasons.append(audit_reason)
+            updated_ver["reasons"] = existing_reasons
+
+            meta["verification"] = updated_ver
+            target_doc["metadata_json"] = meta
+
+            # Update project summary if present in in_memory_project
+            if in_memory_project and "candidate_verification" in in_memory_project:
+                summary_data = in_memory_project["candidate_verification"]
+                if isinstance(summary_data, dict) and "results" in summary_data:
+                    for r in summary_data["results"]:
+                        r_doc_ids = [str(did) for did in r.get("document_ids", [])]
+                        if doc_id_str in r_doc_ids and len(r_doc_ids) <= 1:
+                            r["verification_status"] = new_status.value
+                            r["review_decision"] = decision.value
+                            r["review_note"] = note
+                            r["reviewed_at"] = reviewed_at.isoformat()
+                            r["reviewed_by"] = reviewer_id
+                            r["reasons"] = list(r.get("reasons") or []) + [audit_reason]
+                            break
+
+            item_result = CandidateVerificationItemResult(**updated_ver)
+            return CandidateManualReviewRead(
+                document_id=doc_id_str,
+                project_id=proj_id_str,
+                decision=decision,
+                verification_status=new_status,
+                review_note=note,
+                reviewed_at=reviewed_at,
+                reviewed_by=reviewer_id,
+                candidate_result=item_result,
+            )
+
+        # ------------------------------------------------------------------
+        # 2. Database mode (active SQLAlchemy async session)
+        # ------------------------------------------------------------------
+        if self.session is None:
+            raise InternalServerException("Database session required for candidate review persistence.")
+
+        try:
+            proj_uuid = UUID(proj_id_str)
+        except (ValueError, AttributeError):
+            raise ProjectNotFoundException(f"Project '{project_id}' not found.")
+
+        try:
+            doc_uuid = UUID(doc_id_str)
+        except (ValueError, AttributeError):
+            raise DocumentNotFoundException(f"Document '{document_id}' not found.")
+
+        project = await self.session.get(ProjectModel, proj_uuid)
+        if not project or project.deleted_at is not None:
+            raise ProjectNotFoundException(f"Project '{project_id}' not found.")
+
+        document = await self.session.get(DocumentModel, doc_uuid)
+        if not document or document.deleted_at is not None:
+            raise DocumentNotFoundException(f"Document '{document_id}' not found.")
+
+        if document.project_id != project.id:
+            raise DocumentBelongsToAnotherProjectException(
+                f"Document '{document_id}' does not belong to project '{project_id}'."
+            )
+
+        if document.document_type != DocumentTypeEnum.RESUME:
+            raise ReviewNotRequiredException(
+                f"Document '{document_id}' is not a resume (document_type is '{document.document_type}')."
+            )
+
+        doc_meta = dict(document.metadata_json or {})
+        ver_data = doc_meta.get("verification")
+        if not ver_data or not isinstance(ver_data, dict):
+            raise ReviewNotRequiredException(
+                f"Document '{document_id}' has not undergone candidate identity verification."
+            )
+
+        curr_status = ver_data.get("verification_status")
+        if curr_status != CandidateVerificationStatus.REVIEW_REQUIRED.value:
+            raise ReviewNotRequiredException(
+                f"Document '{document_id}' does not require review (current verification status: '{curr_status}'). "
+                f"Manual review is only permitted for documents in 'REVIEW_REQUIRED' status."
+            )
+
+        reviewed_at = datetime.now(UTC)
+        decision = payload.decision
+        new_status = (
+            CandidateVerificationStatus.VERIFIED
+            if decision == ManualReviewDecision.APPROVE
+            else CandidateVerificationStatus.REJECTED
+        )
+        note = payload.review_note.strip() if payload.review_note and payload.review_note.strip() else None
+
+        updated_ver = dict(ver_data)
+        updated_ver["verification_status"] = new_status.value
+        updated_ver["review_decision"] = decision.value
+        updated_ver["review_note"] = note
+        updated_ver["reviewed_at"] = reviewed_at.isoformat()
+        updated_ver["reviewed_by"] = reviewer_id
+
+        existing_reasons = list(updated_ver.get("reasons") or [])
+        audit_reason = f"Manual identity review: {decision.value}"
+        if note:
+            audit_reason += f" - {note}"
+        existing_reasons.append(audit_reason)
+        updated_ver["reasons"] = existing_reasons
+
+        # Persist on individual DocumentModel
+        document.metadata_json = {
+            **doc_meta,
+            "verification": updated_ver,
+        }
+
+        # Update ProjectModel.metadata_json['candidate_verification'] summary
+        proj_meta = dict(project.metadata_json or {})
+        summary_dict = proj_meta.get("candidate_verification")
+        if summary_dict and isinstance(summary_dict, dict) and "results" in summary_dict:
+            results_list = list(summary_dict.get("results") or [])
+            for idx, r in enumerate(results_list):
+                r_doc_ids = [str(did) for did in r.get("document_ids", [])]
+                if str(doc_uuid) in r_doc_ids:
+                    if len(r_doc_ids) <= 1:
+                        # Isolated candidate unit with single document
+                        r["verification_status"] = new_status.value
+                        r["review_decision"] = decision.value
+                        r["review_note"] = note
+                        r["reviewed_at"] = reviewed_at.isoformat()
+                        r["reviewed_by"] = reviewer_id
+                        r["reasons"] = list(r.get("reasons") or []) + [audit_reason]
+                    else:
+                        # Candidate with multiple attachments: check other documents' statuses
+                        other_docs_stmt = select(DocumentModel).where(
+                            DocumentModel.id.in_([UUID(d) for d in r_doc_ids if d != str(doc_uuid)]),
+                            DocumentModel.deleted_at.is_(None),
+                        )
+                        other_docs = (await self.session.scalars(other_docs_stmt)).all()
+                        other_statuses = [
+                            ((od.metadata_json or {}).get("verification") or {}).get("verification_status")
+                            for od in other_docs
+                        ]
+                        if decision == ManualReviewDecision.APPROVE and all(s == CandidateVerificationStatus.VERIFIED.value for s in other_statuses):
+                            r["verification_status"] = CandidateVerificationStatus.VERIFIED.value
+                        r["reasons"] = list(r.get("reasons") or []) + [
+                            f"Document {doc_uuid} manual review: {decision.value}"
+                        ]
+                    results_list[idx] = r
+                    break
+
+            summary_dict["results"] = results_list
+            summary_dict["verified_candidates"] = sum(
+                1 for r in results_list if r.get("verification_status") == CandidateVerificationStatus.VERIFIED.value
+            )
+            summary_dict["review_required_candidates"] = sum(
+                1 for r in results_list if r.get("verification_status") == CandidateVerificationStatus.REVIEW_REQUIRED.value
+            )
+            summary_dict["failed_candidates"] = sum(
+                1 for r in results_list if r.get("verification_status") in (
+                    CandidateVerificationStatus.FAILED.value,
+                    CandidateVerificationStatus.REJECTED.value,
+                )
+            )
+            proj_meta["candidate_verification"] = summary_dict
+            project.metadata_json = proj_meta
+
+        await self.session.commit()
+        await self.session.refresh(document)
+        await self.session.refresh(project)
+
+        item_result = CandidateVerificationItemResult(**updated_ver)
+        return CandidateManualReviewRead(
+            document_id=doc_uuid,
+            project_id=project.id,
+            decision=decision,
+            verification_status=new_status,
+            review_note=note,
+            reviewed_at=reviewed_at,
+            reviewed_by=reviewer_id,
+            candidate_result=item_result,
         )
 
     # ==========================================================================

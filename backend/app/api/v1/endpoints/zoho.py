@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -10,7 +11,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Path as FastApiPath, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 import structlog
 
@@ -337,6 +338,24 @@ async def import_zoho_job_description(
         logger.exception("zoho_jd_import_commit_failed", document_id=str(doc_id), error=str(exc))
         raise InternalServerException("Unable to persist Zoho Job Description pipeline results.") from exc
 
+    # Persist selected Zoho job opening metadata onto the project so the Resume Upload page
+    # can display the correct job title after refresh or navigation (without hardcoded fallbacks).
+    try:
+        existing_meta = dict(project.metadata_json or {})
+        existing_meta["zoho_job_opening_title"] = job.posting_title
+        existing_meta["zoho_job_opening_code"] = job.job_opening_id or ""
+        existing_meta["zoho_job_id"] = request.job_id
+        project.metadata_json = existing_meta
+        db.add(project)
+        await db.commit()
+    except Exception:
+        # Non-critical — JD import already succeeded; log and continue.
+        logger.warning(
+            "zoho_jd_project_meta_update_failed",
+            project_id=str(project_id),
+            job_id=request.job_id,
+        )
+
     if prior_jd_record is not None:
         try:
             storage_service.delete_file(prior_jd_record.file_path)
@@ -373,10 +392,23 @@ async def import_zoho_job_description(
 
 
 _PROJECT_SYNC_LOCKS: dict[UUID, asyncio.Lock] = {}
-_PROJECT_SYNC_LOCKS: dict[UUID, asyncio.Lock] = {}
 _PROJECT_SYNC_LOCK_MUTEX = asyncio.Lock()
 _JOB_SYNC_LOCKS: dict[str, asyncio.Lock] = {}
 _JOB_SYNC_LOCK_MUTEX = asyncio.Lock()
+
+
+def _is_db_timeout(exc: BaseException) -> bool:
+    """Detect if an exception or any nested cause in its chain was a database timeout."""
+    curr: BaseException | None = exc
+    while curr is not None:
+        if isinstance(curr, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        exc_type = type(curr).__name__.lower()
+        exc_msg = str(curr).lower()
+        if "timeout" in exc_type or "timeout" in exc_msg or "timed out" in exc_msg:
+            return True
+        curr = curr.__cause__ or curr.__context__
+    return False
 
 
 async def _get_project_sync_lock(project_id: UUID) -> asyncio.Lock:
@@ -424,13 +456,6 @@ async def import_zoho_applicants(
         if project is None:
             raise ProjectNotFoundException()
 
-        # 3. Query existing active resumes across the ATS (global deduplication)
-        existing_stmt = select(DocumentModel).where(
-            DocumentModel.document_type == DocumentTypeEnum.RESUME,
-            DocumentModel.deleted_at.is_(None),
-        )
-        existing_docs = (await db.scalars(existing_stmt)).all()
-
         job_id_str = str(request.job_id)
         job_opening = None
         valid_job_ids = {job_id_str}
@@ -443,15 +468,48 @@ async def import_zoho_applicants(
         except Exception as job_err:
             logger.warning("zoho_get_job_opening_details_warning", job_id=job_id_str, error=str(job_err))
 
+        # 3. Query existing active Zoho resumes across the ATS
         existing_candidates: dict[str, str | None] = {}
         existing_attachment_ids: dict[str, str | None] = {}
-        existing_hashes: set[str] = set()
         failed_attachment_docs: dict[str, DocumentModel] = {}
         total_active_resumes_for_job = 0
 
+        # Scope query specifically to Zoho-associated resumes rather than scanning the entire ATS resume heap
+        try:
+            existing_zoho_stmt = select(DocumentModel).where(
+                DocumentModel.document_type == DocumentTypeEnum.RESUME,
+                DocumentModel.deleted_at.is_(None),
+                or_(
+                    DocumentModel.metadata_json["zoho_attachment_id"].astext.is_not(None),
+                    DocumentModel.metadata_json["zoho_candidate_id"].astext.is_not(None),
+                    DocumentModel.metadata_json["zoho_job_opening_id"].astext.is_not(None),
+                    DocumentModel.metadata_json["zoho_job_opening_code"].astext.is_not(None),
+                ),
+            )
+            existing_docs = (await db.scalars(existing_zoho_stmt)).all()
+        except Exception as query_exc:
+            if _is_db_timeout(query_exc):
+                logger.error(
+                    "zoho_import_database_timeout",
+                    project_id=str(project_id),
+                    job_id=job_id_str,
+                    stage="pre_sync_query",
+                    error=str(query_exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Database query timed out while preparing Zoho import. Please try again.",
+                ) from query_exc
+            logger.exception(
+                "zoho_import_database_error",
+                project_id=str(project_id),
+                job_id=job_id_str,
+                stage="pre_sync_query",
+                error=str(query_exc),
+            )
+            raise InternalServerException("Database error occurred while preparing Zoho import.") from query_exc
+
         for doc in existing_docs:
-            if doc.file_hash:
-                existing_hashes.add(doc.file_hash)
             meta = doc.metadata_json or {}
             att_id = str(meta.get("zoho_attachment_id") or "")
             att_mod = meta.get("zoho_attachment_modified_time")
@@ -497,6 +555,48 @@ async def import_zoho_applicants(
         saved_document_ids: list[UUID] = []
         created_file_paths: list[str] = []
         doc_repo = DocumentRepository(db)
+
+        # 4b. Perform indexed batch duplicate lookup for downloaded resume hashes
+        downloaded_hashes = {
+            hashlib.sha256(resume.content).hexdigest()
+            for resume in fetch_result.resumes
+            if resume.content
+        }
+        existing_hashes: set[str] = set()
+        if downloaded_hashes:
+            try:
+                hash_stmt = select(DocumentModel.file_hash).where(
+                    DocumentModel.document_type == DocumentTypeEnum.RESUME,
+                    DocumentModel.file_hash.in_(downloaded_hashes),
+                    DocumentModel.deleted_at.is_(None),
+                )
+                raw_hashes = (await db.scalars(hash_stmt)).all()
+                for h in raw_hashes:
+                    if isinstance(h, str):
+                        existing_hashes.add(h)
+                    elif hasattr(h, "file_hash") and h.file_hash:
+                        existing_hashes.add(h.file_hash)
+            except Exception as hash_exc:
+                if _is_db_timeout(hash_exc):
+                    logger.error(
+                        "zoho_import_database_timeout",
+                        project_id=str(project_id),
+                        job_id=job_id_str,
+                        stage="batch_hash_lookup",
+                        error=str(hash_exc),
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        detail="Database query timed out during duplicate detection. Please try again.",
+                    ) from hash_exc
+                logger.exception(
+                    "zoho_import_database_error",
+                    project_id=str(project_id),
+                    job_id=job_id_str,
+                    stage="batch_hash_lookup",
+                    error=str(hash_exc),
+                )
+                raise InternalServerException("Database error occurred during duplicate detection.") from hash_exc
 
         try:
             canonical_job_id = str(job_opening.id) if (job_opening and job_opening.id) else job_id_str
@@ -594,10 +694,24 @@ async def import_zoho_applicants(
                 saved_document_ids.append(doc_id)
 
             await db.commit()
+        except HTTPException:
+            raise
         except Exception as exc:
             await db.rollback()
             for fp in created_file_paths:
                 storage_service.delete_file(fp)
+            if _is_db_timeout(exc):
+                logger.error(
+                    "zoho_import_database_timeout",
+                    project_id=str(project_id),
+                    job_id=job_id_str,
+                    stage="commit",
+                    error=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Database commit timed out while importing applicants. Please try again.",
+                ) from exc
             logger.exception("zoho_applicants_import_commit_failed", project_id=str(project_id), error=str(exc))
             raise InternalServerException("Unable to persist imported Zoho candidate resumes.") from exc
 
